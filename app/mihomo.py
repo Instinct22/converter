@@ -86,7 +86,7 @@ def _override_expr_line(expression: str) -> str:
 
 
 def _filter_yaml(filt: str) -> str:
-    """Mihomo filters proxy names by regex; literal ``grpc`` does not match ``443-*`` names."""
+    """Mihomo filters raw sub proxy names by regex (before override)."""
     if filt in {'8443', '443', '443-'}:
         return f"  filter: '{filt}'"
     if filt.startswith('^') or filt.startswith('('):
@@ -97,7 +97,7 @@ def _filter_yaml(filt: str) -> str:
 def _provider_cache_path(key: str, sub_id: str) -> str:
     """Unique file per client sub token so Mihomo refetches after reprovision."""
     slug = re.sub(r'[^a-z0-9]+', '', (sub_id or '').lower())[:12] or 'sub'
-    return f'./providers/{key}-{slug}.yaml'
+    return f'./providers/{key}-{slug}-p2.yaml'
 
 
 def _provider_block(
@@ -177,15 +177,14 @@ def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
 
 
 def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str | None, str | None]:
-    """Как test11: основной inbound — без filter, только exclude 8443.
+    """Фильтры по сырому ``name`` из Clash-подписки (см. Clash.Meta NewProxiesParser).
 
-    3x-ui отдаёт два прокси: ``443-<slug>`` и ``8443``. exclude-filter достаточно.
-    Regex filter ломается, если Mihomo/DHQ матчит уже после ``additional-prefix``
-    (имя ``🇫🇮 … | 443-slug`` не начинается с 443) — провайдер пустой → Timeout.
+    3x-ui: ``443-<slug>``, ``8443``, иногда лишние inbounds (``test``, tcp). Паттерн
+    ``443`` матчит и ``8443``; ``443-`` / ``^443-`` — только основной grpc inbound.
     """
     if _is_alt_inbound(inbound):
         return '8443', None
-    return None, '8443' if has_alt else None
+    return '443-', '8443' if has_alt else None
 
 
 def _publishable_inbound(inbound: NodeInbound) -> bool:
@@ -220,7 +219,6 @@ def dump_providers(
         if not url:
             continue
         prefix = node.clash_prefix()
-        prefix_sp = f'{prefix} | ' if prefix else ''
         inbounds = [
             row
             for row in (inbound_map or {}).get(node.id, [])
@@ -231,7 +229,12 @@ def dump_providers(
             key = take_key(provider_name(node))
             keys.append(key)
             lines.extend(
-                _provider_block(key=key, url=url, sub_id=sub_id, prefix=prefix_sp or None)
+                _provider_block(
+                    key=key,
+                    url=url,
+                    sub_id=sub_id,
+                    expr=[f'.name = "{prefix}"'] if prefix else None,
+                )
             )
             continue
         has_alt = any(_is_alt_inbound(row) for row in inbounds)
@@ -285,13 +288,14 @@ def dump_providers(
                     sub_id=sub_id,
                     filt=filt,
                     exclude_filter=exclude,
-                    prefix=prefix_sp or None,
+                    expr=[f'.name = "{display}"'],
                 )
             )
             for sni in snis[1:]:
                 label = sni_label(sni)
                 key = take_key(_provider_slug(node, label))
                 keys.append(key)
+                pretty = f'{display} | {label}'
                 lines.extend(
                     _provider_block(
                         key=key,
@@ -299,9 +303,10 @@ def dump_providers(
                         sub_id=sub_id,
                         filt=filt,
                         exclude_filter=exclude,
-                        prefix=prefix_sp or None,
-                        suffix=f' | {label}',
-                        expr=[f'.servername = "{sni}"'],
+                        expr=[
+                            f'.servername = "{sni}"',
+                            f'.name = "{pretty}"',
+                        ],
                     )
                 )
     return (lines or ['{}'], keys)
