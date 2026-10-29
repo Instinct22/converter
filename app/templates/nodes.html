@@ -16,6 +16,7 @@
     <colgroup>
       <col class="col-name">
       <col class="col-host">
+      <col class="col-tpl">
       <col class="col-status">
       <col class="col-actions">
     </colgroup>
@@ -42,17 +43,47 @@
         <td class="mono" data-label="IP для клиента">{{ n.public_host }}</td>
         <td data-label="Входы">
           {% set picked = node_templates.get(n.id, []) if node_templates is defined else [] %}
-          <details class="tpl-picker">
-            <summary>{% if picked|length %}{{ picked|length }} вход(ов){% else %}не выбраны{% endif %}</summary>
-            <select multiple class="mono" data-node-templates="{{ n.id }}" size="{{ [inbound_templates|length, 6]|min }}">
-              {% for t in inbound_templates %}
-              {% if t.enabled %}
-              <option value="{{ t.id }}" {% if t.id in picked %}selected{% endif %}>{{ t.name }} · {{ t.port }}</option>
-              {% endif %}
-              {% endfor %}
-            </select>
-            <button type="button" class="btn small" data-save-templates="{{ n.id }}" style="margin-top:6px">Сохранить</button>
-          </details>
+          <div class="tpl-dropdown" data-node-id="{{ n.id }}">
+            <button type="button" class="tpl-dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
+              <span class="tpl-dropdown__trigger-inner">
+                {% if picked|length %}
+                <span class="tpl-dropdown__count">{{ picked|length }}</span>
+                <span class="tpl-dropdown__preview">
+                  {% for t in inbound_templates if t.enabled and t.id in picked %}
+                  <span class="tpl-pill">{{ t.port }}</span>
+                  {% endfor %}
+                </span>
+                {% else %}
+                <span class="tpl-dropdown__empty">Выберите входы</span>
+                {% endif %}
+              </span>
+              <svg class="tpl-dropdown__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+            <div class="tpl-dropdown__panel" role="listbox" hidden>
+              <div class="tpl-dropdown__head">
+                <span>Шаблоны входов</span>
+                <button type="button" class="btn ghost small tpl-dropdown__all" data-tpl-all>Все</button>
+              </div>
+              <div class="tpl-dropdown__list">
+                {% for t in inbound_templates %}
+                {% if t.enabled %}
+                <label class="tpl-option">
+                  <input type="checkbox" value="{{ t.id }}" {% if t.id in picked %}checked{% endif %}>
+                  <span class="tpl-option__body">
+                    <span class="tpl-option__name">{{ t.name }}</span>
+                    <span class="tpl-option__meta mono">{{ t.port }} · {{ t.network or 'grpc' }}</span>
+                  </span>
+                  <span class="tpl-option__mark" aria-hidden="true"></span>
+                </label>
+                {% endif %}
+                {% endfor %}
+              </div>
+              <div class="tpl-dropdown__foot">
+                <button type="button" class="btn ghost small" data-tpl-none>Очистить</button>
+                <button type="button" class="btn small" data-save-templates="{{ n.id }}">Сохранить</button>
+              </div>
+            </div>
+          </div>
         </td>
         <td data-label="В Clash">
           <label class="switch" title="Показывать этот сервер в подписке">
@@ -178,14 +209,82 @@ document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('
     XUI.toast(e.message, 'err');
   }
 }));
+function tplDropdownRoot(el) {
+  return el.closest('.tpl-dropdown');
+}
+function tplSelectedIds(root) {
+  return [...root.querySelectorAll('.tpl-option input:checked')].map((i) => Number(i.value));
+}
+function tplRefreshTrigger(root) {
+  const trigger = root.querySelector('.tpl-dropdown__trigger');
+  const inner = root.querySelector('.tpl-dropdown__trigger-inner');
+  if (!inner) return;
+  const ids = tplSelectedIds(root);
+  if (!ids.length) {
+    inner.innerHTML = '<span class="tpl-dropdown__empty">Выберите входы</span>';
+    return;
+  }
+  const pills = [...root.querySelectorAll('.tpl-option input:checked')].map((input) => {
+    const meta = input.closest('.tpl-option')?.querySelector('.tpl-option__meta')?.textContent || '';
+    const port = (meta.split('·')[0] || '').trim();
+    return '<span class="tpl-pill">' + (port || '—') + '</span>';
+  }).join('');
+  inner.innerHTML = '<span class="tpl-dropdown__count">' + ids.length + '</span><span class="tpl-dropdown__preview">' + pills + '</span>';
+}
+function tplCloseAll(except) {
+  document.querySelectorAll('.tpl-dropdown').forEach((root) => {
+    if (except && root === except) return;
+    const panel = root.querySelector('.tpl-dropdown__panel');
+    const trigger = root.querySelector('.tpl-dropdown__trigger');
+    if (panel) panel.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    root.classList.remove('open');
+  });
+}
+document.querySelectorAll('.tpl-dropdown__trigger').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const root = tplDropdownRoot(btn);
+    const panel = root.querySelector('.tpl-dropdown__panel');
+    const open = root.classList.contains('open');
+    tplCloseAll();
+    if (!open) {
+      root.classList.add('open');
+      panel.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  });
+});
+document.addEventListener('click', () => tplCloseAll());
+document.querySelectorAll('.tpl-dropdown__panel').forEach((panel) => {
+  panel.addEventListener('click', (e) => e.stopPropagation());
+});
+document.querySelectorAll('.tpl-option input').forEach((input) => {
+  input.addEventListener('change', () => tplRefreshTrigger(tplDropdownRoot(input)));
+});
+document.querySelectorAll('[data-tpl-all]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const root = tplDropdownRoot(btn);
+    root.querySelectorAll('.tpl-option input').forEach((i) => { i.checked = true; });
+    tplRefreshTrigger(root);
+  });
+});
+document.querySelectorAll('[data-tpl-none]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const root = tplDropdownRoot(btn);
+    root.querySelectorAll('.tpl-option input').forEach((i) => { i.checked = false; });
+    tplRefreshTrigger(root);
+  });
+});
 document.querySelectorAll('[data-save-templates]').forEach((btn) => btn.addEventListener('click', async () => {
   const nodeId = btn.dataset.saveTemplates;
-  const sel = document.querySelector('[data-node-templates="' + nodeId + '"]');
-  if (!sel) return;
-  const ids = [...sel.selectedOptions].map((o) => Number(o.value));
+  const root = document.querySelector('.tpl-dropdown[data-node-id="' + nodeId + '"]');
+  if (!root) return;
+  const ids = tplSelectedIds(root);
   try {
     await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + nodeId, 'PATCH', { template_ids: ids }));
     XUI.toast('Входы сохранены');
+    tplCloseAll();
     setTimeout(() => location.reload(), 300);
   } catch (e) { XUI.toast(e.message, 'err'); }
 }));
