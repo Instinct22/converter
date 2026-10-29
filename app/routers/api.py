@@ -303,6 +303,7 @@ def patch_inbound(inbound_id: int, body: InboundPatch, session: SessionDep) -> d
     if not row:
         raise HTTPException(404, 'inbound not found')
     data = body.model_dump(exclude_unset=True)
+    push_panel = data.pop('push_panel', body.push_panel)
     names = None
     if 'server_names' in data and data['server_names'] is not None:
         names = split_csv(data['server_names'])
@@ -314,7 +315,7 @@ def patch_inbound(inbound_id: int, body: InboundPatch, session: SessionDep) -> d
     session.refresh(row)
     pushed = None
     push_error = ''
-    if names is not None and body.push_panel:
+    if names is not None and push_panel:
         node = session.get(Node, row.node_id)
         if node:
             try:
