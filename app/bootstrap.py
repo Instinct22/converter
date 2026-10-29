@@ -46,14 +46,14 @@ def seed_if_empty(session: Session) -> None:
                 protocol='vless',
                 network='grpc',
                 security='reality',
-                dest='www.yahoo.com:443',
-                server_names='www.yahoo.com',
+                dest='www.apple.com:443',
+                server_names='www.apple.com, images.apple.com, www.apple.com.cn',
                 grpc_service_name='grpc',
                 fingerprint='chrome',
                 spider_x='/',
                 extra_snis='',
                 use_global_sni=False,
-                provider_label='443',
+                provider_label='apple',
             )
         )
         session.add(
@@ -75,19 +75,19 @@ def seed_if_empty(session: Session) -> None:
         )
         session.add(
             InboundTemplate(
-                name='Yahoo 8443 (gRPC)',
+                name='Cloudflare 8443 (gRPC)',
                 port=8443,
                 protocol='vless',
                 network='grpc',
                 security='reality',
-                dest='www.yahoo.com:443',
-                server_names='www.yahoo.com,ymail.com,s.yimg.com',
+                dest='www.cloudflare.com:443',
+                server_names='www.cloudflare.com',
                 grpc_service_name='grpc',
                 fingerprint='chrome',
                 spider_x='/',
-                extra_snis='de.nachrichten.yahoo.com,cdn.js7k.com',
+                extra_snis='',
                 use_global_sni=False,
-                provider_label='yahoo',
+                provider_label='cloudflare',
                 use_in_sub=True,
             )
         )

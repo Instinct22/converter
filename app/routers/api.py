@@ -226,6 +226,22 @@ def test_node(node_id: int, session: SessionDep) -> dict:
         return {'ok': False, 'error': str(exc)}
 
 
+@router.post('/nodes/{node_id}/restart-xray')
+def api_restart_xray(node_id: int, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    try:
+        with XuiClient(node) as xui:
+            xui.restart_xray()
+        return {'ok': True}
+    except XuiError as exc:
+        node.last_error = str(exc)
+        session.add(node)
+        session.commit()
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.post('/nodes/{node_id}/sync')
 def api_sync_node(node_id: int, session: SessionDep) -> dict:
     node = session.get(Node, node_id)

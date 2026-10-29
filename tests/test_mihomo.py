@@ -227,7 +227,12 @@ def test_inbound_sni_chain_respects_snis_locked():
         extra_snis='news.yahoo.com',
         snis_locked=True,
     )
-    assert inbound_sni_chain(inbound) == ['www.yahoo.com', 'news.yahoo.com']
+    assert inbound_sni_chain(inbound) == [
+        'www.yahoo.com',
+        'auth.gitlab.com',
+        'gprd.gitlab.com',
+        'news.yahoo.com',
+    ]
 
 
 def test_inbound_sni_chain_skips_unrelated_sans():

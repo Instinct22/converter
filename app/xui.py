@@ -108,6 +108,12 @@ class XuiClient:
     def del_inbound(self, inbound_id: int) -> dict[str, Any]:
         return self.call(f'/panel/api/inbounds/del/{inbound_id}', {})
 
+    def restart_xray(self) -> dict[str, Any]:
+        body = self.call('/panel/api/server/restartXrayService', {})
+        if body.get('success') is False:
+            raise XuiError(body.get('msg') or 'restart xray failed')
+        return body
+
     def add_client(
         self,
         inbound_ids: int | list[int],

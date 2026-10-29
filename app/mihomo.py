@@ -152,34 +152,49 @@ def _reg_domain(host: str) -> str:
 
 
 def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
-    """SNI variants for extra proxy-providers (override ``servername``).
+    """Один proxy-provider на каждый SNI.
 
-    When ``snis_locked`` (после шаблона Master) — только primary + ``extra_snis``,
-    без клонов по всему SAN из панели. Иначе — primary и SAN того же registrable
-    domain, плюс явные ``extra_snis``.
+    Список из входа (``server_names`` + ``extra_snis``) — это и есть набор.
+    ``snis_locked`` означает, что список задан шаблоном: отдаём его целиком,
+    в том числе соседние имена того же сертификата (wikidata.org при dest
+    wikipedia). Без лока — из сырого SAN панели только тот же registrable
+    domain и явные ``extra_snis``, чтобы случайный дамп сертификата не
+    превращался в сотню мёртвых прокси.
+
+    Ядро Mihomo (Clash.Meta) отдельные провайдеры не ограничивает: ``filter``
+    режет сырое имя из подписки, ``override-expr`` меняет ``servername`` и
+    ``name`` уже после фильтра. Патч ядра не нужен.
     """
-    snis = [item for item in published_snis(inbound) if item]
-    if not snis:
-        return ['']
-    primary = snis[0]
-    out = [primary]
-    seen = {primary.lower()}
-    allowed_extra = {item.lower() for item in split_csv(inbound.extra_snis)}
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def add(sni: str) -> None:
+        item = (sni or '').strip()
+        key = item.lower()
+        if item and key not in seen:
+            ordered.append(item)
+            seen.add(key)
+
+    for sni in split_csv(inbound.server_names):
+        add(sni)
     for sni in split_csv(inbound.extra_snis):
-        key = sni.lower()
-        if key and key not in seen:
-            out.append(sni)
-            seen.add(key)
+        add(sni)
+    if not ordered:
+        return ['']
     if inbound.snis_locked:
-        return out
+        return ordered
+    primary = ordered[0]
+    extra = {item.lower() for item in split_csv(inbound.extra_snis)}
     root = _reg_domain(primary)
-    for sni in snis[1:]:
+    out = [primary]
+    kept = {primary.lower()}
+    for sni in ordered[1:]:
         key = sni.lower()
-        if key in seen:
+        if key in kept:
             continue
-        if key in allowed_extra or _reg_domain(sni) == root:
+        if key in extra or _reg_domain(sni) == root:
             out.append(sni)
-            seen.add(key)
+            kept.add(key)
     return out
 
 
@@ -250,61 +265,31 @@ def dump_providers(
             snis = inbound_sni_chain(inbound)
             display = (inbound.display_prefix or prefix).strip() or prefix
             filt, exclude = port_name_filters(inbound, has_alt)
-            if _is_alt_inbound(inbound):
-                tag = (inbound.provider_label or 'yahoo').strip() or 'yahoo'
-                # test11 / DHQ: one alt-port provider; extras only via extra_snis
-                key = take_key(_provider_slug(node, tag))
-                keys.append(key)
-                lines.extend(
-                    _provider_block(
-                        key=key,
-                        url=url,
-                        sub_id=sub_id,
-                        filt=filt,
-                        expr=[f'.name = "{display} | {tag}"'],
-                    )
-                )
-                for sni in split_csv(inbound.extra_snis):
-                    label = sni_label(sni)
-                    key = take_key(_provider_slug(node, f'{tag}-{label}'))
-                    keys.append(key)
-                    pretty = f'{display} | {tag} | {label}'
-                    lines.extend(
-                        _provider_block(
-                            key=key,
-                            url=url,
-                            sub_id=sub_id,
-                            filt=filt,
-                            expr=[
-                                f'.servername = "{sni}"',
-                                f'.name = "{pretty}"',
-                            ],
-                        )
-                    )
-                continue
-            if not primary_emitted:
-                key = take_key(provider_name(node))
-                primary_emitted = True
-            else:
-                key = take_key(_provider_slug(node, str(inbound.port)))
-            keys.append(key)
-            port_tag = (inbound.provider_label or '').strip()
-            primary_label = f'{display} | {port_tag}' if port_tag else display
-            lines.extend(
-                _provider_block(
-                    key=key,
-                    url=url,
-                    sub_id=sub_id,
-                    filt=filt,
-                    exclude_filter=exclude,
-                    expr=[f'.name = "{primary_label}"'],
-                )
-            )
-            for sni in snis[1:]:
+            alt = _is_alt_inbound(inbound)
+            tag = (inbound.provider_label or '').strip()
+            if alt and not tag:
+                tag = 'yahoo'
+            base_name = f'{display} | {tag}' if tag else display
+            for index, sni in enumerate(snis):
                 label = sni_label(sni)
-                key = take_key(_provider_slug(node, label))
+                if index == 0:
+                    if alt:
+                        key = take_key(_provider_slug(node, tag or 'alt'))
+                    elif not primary_emitted:
+                        key = take_key(provider_name(node))
+                        primary_emitted = True
+                    else:
+                        key = take_key(_provider_slug(node, str(inbound.port)))
+                    expr = [f'.name = "{base_name}"']
+                else:
+                    slug = f'{tag}-{label}' if tag else label
+                    key = take_key(_provider_slug(node, slug))
+                    pretty = f'{base_name} | {label}' if base_name else label
+                    expr = [
+                        f'.servername = "{sni}"',
+                        f'.name = "{pretty}"',
+                    ]
                 keys.append(key)
-                pretty = f'{display} | {label}'
                 lines.extend(
                     _provider_block(
                         key=key,
@@ -312,10 +297,7 @@ def dump_providers(
                         sub_id=sub_id,
                         filt=filt,
                         exclude_filter=exclude,
-                        expr=[
-                            f'.servername = "{sni}"',
-                            f'.name = "{pretty}"',
-                        ],
+                        expr=expr,
                     )
                 )
     return (lines or ['{}'], keys)
