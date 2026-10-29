@@ -74,6 +74,10 @@ def _provider_slug(node: Node, extra: str = '') -> str:
     return f'{base}-{tail}'[:64]
 
 
+def _y(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _provider_block(
     *,
     key: str,
@@ -88,24 +92,24 @@ def _provider_block(
         f'{key}:',
         f'  name: {key}',
         '  type: http',
-        f'  url: {json.dumps(url)}',
+        f'  url: {_y(url)}',
         f'  path: ./providers/{key}.yaml',
         '  interval: 3600',
     ]
     if filt:
-        lines.append(f'  filter: {json.dumps(filt)}')
+        lines.append(f'  filter: {_y(filt)}')
     if exclude_filter:
-        lines.append(f'  exclude-filter: {json.dumps(exclude_filter)}')
+        lines.append(f'  exclude-filter: {_y(exclude_filter)}')
     if prefix or suffix or expr:
         lines.append('  override:')
         if prefix:
-            lines.append(f'    additional-prefix: {json.dumps(prefix, ensure_ascii=False)}')
+            lines.append(f'    additional-prefix: {_y(prefix)}')
         if suffix:
-            lines.append(f'    additional-suffix: {json.dumps(suffix, ensure_ascii=False)}')
+            lines.append(f'    additional-suffix: {_y(suffix)}')
         if expr:
             lines.append('    override-expr:')
             for item in expr:
-                lines.append(f'      - {json.dumps(item)}')
+                lines.append(f'      - {_y(item)}')
     lines.extend(_health_lines())
     return lines
 
