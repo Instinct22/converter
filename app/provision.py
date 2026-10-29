@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Iterable
 
+import httpx
 from sqlmodel import Session, select
 
 from app.crypto_reality import generate_reality_keys, random_short_id
@@ -107,10 +108,71 @@ def apply_sub_settings(node: Node, settings: dict) -> None:
         node.public_host = domain.split('/')[0].split(':')[0]
 
 
+def _clash_sub_probe_url(node: Node, segment: str, sub_token: str) -> str:
+    scheme = (node.sub_scheme or 'https').strip().rstrip(':/') or 'https'
+    host = (node.public_host or '').strip()
+    port = int(node.sub_port or 2096)
+    seg = (segment or '').strip().strip('/')
+    return f'{scheme}://{host}:{port}/{seg}/{sub_token}'
+
+
+def _is_clash_yaml_response(response: httpx.Response) -> bool:
+    if response.status_code != 200:
+        return False
+    ctype = (response.headers.get('content-type') or '').lower()
+    if 'yaml' in ctype:
+        return True
+    text = response.text.lstrip()
+    return text.startswith('proxies:') or text.startswith('proxy-groups:')
+
+
+def resolve_clash_sub_path(node: Node, sub_token: str) -> str:
+    """Pick a path segment that returns Mihomo/Clash YAML for sub_token.
+
+    3x-ui may expose a broken subClashPath; subPath often serves base64, not YAML.
+    """
+    candidates: list[str] = []
+    for item in (node.sub_clash_path, node.sub_path, 'clash'):
+        seg = (item or '').strip().strip('/')
+        if seg and seg not in candidates:
+            candidates.append(seg)
+    if not (node.public_host or '').strip() or not sub_token:
+        return (node.sub_clash_path or '').strip().strip('/')
+    headers = {'User-Agent': 'clash.meta/1.19.0'}
+    for seg in candidates:
+        url = _clash_sub_probe_url(node, seg, sub_token)
+        try:
+            with httpx.Client(verify=False, timeout=12.0) as client:
+                response = client.get(url, headers=headers)
+            if _is_clash_yaml_response(response):
+                return seg
+        except httpx.HTTPError:
+            continue
+    return ''
+
+
+def refresh_clash_sub_path(session: Session, node: Node) -> None:
+    row = session.exec(select(Client.sub_token).where(Client.enable.is_(True)).limit(1)).first()
+    if not row:
+        return
+    segment = resolve_clash_sub_path(node, row)
+    if segment:
+        node.sub_clash_path = segment
+        if (node.last_error or '').startswith('Clash YAML'):
+            node.last_error = ''
+    else:
+        node.sub_clash_path = ''
+        node.last_error = (
+            'Clash YAML подписка недоступна: в 3x-ui включите Mihomo/Clash sub '
+            'и проверьте subClashPath (subPath отдаёт base64, не YAML).'
+        )
+
+
 def sync_node(session: Session, node: Node) -> list[NodeInbound]:
     with XuiClient(node) as xui:
         try:
             apply_sub_settings(node, xui.panel_settings())
+            refresh_clash_sub_path(session, node)
         except XuiError:
             pass
         remote = xui.inbounds()

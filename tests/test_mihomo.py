@@ -192,7 +192,6 @@ def test_providers_expand_snis_and_ports():
         protocol='vless',
         network='xhttp',
         server_names='www.yahoo.com,news.yahoo.com',
-        extra_snis='news.yahoo.com',
         use_in_sub=True,
     )
     lines, keys = dump_providers([node], 'tok', {1: [grpc, xhttp]})
@@ -223,7 +222,42 @@ def test_inbound_sni_chain_skips_unrelated_sans():
         server_names='www.yahoo.com,ymail.com,de.yahoo.com,news.yahoo.com',
         extra_snis='',
     )
-    assert inbound_sni_chain(inbound) == ['www.yahoo.com']
+    assert inbound_sni_chain(inbound) == [
+        'www.yahoo.com',
+        'de.yahoo.com',
+        'news.yahoo.com',
+    ]
+
+
+def test_resolve_clash_sub_path_prefers_working_segment():
+    from unittest.mock import MagicMock, patch
+
+    from app.models import Node
+    from app.provision import resolve_clash_sub_path
+
+    node = Node(
+        public_host='195.231.86.20',
+        sub_port=2096,
+        sub_scheme='https',
+        sub_clash_path='mrilr3ht4imylp2d',
+        sub_path='9uguw9puuwfjepee',
+    )
+
+    def fake_get(url, headers=None):
+        response = MagicMock()
+        if 'mrilr3ht4imylp2d' in url:
+            response.status_code = 404
+            response.headers = {'content-type': 'text/plain'}
+            response.text = '404 page not found'
+        else:
+            response.status_code = 200
+            response.headers = {'content-type': 'application/yaml'}
+            response.text = 'proxies:\n- name: x'
+        return response
+
+    with patch('app.provision.httpx.Client') as client_cls:
+        client_cls.return_value.__enter__.return_value.get.side_effect = fake_get
+        assert resolve_clash_sub_path(node, 'tok') == '9uguw9puuwfjepee'
 
 
 def test_published_snis_from_inbound_only():

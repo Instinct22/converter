@@ -19,6 +19,8 @@ def test_render_injects_node_proxy():
             panel_url='https://127.0.0.1:2053/',
             api_token='test',
             public_host='150.241.73.105',
+            sub_clash_path='clash',
+            sub_port=2096,
             enabled=True,
         )
         session.add(node)

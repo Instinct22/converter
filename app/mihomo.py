@@ -42,8 +42,8 @@ def node_clash_sub_base(node: Node) -> str:
     scheme = (node.sub_scheme or 'https').strip().rstrip(':/') or 'https'
     host = (node.public_host or '').strip()
     port = int(node.sub_port or 2096)
-    path = (node.sub_clash_path or node.sub_path or 'clash').strip('/')
-    if not host:
+    path = (node.sub_clash_path or '').strip().strip('/')
+    if not host or not path:
         return ''
     return f'{scheme}://{host}:{port}/{path}'
 
@@ -141,15 +141,7 @@ def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
     primary = snis[0]
     out = [primary]
     seen = {primary.lower()}
-    extras = split_csv(inbound.extra_snis)
-    if _is_alt_inbound(inbound):
-        for sni in extras:
-            key = sni.lower()
-            if key and key not in seen:
-                out.append(sni)
-                seen.add(key)
-        return out
-    allowed_extra = {item.lower() for item in extras}
+    allowed_extra = {item.lower() for item in split_csv(inbound.extra_snis)}
     root = _reg_domain(primary)
     for sni in snis[1:]:
         key = sni.lower()
