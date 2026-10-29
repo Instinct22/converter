@@ -46,13 +46,14 @@ def seed_if_empty(session: Session) -> None:
                 protocol='vless',
                 network='grpc',
                 security='reality',
-                dest='gitlab.com:443',
-                server_names='gitlab.com,www.gitlab.com,auth.gitlab.com,gprd.gitlab.com',
+                dest='www.yahoo.com:443',
+                server_names='www.yahoo.com',
                 grpc_service_name='grpc',
                 fingerprint='chrome',
                 spider_x='/',
                 extra_snis='',
                 use_global_sni=False,
+                provider_label='443',
             )
         )
         session.add(

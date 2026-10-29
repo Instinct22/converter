@@ -214,6 +214,22 @@ def test_providers_expand_snis_and_ports():
     assert text.count('url: "https://') == len(keys)
 
 
+def test_inbound_sni_chain_respects_snis_locked():
+    from app.mihomo import inbound_sni_chain
+    from app.models import NodeInbound
+
+    inbound = NodeInbound(
+        node_id=1,
+        xui_inbound_id=1,
+        port=443,
+        network='grpc',
+        server_names='www.yahoo.com,auth.gitlab.com,gprd.gitlab.com',
+        extra_snis='news.yahoo.com',
+        snis_locked=True,
+    )
+    assert inbound_sni_chain(inbound) == ['www.yahoo.com', 'news.yahoo.com']
+
+
 def test_inbound_sni_chain_skips_unrelated_sans():
     from app.mihomo import inbound_sni_chain
     from app.models import NodeInbound

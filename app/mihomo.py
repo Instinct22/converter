@@ -152,11 +152,11 @@ def _reg_domain(host: str) -> str:
 
 
 def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
-    """First SNI as-is; extra only same site as dest, plus inbound.extra_snis.
+    """SNI variants for extra proxy-providers (override ``servername``).
 
-    3x-ui often dumps the whole certificate SAN list into serverNames.
-    Cloning a provider per SAN (cdn.js7k.com, ymail, …) makes health-checks
-    fail and drowns the node.
+    When ``snis_locked`` (после шаблона Master) — только primary + ``extra_snis``,
+    без клонов по всему SAN из панели. Иначе — primary и SAN того же registrable
+    domain, плюс явные ``extra_snis``.
     """
     snis = [item for item in published_snis(inbound) if item]
     if not snis:
@@ -165,6 +165,13 @@ def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
     out = [primary]
     seen = {primary.lower()}
     allowed_extra = {item.lower() for item in split_csv(inbound.extra_snis)}
+    for sni in split_csv(inbound.extra_snis):
+        key = sni.lower()
+        if key and key not in seen:
+            out.append(sni)
+            seen.add(key)
+    if inbound.snis_locked:
+        return out
     root = _reg_domain(primary)
     for sni in snis[1:]:
         key = sni.lower()
@@ -281,6 +288,8 @@ def dump_providers(
             else:
                 key = take_key(_provider_slug(node, str(inbound.port)))
             keys.append(key)
+            port_tag = (inbound.provider_label or '').strip()
+            primary_label = f'{display} | {port_tag}' if port_tag else display
             lines.extend(
                 _provider_block(
                     key=key,
@@ -288,7 +297,7 @@ def dump_providers(
                     sub_id=sub_id,
                     filt=filt,
                     exclude_filter=exclude,
-                    expr=[f'.name = "{display}"'],
+                    expr=[f'.name = "{primary_label}"'],
                 )
             )
             for sni in snis[1:]:
