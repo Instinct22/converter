@@ -30,6 +30,22 @@ def test_dump_proxies_keeps_list_indent():
     assert '    public-key: pk' in lines
 
 
+def test_fallback_group_has_no_direct():
+    raw = SAMPLE.read_text(encoding='utf-8')
+    fallback = raw.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
+    assert 'DIRECT' not in fallback
+    from app.bootstrap import strip_fallback_direct
+
+    broken = raw.replace(
+        'expected-status: \'204\'\n    use:',
+        'expected-status: \'204\'\n    proxies:\n      - DIRECT\n    use:',
+        1,
+    )
+    assert 'proxies:\n      - DIRECT' in broken.split('Reality pool fallback', 1)[1]
+    fixed = strip_fallback_direct(broken)
+    assert 'DIRECT' not in fixed.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
+
+
 def test_replace_pool_and_providers():
     raw = SAMPLE.read_text(encoding='utf-8')
     assert 'geox-url:' in raw

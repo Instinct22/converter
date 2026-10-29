@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -5,6 +6,18 @@ from sqlmodel import Session, select
 from app.models import ConfigDoc, InboundTemplate, utcnow
 
 DEFAULT_YAML = Path(__file__).parent / 'default_mihomo.yaml'
+
+_FALLBACK_DIRECT = re.compile(r'\n[ \t]*proxies:\n[ \t]*- DIRECT(?=\n)')
+
+
+def strip_fallback_direct(text: str) -> str:
+    marker = 'name: Reality pool fallback'
+    if marker not in text:
+        return text
+    head, rest = text.split(marker, 1)
+    group, sep, tail = rest.partition('\n  - name:')
+    group = _FALLBACK_DIRECT.sub('', group, count=1)
+    return head + marker + group + sep + tail
 
 
 def seed_if_empty(session: Session) -> None:
@@ -19,6 +32,10 @@ def seed_if_empty(session: Session) -> None:
         or 'XUI_PROVIDERS_BEGIN' not in (doc.yaml_text or '')
     ):
         doc.yaml_text = profile
+        doc.updated_at = utcnow()
+        session.add(doc)
+    elif doc.yaml_text and strip_fallback_direct(doc.yaml_text) != doc.yaml_text:
+        doc.yaml_text = strip_fallback_direct(doc.yaml_text)
         doc.updated_at = utcnow()
         session.add(doc)
     if session.exec(select(InboundTemplate)).first() is None:

@@ -70,8 +70,6 @@ proxy-groups:
     interval: 30
     lazy: false
     expected-status: '204'
-    proxies:
-      - DIRECT
     use:
       # {{XUI_POOL_BEGIN}}
       # {{XUI_POOL_END}}

@@ -394,7 +394,7 @@ def render_profile(session: Session, client: Client) -> str:
             provider_nodes, client.sub_token, inbound_map
         )
         text = replace_block(text, 'PROVIDERS', provider_lines)
-        pool_lines = [f'- {name}' for name in names] if names else ['- DIRECT']
+        pool_lines = [f'- {name}' for name in names]
         text = replace_block(text, 'POOL', pool_lines)
     else:
         proxies, proxy_names, extra_cidrs = collect_proxies(session, client, [])
