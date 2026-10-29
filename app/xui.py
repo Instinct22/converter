@@ -97,6 +97,14 @@ class XuiClient:
             raise XuiError(body.get('msg') or 'add inbound failed')
         return body
 
+    def update_inbound(self, inbound_id: int, spec: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(spec)
+        payload['id'] = inbound_id
+        body = self.call(f'/panel/api/inbounds/update/{inbound_id}', payload)
+        if not body.get('success'):
+            raise XuiError(body.get('msg') or 'update inbound failed')
+        return body
+
     def del_inbound(self, inbound_id: int) -> dict[str, Any]:
         return self.call(f'/panel/api/inbounds/del/{inbound_id}', {})
 

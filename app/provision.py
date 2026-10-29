@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import datetime, timezone
 from typing import Iterable
 
@@ -163,7 +162,7 @@ def _template_val(template: InboundTemplate, name: str, default: object = '') ->
     return getattr(template, name, default)
 
 
-def build_inbound_spec(template: InboundTemplate, seed: dict) -> dict:
+def build_inbound_spec(template: InboundTemplate, seed: dict | None = None) -> dict:
     network = template.network or 'tcp'
     security = str(_template_val(template, 'security', 'reality') or 'none')
     protocol = str(_template_val(template, 'protocol', 'vless') or 'vless')
@@ -266,7 +265,13 @@ def build_inbound_spec(template: InboundTemplate, seed: dict) -> dict:
         'listen': listen,
         'port': template.port,
         'protocol': protocol,
-        'settings': json.dumps({'clients': [seed], 'decryption': 'none', 'fallbacks': []}),
+        'settings': json.dumps(
+            {
+                'clients': [seed] if seed else [],
+                'decryption': 'none',
+                'fallbacks': [],
+            }
+        ),
         'streamSettings': json.dumps(stream),
         'sniffing': json.dumps(
             {
@@ -279,30 +284,43 @@ def build_inbound_spec(template: InboundTemplate, seed: dict) -> dict:
     }
 
 
+def _keep_remote_clients(existing: dict, spec: dict) -> dict:
+    payload = dict(spec)
+    payload['id'] = existing.get('id')
+    settings = existing.get('settings')
+    if isinstance(settings, dict):
+        payload['settings'] = json.dumps(settings)
+    elif settings:
+        payload['settings'] = settings
+    return payload
+
+
 def provision_templates(session: Session, node: Node, templates: Iterable[InboundTemplate]) -> list[str]:
     logs: list[str] = []
-    with XuiClient(node) as xui:
-        for template in templates:
-            seed = {
-                'id': str(uuid.uuid4()),
-                'email': f'master-seed-{template.port}-{uuid.uuid4().hex[:6]}',
-                'flow': template.flow or '',
-                'enable': False,
-                'limitIp': 0,
-                'totalGB': 0,
-                'expiryTime': 0,
-                'subId': 'masterseed',
-                'tgId': 0,
-                'comment': 'xui-master seed',
-            }
-            spec = build_inbound_spec(template, seed)
+    ordered = sorted(list(templates), key=lambda row: (row.port, row.id or 0))
+    with XuiClient(node, timeout=60.0) as xui:
+        remote = xui.inbounds()
+        by_port: dict[int, dict] = {}
+        for raw in remote:
             try:
-                xui.add_inbound(spec)
-                logs.append(f'inbound {template.name}:{template.port} создан')
+                by_port[int(raw.get('port'))] = raw
+            except (TypeError, ValueError):
+                continue
+        for template in ordered:
+            spec = build_inbound_spec(template)
+            existing = by_port.get(template.port)
+            try:
+                if existing:
+                    inbound_id = int(existing.get('id'))
+                    xui.update_inbound(inbound_id, _keep_remote_clients(existing, spec))
+                    logs.append(f'inbound {template.name}:{template.port} обновлён')
+                else:
+                    xui.add_inbound(spec)
+                    logs.append(f'inbound {template.name}:{template.port} создан')
             except XuiError as exc:
                 logs.append(f'inbound {template.name}:{template.port}: {exc}')
     try:
-        inbounds = sync_node(session, node)
+        sync_node(session, node)
     except XuiError as exc:
         logs.append(f'sync: {exc}')
         node.last_error = str(exc)
@@ -310,9 +328,6 @@ def provision_templates(session: Session, node: Node, templates: Iterable[Inboun
         session.commit()
         return logs
     session.commit()
-    clients = session.exec(select(Client).where(Client.enable.is_(True))).all()
-    for client in clients:
-        logs.extend(provision_client(session, client, nodes=[node]))
     return logs
 
 

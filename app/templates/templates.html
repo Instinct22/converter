@@ -338,7 +338,7 @@ document.getElementById('provision-all')?.addEventListener('click', async (e) =>
     XUI.toast('Сначала подключите сервер', 'err');
     return;
   }
-  if (!confirm('Создать текущие входы на всех серверах через API 3x-ui? Уже существующие порты панель может отклонить.')) return;
+  if (!confirm('Создать или обновить входы на всех серверах? Клиенты на нодах не трогаются. Если порт уже есть — обновится примечание и настройки входа.')) return;
   const logs = [];
   try {
     await XUI.withBusy(e.currentTarget, async () => {
