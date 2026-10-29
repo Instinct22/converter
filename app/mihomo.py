@@ -78,6 +78,12 @@ def _y(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _override_expr_line(expression: str) -> str:
+    """Mihomo/DHQ expect ``- '.name = \"…\"'`` (see test11), not JSON-escaped strings."""
+    inner = expression.replace("'", "''")
+    return f"      - '{inner}'"
+
+
 def _filter_yaml(filt: str) -> str:
     """Mihomo filters proxy names by regex; literal ``grpc`` does not match ``443-*`` names."""
     if filt in {'8443', '443'}:
@@ -119,7 +125,7 @@ def _provider_block(
         if expr:
             lines.append('    override-expr:')
             for item in expr:
-                lines.append(f'      - {_y(item)}')
+                lines.append(_override_expr_line(item))
     lines.extend(_health_lines(lazy=lazy))
     return lines
 
@@ -223,9 +229,7 @@ def dump_providers(
                         key=key,
                         url=url,
                         filt=filt,
-                        expr=[
-                            f'.name = {json.dumps(f"{display} | yahoo", ensure_ascii=False)}',
-                        ],
+                        expr=[f'.name = "{display} | yahoo"'],
                     )
                 )
                 for sni in split_csv(inbound.extra_snis):
@@ -239,8 +243,8 @@ def dump_providers(
                             url=url,
                             filt=filt,
                             expr=[
-                                f'.servername = {json.dumps(sni)}',
-                                f'.name = {json.dumps(pretty, ensure_ascii=False)}',
+                                f'.servername = "{sni}"',
+                                f'.name = "{pretty}"',
                             ],
                         )
                     )
@@ -272,7 +276,7 @@ def dump_providers(
                         exclude_filter=exclude,
                         prefix=prefix_sp or None,
                         suffix=f' | {label}',
-                        expr=[f'.servername = {json.dumps(sni)}'],
+                        expr=[f'.servername = "{sni}"'],
                     )
                 )
     return (lines or ['{}'], keys)
