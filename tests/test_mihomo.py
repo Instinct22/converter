@@ -202,7 +202,7 @@ def test_providers_expand_snis_and_ports():
     assert 'n1-finland-82-gprd' in keys
     assert 'n1-finland-82-yahoo' in keys
     assert 'n1-finland-82-yahoo-news' in keys
-    assert "filter: '^443'" in text
+    assert "filter: '443-'" in text
     assert "exclude-filter: '8443'" in text
     assert 'auth.gitlab.com' in text
     assert 'news.yahoo.com' in text

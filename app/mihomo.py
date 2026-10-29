@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from app.models import Client, ConfigDoc, Node, NodeInbound
 from app.provision import split_csv
+from app.settings import settings
 
 def _block_pattern(name: str) -> re.Pattern[str]:
     begin = r'# \{\{XUI_' + name + r'_BEGIN\}\}'
@@ -86,7 +87,7 @@ def _override_expr_line(expression: str) -> str:
 
 def _filter_yaml(filt: str) -> str:
     """Mihomo filters proxy names by regex; literal ``grpc`` does not match ``443-*`` names."""
-    if filt in {'8443', '443'}:
+    if filt in {'8443', '443', '443-'}:
         return f"  filter: '{filt}'"
     if filt.startswith('^') or filt.startswith('('):
         return f"  filter: '{filt}'"
@@ -176,10 +177,18 @@ def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
 
 
 def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str, str | None]:
-    """Regex on 3x-ui proxy *names* (e.g. ``443-bane139``, ``8443``)."""
+    """Regex on 3x-ui Clash proxy *names* (``443-slug``, ``8443``)."""
     if _is_alt_inbound(inbound):
         return '8443', None
-    return '^443', '8443' if has_alt else None
+    # test11: grpc + exclude 8443; names from 3x-ui are ``443-<email>``, not ``grpc``.
+    return '443-', '8443' if has_alt else None
+
+
+def _publishable_inbound(inbound: NodeInbound) -> bool:
+    """Only standard template ports go to Mihomo (skip test/tcp junk on panel)."""
+    if not inbound.use_in_sub:
+        return False
+    return inbound.port in {443, 8443}
 
 
 def dump_providers(
@@ -211,7 +220,7 @@ def dump_providers(
         inbounds = [
             row
             for row in (inbound_map or {}).get(node.id, [])
-            if row.use_in_sub
+            if _publishable_inbound(row)
         ]
         inbounds.sort(key=lambda row: (row.port, row.id or 0))
         if not inbounds:
@@ -313,6 +322,31 @@ def dump_proxies(proxies: list[dict[str, Any]]) -> list[str]:
         lines.append(f'- {item[0]}')
         lines.extend(f'  {line}' for line in item[1:])
     return lines
+
+
+def profile_direct_cidrs(nodes: list[Node]) -> list[str]:
+    """IPs that must bypass TUN/rules (node panels + Master sub host)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for node in nodes:
+        ip = node_ip(node)
+        if ip and ip not in seen:
+            seen.add(ip)
+            out.append(f'{ip}/32')
+    base = (settings.public_base_url or '').strip()
+    if base:
+        from urllib.parse import urlparse
+
+        host = (urlparse(base).hostname or '').strip()
+        if host:
+            try:
+                ipaddress.ip_address(host)
+                if host not in seen:
+                    seen.add(host)
+                    out.append(f'{host}/32')
+            except ValueError:
+                pass
+    return out
 
 
 def node_ip(node: Node) -> str | None:
@@ -438,14 +472,11 @@ def render_profile(session: Session, client: Client) -> str:
     nodes = session.exec(
         select(Node).where(Node.enabled.is_(True)).order_by(Node.sort_order, Node.id)
     ).all()
-    cidrs: list[str] = []
     provider_nodes: list[Node] = []
     for node in nodes:
-        ip = node_ip(node)
-        if ip:
-            cidrs.append(f'{ip}/32')
         if (node.public_host or '').strip():
             provider_nodes.append(node)
+    cidrs = profile_direct_cidrs(provider_nodes)
     inbound_map: dict[int, list[NodeInbound]] = {}
     for node in provider_nodes:
         inbound_map[node.id] = session.exec(
