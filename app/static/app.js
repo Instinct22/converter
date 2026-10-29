@@ -6,7 +6,7 @@ function detailMessage(detail) {
 }
 
 async function api(path, method, body) {
-  const opts = { method: method || 'GET', headers: {} };
+  const opts = { method: method || 'GET', headers: {}, credentials: 'same-origin' };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -14,7 +14,7 @@ async function api(path, method, body) {
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    window.location.href = '/login';
+    window.location.reload();
     throw new Error('Нужно войти заново');
   }
   if (!res.ok) throw new Error(detailMessage(data.detail) || res.statusText);

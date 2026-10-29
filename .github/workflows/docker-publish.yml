@@ -185,8 +185,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           XUI_MASTER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME || 'admin' }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'http://5.180.174.204:8080' }}
           SUB_PATH: ${{ vars.SUB_PATH || '' }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -197,7 +197,7 @@ jobs:
           password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
           command_timeout: 15m
           script_stop: false
-          envs: XUI_MASTER_IMAGE,ADMIN_PASSWORD,SESSION_SECRET,PUBLIC_BASE_URL,SUB_PATH,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          envs: XUI_MASTER_IMAGE,ADMIN_USERNAME,ADMIN_PASSWORD,PUBLIC_BASE_URL,SUB_PATH,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
           script: |
             set -eu
             echo "=== Deploy converter ==="
@@ -210,8 +210,8 @@ jobs:
             tar -xzf converter-deploy.tgz
             rm -f converter-deploy.tgz
             test -f docker-compose.yml
-            if [ -z "${ADMIN_PASSWORD:-}" ] || [ -z "${SESSION_SECRET:-}" ]; then
-              echo "Задайте GitHub Secrets: ADMIN_PASSWORD и SESSION_SECRET" >&2
+            if [ -z "${ADMIN_PASSWORD:-}" ]; then
+              echo "Задайте GitHub Secret: ADMIN_PASSWORD" >&2
               exit 1
             fi
             umask 077
@@ -221,8 +221,8 @@ jobs:
               echo "PORT=8080"
               echo "PUBLIC_BASE_URL=${PUBLIC_BASE_URL}"
               echo "SUB_PATH=${SUB_PATH}"
+              printf 'ADMIN_USERNAME=%s\n' "${ADMIN_USERNAME:-admin}"
               printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD"
-              printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
             } > .env
             if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
               printf '%s\n' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin

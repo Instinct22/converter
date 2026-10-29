@@ -26,11 +26,11 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy .env.example .env
-# задайте ADMIN_PASSWORD, SESSION_SECRET, PUBLIC_BASE_URL
+# задайте ADMIN_USERNAME, ADMIN_PASSWORD, PUBLIC_BASE_URL
 python -m app
 ```
 
-Откройте `http://127.0.0.1:8080`, пароль из `.env`.
+Откройте `http://127.0.0.1:8080` — браузер спросит логин и пароль из `.env`.
 
 Docker (локально):
 
@@ -47,7 +47,7 @@ Secrets (Settings → Secrets and variables → Actions):
 
 - `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`
 - `DEPLOY_SSH_PASSWORD` — root по SSH на VPS
-- `ADMIN_PASSWORD` / `SESSION_SECRET`
+- `ADMIN_USERNAME` (логин панели, обычно `admin`) / `ADMIN_PASSWORD` (пароль входа)
 
 Variable: `PUBLIC_BASE_URL` (по умолчанию `http://5.180.174.204:8080`).
 

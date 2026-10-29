@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import init_db
 from app.database import engine
@@ -32,12 +31,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title='XUI Master', lifespan=lifespan)
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    same_site='lax',
-    https_only=False,
-)
 app.mount('/static', StaticFiles(directory=str(ROOT / 'app' / 'static')), name='static')
 app.include_router(api.router)
 app.include_router(ui.router)

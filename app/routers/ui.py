@@ -1,11 +1,11 @@
 import json
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import select
 
-from app.deps import SessionDep
+from app.deps import SessionDep, WWW_AUTHENTICATE, request_authorized
 from app.mihomo import days_left, is_expired
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
@@ -56,8 +56,8 @@ def expire_label(client: Client) -> str:
 def _ctx(request: Request, **extra):
     data = {
         'request': request,
-        'admin': bool(request.session.get('admin')),
-        'flash': request.session.pop('flash', ''),
+        'admin': request_authorized(request),
+        'flash': '',
         'public_base': settings.public_base_url,
         'sub_path': sub_path(),
         'client_sub_url': client_sub_url,
@@ -72,32 +72,20 @@ def _ctx(request: Request, **extra):
     return data
 
 
-@router.get('/login', response_class=HTMLResponse)
-def login_page(request: Request):
-    if request.session.get('admin'):
-        return RedirectResponse('/', status_code=302)
-    return templates.TemplateResponse('login.html', _ctx(request))
-
-
-@router.post('/login')
-def login_post(request: Request, password: str = Form(...)):
-    if password == settings.admin_password:
-        request.session['admin'] = True
-        return RedirectResponse('/', status_code=302)
-    request.session['flash'] = 'Неверный пароль'
-    return RedirectResponse('/login', status_code=302)
+@router.get('/login')
+def login_page():
+    return Response(status_code=401, headers=WWW_AUTHENTICATE)
 
 
 @router.get('/logout')
-def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse('/login', status_code=302)
+def logout():
+    return Response(status_code=401, headers=WWW_AUTHENTICATE)
 
 
 def _need_admin(request: Request):
-    if not request.session.get('admin'):
-        return RedirectResponse('/login', status_code=302)
-    return None
+    if request_authorized(request):
+        return None
+    return Response(status_code=401, headers=WWW_AUTHENTICATE)
 
 
 @router.get('/', response_class=HTMLResponse)
