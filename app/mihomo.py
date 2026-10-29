@@ -228,8 +228,9 @@ def dump_providers(
             display = (inbound.display_prefix or prefix).strip() or prefix
             filt, exclude = port_name_filters(inbound, has_alt)
             if _is_alt_inbound(inbound):
-                # test11 / DHQ: one yahoo provider per 8443 inbound; extras only via extra_snis
-                key = take_key(_provider_slug(node, 'yahoo'))
+                tag = (inbound.provider_label or 'yahoo').strip() or 'yahoo'
+                # test11 / DHQ: one alt-port provider; extras only via extra_snis
+                key = take_key(_provider_slug(node, tag))
                 keys.append(key)
                 lines.extend(
                     _provider_block(
@@ -237,14 +238,14 @@ def dump_providers(
                         url=url,
                         sub_id=sub_id,
                         filt=filt,
-                        expr=[f'.name = "{display} | yahoo"'],
+                        expr=[f'.name = "{display} | {tag}"'],
                     )
                 )
                 for sni in split_csv(inbound.extra_snis):
                     label = sni_label(sni)
-                    key = take_key(_provider_slug(node, f'yahoo-{label}'))
+                    key = take_key(_provider_slug(node, f'{tag}-{label}'))
                     keys.append(key)
-                    pretty = f'{display} | yahoo | {label}'
+                    pretty = f'{display} | {tag} | {label}'
                     lines.extend(
                         _provider_block(
                             key=key,

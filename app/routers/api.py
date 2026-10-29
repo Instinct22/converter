@@ -58,6 +58,9 @@ class InboundPatch(BaseModel):
     use_in_sub: bool | None = None
     extra_snis: str | None = None
     use_global_sni: bool | None = None
+    snis_locked: bool | None = None
+    provider_label: str | None = None
+    push_panel: bool = True
 
 
 class TemplateIn(BaseModel):
@@ -311,7 +314,7 @@ def patch_inbound(inbound_id: int, body: InboundPatch, session: SessionDep) -> d
     session.refresh(row)
     pushed = None
     push_error = ''
-    if names is not None:
+    if names is not None and body.push_panel:
         node = session.get(Node, row.node_id)
         if node:
             try:

@@ -5,10 +5,11 @@
 <div class="page-head">
   <div>
     <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
-    <p class="lede">Подключение к панели 3x-ui. Входы, цель и SNI задаются в разделе <a href="/templates">Входы</a>.</p>
+    <p class="lede">Панель 3x-ui и привязка SNI к портам на этой ноде (для Mihomo / подписки).</p>
   </div>
   <div class="row">
     <button class="btn secondary" id="test" type="button">Проверить связь</button>
+    <button class="btn secondary" id="sync-inbounds" type="button">Связь с панелью</button>
   </div>
 </div>
 <pre class="log" id="log"></pre>
@@ -48,13 +49,13 @@
       <div class="field span-2">
         <label>Clash / Mihomo path</label>
         <input name="sub_clash_path" value="{{ node.sub_clash_path }}" placeholder="подтянется при «Связь с панелью»">
-        <span class="hint">{% if node.sub_clash_path %}База: {{ node.sub_scheme or 'https' }}://{{ node.public_host }}:{{ node.sub_port or 2096 }}/{{ node.sub_clash_path }}/&lt;subId&gt;{% else %}Нажмите «Проверить связь» — Master заберёт subClashPath с панели.{% endif %}</span>
+        <span class="hint">{% if node.sub_clash_path %}База: {{ node.sub_scheme or 'https' }}://{{ node.public_host }}:{{ node.sub_port or 2096 }}/{{ node.sub_clash_path }}/&lt;subId&gt;{% else %}Нажмите «Связь с панелью» — Master заберёт subClashPath с панели.{% endif %}</span>
       </div>
       <div class="field span-2">
         <label>
           API Token
           <span class="tip" tabindex="0">?
-            <span class="tip-box">3x-ui → шестерёнка Panel Settings → API Token. Пустое поле при сохранении не затирает текущий токен.</span>
+            <span class="tip-box">3x-ui → Panel Settings → API Token. Пустое поле не затирает текущий токен.</span>
           </span>
         </label>
         <input name="api_token" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else 'вставьте токен' }}">
@@ -63,11 +64,88 @@
     <button class="btn" type="submit">Сохранить</button>
   </form>
 </div>
+
+<div class="card" id="inbounds-card">
+  <h2>SNI и порты на этом сервере</h2>
+  <p class="sub">После «Связь с панелью» появятся inbound'ы с 3x-ui. Здесь задаётся, какие SNI уходят в подписку и на панель. <strong>8443 / alt</strong> — метка провайдера (обычно <code>yahoo</code>). Снимите «В подписке» с порта 443, если он режется DPI (Italy).</p>
+  <div id="inbounds-empty" class="empty" style="display:none">
+    <p>Нет входов. Нажмите «Связь с панелью» или создайте inbound в разделе <a href="/templates">Входы</a>.</p>
+  </div>
+  <div class="table-scroll" id="inbounds-wrap" style="display:none">
+    <table class="table-clients">
+      <thead>
+        <tr>
+          <th>Порт</th>
+          <th>Remark</th>
+          <th>Сеть</th>
+          <th>SNI (serverNames)</th>
+          <th>Extra SNI (только Mihomo)</th>
+          <th>Метка alt</th>
+          <th>В подписке</th>
+          <th>SNI Master</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="inbounds-body"></tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
 const id = {{ node.id }};
 const log = document.getElementById('log');
+
+async function loadInbounds() {
+  const rows = await XUI.api('/api/nodes/' + id + '/inbounds', 'GET');
+  const body = document.getElementById('inbounds-body');
+  const wrap = document.getElementById('inbounds-wrap');
+  const empty = document.getElementById('inbounds-empty');
+  body.innerHTML = '';
+  if (!rows.length) {
+    wrap.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  wrap.style.display = 'block';
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    tr.dataset.inboundId = row.id;
+    tr.innerHTML = `
+      <td class="mono" data-label="Порт">${row.port}</td>
+      <td data-label="Remark">${row.remark || '—'}</td>
+      <td data-label="Сеть">${row.network || '—'}</td>
+      <td data-label="SNI"><textarea class="mono" rows="2" data-f="server_names" style="width:100%;min-width:180px">${row.server_names || ''}</textarea></td>
+      <td data-label="Extra"><textarea class="mono" rows="2" data-f="extra_snis" style="width:100%;min-width:140px">${row.extra_snis || ''}</textarea></td>
+      <td data-label="Метка"><input data-f="provider_label" value="${row.provider_label || ''}" placeholder="yahoo"></td>
+      <td data-label="В подписке"><label class="switch"><input type="checkbox" data-f="use_in_sub" ${row.use_in_sub ? 'checked' : ''}><span></span></label></td>
+      <td data-label="SNI Master"><label class="switch" title="Не перезаписывать SNI при sync"><input type="checkbox" data-f="snis_locked" ${row.snis_locked ? 'checked' : ''}><span></span></label></td>
+      <td><button type="button" class="btn small" data-save>Сохранить</button></td>
+    `;
+    body.appendChild(tr);
+  }
+  body.querySelectorAll('[data-save]').forEach((btn) => btn.addEventListener('click', saveInboundRow));
+}
+
+async function saveInboundRow(e) {
+  const tr = e.target.closest('tr');
+  const inboundId = tr.dataset.inboundId;
+  const payload = { push_panel: true };
+  tr.querySelectorAll('[data-f]').forEach((el) => {
+    const key = el.dataset.f;
+    if (el.type === 'checkbox') payload[key] = el.checked;
+    else payload[key] = el.value;
+  });
+  try {
+    const r = await XUI.api('/api/inbounds/' + inboundId, 'PATCH', payload);
+    if (r.push_error) XUI.toast('Панель: ' + r.push_error, 'err');
+    else XUI.toast(r.pushed_to_panel ? 'SNI на панели обновлены' : 'Сохранено');
+  } catch (err) {
+    XUI.toast(err.message, 'err');
+  }
+}
+
 document.getElementById('test').onclick = async (e) => {
   try {
     const r = await XUI.withBusy(e.currentTarget, () => XUI.api('/api/nodes/' + id + '/test', 'POST', {}));
@@ -75,6 +153,17 @@ document.getElementById('test').onclick = async (e) => {
     if (!r.ok) XUI.showLog(log, r.error);
   } catch (err) {}
 };
+
+document.getElementById('sync-inbounds').onclick = async (e) => {
+  try {
+    await XUI.withBusy(e.currentTarget, () => XUI.api('/api/nodes/' + id + '/sync', 'POST', {}));
+    XUI.toast('Синхронизация завершена');
+    await loadInbounds();
+  } catch (err) {
+    XUI.toast(err.message, 'err');
+  }
+};
+
 document.getElementById('edit').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target;
@@ -90,8 +179,10 @@ document.getElementById('edit').onsubmit = async (e) => {
   if (f.api_token.value) body.api_token = f.api_token.value;
   try {
     await XUI.api('/api/nodes/' + id, 'PATCH', body);
-    location.href = '/nodes';
+    XUI.toast('Сохранено');
   } catch (err) { XUI.toast(err.message, 'err'); }
 };
+
+loadInbounds().catch(() => {});
 </script>
 {% endblock %}

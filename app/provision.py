@@ -198,7 +198,10 @@ def sync_node(session: Session, node: Node) -> list[NodeInbound]:
         row.short_id = parsed['short_id']
         row.fingerprint = parsed['fingerprint']
         row.dest = parsed['dest']
-        row.server_names = parsed['server_names']
+        if not row.snis_locked:
+            row.server_names = parsed['server_names']
+        elif not (row.server_names or '').strip():
+            row.server_names = parsed['server_names']
         row.grpc_service_name = parsed['grpc_service_name']
         row.xhttp_path = parsed['xhttp_path']
         row.flow = parsed['flow']

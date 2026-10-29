@@ -95,6 +95,10 @@ class NodeInbound(SQLModel, table=True):
     extra_snis: str = ''
     use_global_sni: bool = True
     display_prefix: str = ''
+    # Master-side SNI/subscription: не затирать server_names при sync с панелью
+    snis_locked: bool = False
+    # Имя в Mihomo для alt-порта (8443): по умолчанию «yahoo»
+    provider_label: str = ''
 
 
 class Client(SQLModel, table=True):

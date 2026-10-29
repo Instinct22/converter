@@ -71,4 +71,20 @@ def seed_if_empty(session: Session) -> None:
                 use_global_sni=False,
             )
         )
+        session.add(
+            InboundTemplate(
+                name='Yahoo 8443 (gRPC)',
+                port=8443,
+                protocol='vless',
+                network='grpc',
+                security='reality',
+                dest='www.yahoo.com:443',
+                server_names='www.yahoo.com,ymail.com,s.yimg.com',
+                grpc_service_name='grpc',
+                fingerprint='chrome',
+                spider_x='/',
+                extra_snis='de.nachrichten.yahoo.com,cdn.js7k.com',
+                use_global_sni=False,
+            )
+        )
     session.commit()

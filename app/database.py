@@ -55,10 +55,17 @@ def _ensure_columns(table: str, columns: dict[str, str]) -> None:
                 conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {decl}'))
 
 
+NODEINBOUND_COLUMNS = {
+    'snis_locked': 'INTEGER DEFAULT 0',
+    'provider_label': "TEXT DEFAULT ''",
+}
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_columns('inboundtemplate', TEMPLATE_COLUMNS)
     _ensure_columns('node', NODE_COLUMNS)
+    _ensure_columns('nodeinbound', NODEINBOUND_COLUMNS)
 
 
 def get_session() -> Generator[Session, None, None]:
