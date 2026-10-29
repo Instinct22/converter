@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Master{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=16">
+</head>
+<body>
+<div class="layout">
+  <aside class="side">
+    <div class="brand">
+      <div class="brand-mark">M</div>
+      <div>
+        <strong>Master</strong>
+        <span>флот 3x-ui</span>
+      </div>
+    </div>
+    <nav class="nav">
+      <a href="/" title="Обзор" class="{{ 'active' if page=='dashboard' else '' }}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="10" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="10" width="6" height="6" rx="1.5"/><rect x="10" y="10" width="6" height="6" rx="1.5"/></svg>
+        Обзор
+      </a>
+      <a href="/nodes" title="Серверы" class="{{ 'active' if page=='nodes' else '' }}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="12" height="11" rx="2"/><path d="M7 8h4M7 11h2"/></svg>
+        Серверы
+      </a>
+      <a href="/clients" title="Клиенты" class="{{ 'active' if page=='clients' else '' }}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="7" r="3"/><path d="M3.5 15c1.2-2.5 3-3.5 5.5-3.5S13.8 12.5 15 15"/></svg>
+        Клиенты
+      </a>
+      <a href="/templates" title="Входы" class="{{ 'active' if page=='templates' else '' }}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h10v10H4z"/><path d="M7 8h4M7 11h6"/></svg>
+        Входы
+      </a>
+      <a href="/config" title="Профиль Clash" class="{{ 'active' if page=='config' else '' }}">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h10M4 9h10M4 13h6"/></svg>
+        Профиль Clash
+      </a>
+      <a href="/logout" class="nav-logout" title="Выйти">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 4H4v10h3M8 9h7M12 6l3 3-3 3"/></svg>
+        Выйти
+      </a>
+    </nav>
+  </aside>
+  <main class="main">
+    {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="/static/app.js?v=14"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

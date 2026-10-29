@@ -1,0 +1,293 @@
+name: Docker Publish
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Docker tag to publish
+        required: true
+        type: string
+
+env:
+  REGISTRY: liiiiiiiiis
+  IMAGE_NAME: converter
+  DEPLOY_HOST: 5.180.174.204
+  DEPLOY_PATH: /opt/converter
+
+jobs:
+  changes:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path filters
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'app/**'
+              - 'tests/**'
+              - 'requirements.txt'
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+              - '.dockerignore'
+              - '.github/workflows/docker-publish.yml'
+
+  build:
+    needs: changes
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'pull_request' &&
+          github.event.action != 'closed' &&
+          github.event.pull_request.head.repo.full_name == github.repository)) &&
+      (github.event_name == 'workflow_dispatch' || needs.changes.outputs.app == 'true')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve image tags
+        id: tags
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MANUAL_TAG: ${{ github.event.inputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          case "$EVENT" in
+            pull_request)
+              echo "tags=${IMAGE}:branch-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+              ;;
+            push)
+              echo "tags=${IMAGE}:latest,${IMAGE}:sha-${SHA::7}" >> "$GITHUB_OUTPUT"
+              ;;
+            workflow_dispatch)
+              echo "tags=${IMAGE}:${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=converter
+          cache-to: type=gha,mode=max,scope=converter
+
+  deploy:
+    needs: build
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare deploy directory on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: root
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -eu
+            mkdir -p ${{ env.DEPLOY_PATH }}/data
+
+      - name: Pack deploy bundle
+        run: tar -czf converter-deploy.tgz docker-compose.yml && ls -lah converter-deploy.tgz
+
+      - name: Sync deploy bundle
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: root
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          source: converter-deploy.tgz
+          target: ${{ env.DEPLOY_PATH }}/
+
+      - name: Ensure Docker on Debian
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: root
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          command_timeout: 20m
+          script_stop: false
+          script: |
+            set -eu
+            echo "=== Ensure Docker (Debian) ==="
+            export DEBIAN_FRONTEND=noninteractive
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update -qq
+              apt-get install -y -qq \
+                ca-certificates \
+                curl \
+                gnupg \
+                iptables \
+                nftables \
+                uidmap \
+                dbus \
+                kmod \
+                iproute2 \
+                apt-transport-https \
+                software-properties-common
+            fi
+            if ! command -v docker >/dev/null 2>&1; then
+              curl -fsSL https://get.docker.com | sh
+            fi
+            if command -v systemctl >/dev/null 2>&1; then
+              systemctl enable docker 2>/dev/null || true
+              systemctl start docker 2>/dev/null || true
+            fi
+            if ! docker compose version >/dev/null 2>&1; then
+              apt-get install -y -qq docker-compose-plugin
+            fi
+            if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then
+              ufw allow 8080/tcp || true
+            fi
+            docker --version
+            docker compose version
+
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          XUI_MASTER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'http://5.180.174.204:8080' }}
+          SUB_PATH: ${{ vars.SUB_PATH || '' }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: root
+          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          command_timeout: 15m
+          script_stop: false
+          envs: XUI_MASTER_IMAGE,ADMIN_PASSWORD,SESSION_SECRET,PUBLIC_BASE_URL,SUB_PATH,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          script: |
+            set -eu
+            echo "=== Deploy converter ==="
+            cd ${{ env.DEPLOY_PATH }}
+            if [ ! -f converter-deploy.tgz ]; then
+              echo "converter-deploy.tgz missing (SCP failed)" >&2
+              ls -la
+              exit 1
+            fi
+            tar -xzf converter-deploy.tgz
+            rm -f converter-deploy.tgz
+            test -f docker-compose.yml
+            if [ -z "${ADMIN_PASSWORD:-}" ] || [ -z "${SESSION_SECRET:-}" ]; then
+              echo "Задайте GitHub Secrets: ADMIN_PASSWORD и SESSION_SECRET" >&2
+              exit 1
+            fi
+            umask 077
+            {
+              echo "XUI_MASTER_IMAGE=${XUI_MASTER_IMAGE}"
+              echo "HOST=0.0.0.0"
+              echo "PORT=8080"
+              echo "PUBLIC_BASE_URL=${PUBLIC_BASE_URL}"
+              echo "SUB_PATH=${SUB_PATH}"
+              printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD"
+              printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET"
+            } > .env
+            if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+              printf '%s\n' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            fi
+            docker compose pull
+            docker compose up -d --force-recreate --remove-orphans
+            docker compose ps
+            if ! docker compose ps --status running 2>/dev/null | grep -q xui-master; then
+              docker compose logs --tail=120 xui-master || true
+              exit 1
+            fi
+
+  cleanup-pr-tags:
+    if: |
+      (github.event_name == 'pull_request' && github.event.action == 'closed') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR number
+        id: pr
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_FROM_EVENT: ${{ github.event.pull_request.number }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "number=${PR_FROM_EVENT}" >> "$GITHUB_OUTPUT"
+          else
+            number=$(echo "$COMMIT_MSG" | sed -n 's/.*(#\([0-9][0-9]*\)).*/\1/p' | head -1)
+            if [ -z "$number" ]; then
+              number=$(echo "$COMMIT_MSG" | sed -n 's/Merge pull request #\([0-9][0-9]*\).*/\1/p')
+            fi
+            if [ -z "$number" ]; then
+              echo "No PR number in commit message — skip cleanup"
+              echo "number=" >> "$GITHUB_OUTPUT"
+            else
+              echo "number=${number}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Set up Crane
+        uses: imjasonh/setup-crane@v0.4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Delete branch-* tags from Docker Hub
+        if: steps.pr.outputs.number != ''
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+          tag="branch-${PR_NUMBER}"
+          img="${IMAGE}:${tag}"
+          if ! crane manifest "$img" >/dev/null 2>&1; then
+            echo "${img} -> not found (skipped)"
+            exit 0
+          fi
+          if crane delete "$img"; then
+            echo "${img} -> deleted"
+          else
+            echo "${img} -> delete failed" >&2
+            exit 1
+          fi

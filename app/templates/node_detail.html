@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ node.name }} — Master{% endblock %}
+{% block content %}
+<div class="crumbs"><a href="/nodes">Серверы</a> / {{ node.name }}</div>
+<div class="page-head">
+  <div>
+    <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
+    <p class="lede">Подключение к панели 3x-ui. Входы, цель и SNI задаются в разделе <a href="/templates">Входы</a>.</p>
+  </div>
+  <div class="row">
+    <button class="btn secondary" id="test" type="button">Проверить связь</button>
+  </div>
+</div>
+<pre class="log" id="log"></pre>
+
+<div class="card">
+  <h2>Панель и имя сервера</h2>
+  <p class="sub">Флаг и имя попадут в Clash. URL и токен — как Master ходит в 3x-ui. IP для клиентов берётся из URL.</p>
+  <form id="edit">
+    <input type="hidden" name="flag" value="{{ node.flag_iso() }}">
+    <label>Флаг</label>
+    <div class="flags" data-flags="flag" style="margin-bottom:12px"></div>
+    <div class="form-grid">
+      <div class="field">
+        <label>Название в Master</label>
+        <input name="name" value="{{ node.name }}">
+      </div>
+      <div class="field">
+        <label>Имя в Clash</label>
+        <input name="clash_name" value="{{ node.clash_name }}">
+      </div>
+      <div class="field span-2">
+        <label>URL 3x-ui</label>
+        <input name="panel_url" value="{{ node.panel_url }}">
+        <span class="hint">Пример: https://82.40.58.78:28879/l156n0rG5HBRse0B01</span>
+      </div>
+      <div class="field">
+        <label>Порт подписки 3x-ui</label>
+        <input name="sub_port" type="number" min="1" value="{{ node.sub_port or 2096 }}">
+      </div>
+      <div class="field">
+        <label>HTTPS подписки</label>
+        <select name="sub_scheme">
+          <option value="https" {% if node.sub_scheme != 'http' %}selected{% endif %}>https</option>
+          <option value="http" {% if node.sub_scheme == 'http' %}selected{% endif %}>http</option>
+        </select>
+      </div>
+      <div class="field span-2">
+        <label>Clash / Mihomo path</label>
+        <input name="sub_clash_path" value="{{ node.sub_clash_path }}" placeholder="подтянется при «Связь с панелью»">
+        <span class="hint">{% if node.sub_clash_path %}База: {{ node.sub_scheme or 'https' }}://{{ node.public_host }}:{{ node.sub_port or 2096 }}/{{ node.sub_clash_path }}/&lt;subId&gt;{% else %}Нажмите «Проверить связь» — Master заберёт subClashPath с панели.{% endif %}</span>
+      </div>
+      <div class="field span-2">
+        <label>
+          API Token
+          <span class="tip" tabindex="0">?
+            <span class="tip-box">3x-ui → шестерёнка Panel Settings → API Token. Пустое поле при сохранении не затирает текущий токен.</span>
+          </span>
+        </label>
+        <input name="api_token" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else 'вставьте токен' }}">
+      </div>
+    </div>
+    <button class="btn" type="submit">Сохранить</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const id = {{ node.id }};
+const log = document.getElementById('log');
+document.getElementById('test').onclick = async (e) => {
+  try {
+    const r = await XUI.withBusy(e.currentTarget, () => XUI.api('/api/nodes/' + id + '/test', 'POST', {}));
+    XUI.toast(r.ok ? 'Панель отвечает' : (r.error || 'Нет связи'));
+    if (!r.ok) XUI.showLog(log, r.error);
+  } catch (err) {}
+};
+document.getElementById('edit').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    flag: f.flag.value,
+    name: f.name.value,
+    clash_name: f.clash_name.value,
+    panel_url: f.panel_url.value,
+    sub_port: Number(f.sub_port.value),
+    sub_scheme: f.sub_scheme.value,
+    sub_clash_path: f.sub_clash_path.value,
+  };
+  if (f.api_token.value) body.api_token = f.api_token.value;
+  try {
+    await XUI.api('/api/nodes/' + id, 'PATCH', body);
+    location.href = '/nodes';
+  } catch (err) { XUI.toast(err.message, 'err'); }
+};
+</script>
+{% endblock %}

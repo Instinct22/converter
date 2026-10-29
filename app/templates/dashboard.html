@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Обзор — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Обзор флота</h1>
+    <p class="lede">Слева — живые ноды 3x-ui. Справа — люди, трафик, срок и продление. Данные подтягиваются с панелей по API.</p>
+  </div>
+  <div class="row">
+    <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
+    <a class="btn" href="/clients">Выдать доступ</a>
+  </div>
+</div>
+
+<div class="stats" id="overview-stats">
+  <div class="stat-card"><div class="label">Ноды онлайн</div><div class="value" id="stat-online">—</div></div>
+  <div class="stat-card"><div class="label">Людей в базе</div><div class="value">{{ clients|length }}</div></div>
+  <div class="stat-card"><div class="label">С активным доступом</div><div class="value">{{ active }}</div></div>
+</div>
+
+<div class="overview-grid">
+  <section class="card">
+    <h2>Ноды</h2>
+    <p class="sub">Доступность панели, Xray, порты. Выключите свитч — сервер исчезнет из подписки.</p>
+    {% if nodes %}
+    <div class="monitor" id="node-monitor">
+      {% for n in nodes %}
+      <article class="monitor-row" data-node="{{ n.id }}">
+        <div class="monitor-main">
+          <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
+          <span class="name-flag">
+            {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+            <strong>{{ n.name }}</strong>
+          </span>
+        </div>
+        <div class="monitor-meta">
+          <span class="mono">{{ n.public_host or '—' }}</span>
+          <span class="hint" data-ports>{{ inbound_counts.get(n.id, 0) }} вх.</span>
+          <span class="hint" data-live>—</span>
+        </div>
+        <div class="monitor-actions">
+          <label class="switch" title="В подписке">
+            <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
+            <span></span>
+          </label>
+          <a class="btn small secondary" href="/nodes/{{ n.id }}">Открыть</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <h3>Нод ещё нет</h3>
+      <p>Добавьте первую панель 3x-ui: URL и API Token.</p>
+      <a class="btn" href="/nodes">Добавить сервер</a>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Клиенты</h2>
+    <p class="sub">Трафик с панелей, сколько дней до отключения, кто сейчас в сети.</p>
+    {% if clients %}
+    <div class="monitor" id="client-monitor">
+      {% for c in clients %}
+      <article class="monitor-row client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}">
+        <div class="monitor-main">
+          <span class="status-dot {{ 'bad' if is_expired(c) else 'ok' }}" data-cdot></span>
+          <div>
+            <strong>{{ c.name }}</strong>
+            <div class="hint" style="margin:0" data-expire>{{ expire_label(c) }}</div>
+          </div>
+        </div>
+        <div class="monitor-meta">
+          <span data-traffic>трафик…</span>
+          <span class="hint" data-online>—</span>
+        </div>
+        <div class="monitor-actions">
+          <button class="btn small secondary" type="button" data-add="{{ c.id }}">+30 дней</button>
+          <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Ссылка</button>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <h3>Клиентов нет</h3>
+      <p>После серверов выдайте человеку ссылку подписки — её вставляют в DHQ, не файл YAML.</p>
+      <a class="btn" href="/clients">Выдать доступ</a>
+    </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function loadOverview() {
+  const data = await XUI.api('/api/overview');
+  const online = (data.nodes || []).filter((n) => n.online).length;
+  const el = document.getElementById('stat-online');
+  if (el) el.textContent = online + ' / ' + (data.nodes || []).length;
+  (data.nodes || []).forEach((n) => {
+    const row = document.querySelector('[data-node="' + n.id + '"]');
+    if (!row) return;
+    const dot = row.querySelector('[data-dot]');
+    if (dot) {
+      dot.classList.remove('ok', 'bad');
+      dot.classList.add(n.online ? 'ok' : 'bad');
+    }
+    const live = row.querySelector('[data-live]');
+    if (live) {
+      if (!n.online) live.textContent = n.probe_error || 'нет связи';
+      else {
+        const bits = [];
+        if (n.cpu != null) bits.push('CPU ' + n.cpu + '%');
+        if (n.xray) bits.push('Xray ' + n.xray);
+        if (n.tcp != null) bits.push('TCP ' + n.tcp);
+        live.textContent = bits.join(' · ') || 'онлайн';
+      }
+    }
+    const ports = row.querySelector('[data-ports]');
+    if (ports && n.inbound_count != null) ports.textContent = n.inbound_count + ' вх.';
+  });
+  (data.clients || []).forEach((c) => {
+    const row = document.querySelector('[data-client="' + c.id + '"]');
+    if (!row) return;
+    const traffic = row.querySelector('[data-traffic]');
+    if (traffic) traffic.textContent = c.used_label + ' / ' + c.limit_label;
+    const on = row.querySelector('[data-online]');
+    if (on) on.textContent = c.online_nodes ? ('в сети на ' + c.online_nodes) : 'не в сети';
+    const dot = row.querySelector('[data-cdot]');
+    if (dot) {
+      dot.classList.remove('ok', 'bad');
+      dot.classList.add(c.expired ? 'bad' : 'ok');
+    }
+  });
+}
+
+document.getElementById('refresh-overview')?.addEventListener('click', async (e) => {
+  try {
+    await XUI.withBusy(e.currentTarget, loadOverview);
+  } catch (err) {}
+});
+document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('change', async () => {
+  try {
+    await XUI.api('/api/nodes/' + el.dataset.enable, 'PATCH', {enabled: el.checked});
+    XUI.toast(el.checked ? 'Нода в подписке' : 'Нода скрыта из подписки');
+  } catch (e) {
+    el.checked = !el.checked;
+    XUI.toast(e.message, 'err');
+  }
+}));
+document.querySelectorAll('[data-add]').forEach((b) => b.onclick = async () => {
+  try {
+    await XUI.api('/api/clients/' + b.dataset.add, 'PATCH', {add_days: 30});
+    XUI.toast('Продлено на 30 дней');
+    location.reload();
+  } catch (e) { XUI.toast(e.message, 'err'); }
+});
+document.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => XUI.copyText(b.dataset.copy));
+loadOverview().catch(() => {});
+</script>
+{% endblock %}

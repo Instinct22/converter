@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Серверы — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Серверы</h1>
+    <p class="lede">Нода = панель 3x-ui: флаг, имя, URL и API Token. IP для Clash берётся из URL. Входы настраиваются в разделе «Входы».</p>
+  </div>
+  <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
+</div>
+
+{% if nodes %}
+<div class="card">
+  <div class="table-scroll">
+  <table class="table-servers">
+    <colgroup>
+      <col class="col-name">
+      <col class="col-host">
+      <col class="col-status">
+      <col class="col-actions">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>Сервер</th>
+        <th>IP для клиента<span class="th-hint">из URL панели</span></th>
+        <th>В Clash<span class="th-hint">в ссылке клиента</span></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for n in nodes %}
+      <tr>
+        <td data-label="Сервер">
+          <span class="name-flag">
+            {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+            <strong>{{ n.name }}</strong>
+          </span>
+          {% if n.clash_name %}<div class="hint" style="margin:0">Clash: {{ n.clash_prefix() }}</div>{% endif %}
+          {% if n.last_error %}<div class="hint" style="margin:4px 0 0" title="{{ n.last_error }}">Нет связи с панелью</div>{% endif %}
+        </td>
+        <td class="mono" data-label="IP для клиента">{{ n.public_host }}</td>
+        <td data-label="В Clash">
+          <label class="switch" title="Показывать этот сервер в подписке">
+            <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
+            <span></span>
+          </label>
+        </td>
+        <td class="col-actions" data-label="">
+          <div class="row">
+            <button class="btn small secondary" data-sync="{{ n.id }}">Связь с панелью</button>
+            <button class="btn small danger" data-del="{{ n.id }}">Убрать</button>
+            <a class="btn small" href="/nodes/{{ n.id }}">Подключение</a>
+          </div>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty">
+    <h3>Ни одного сервера</h3>
+    <p>Нужны URL панели и API Token. Логин 3x-ui не используем.</p>
+    <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить первый сервер</button>
+  </div>
+</div>
+{% endif %}
+
+<div class="overlay" id="add-node">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="page-head" style="margin-bottom:4px">
+      <div>
+        <h2>Новый сервер</h2>
+      </div>
+      <button class="btn ghost small" type="button" data-close="add-node">Закрыть</button>
+    </div>
+    <form id="node-form">
+      <div class="step-label">1 · Флаг и имена</div>
+      <input type="hidden" name="flag" required>
+      <div class="flags" data-flags="flag"></div>
+      <div class="form-grid" style="margin-top:12px">
+        <div class="field">
+          <label>Название</label>
+          <input name="name" required placeholder="Italy Serv">
+          <span class="hint">Как видно вам в Master</span>
+        </div>
+        <div class="field">
+          <label>Имя в Clash</label>
+          <input name="clash_name" required placeholder="Italy-Serv">
+          <span class="hint">Флаг подставится сам: 🇮🇹 Italy-Serv</span>
+        </div>
+      </div>
+
+      <div class="step-label">2 · URL 3x-ui</div>
+      <div class="field">
+        <label>Адрес панели</label>
+        <input name="panel_url" required placeholder="https://82.40.58.78:28879/l156n0rG5HBRse0B01">
+        <span class="hint">Пример: <span class="mono">https://82.40.58.78:28879/l156n0rG5HBRse0B01</span> — без логина, с секретным путём. Хвост /panel можно оставить, его срежем. IP для клиентов возьмём из этого URL.</span>
+      </div>
+
+      <div class="step-label">3 · API Token</div>
+      <div class="field">
+        <label>
+          Токен
+          <span class="tip" tabindex="0">?
+            <span class="tip-box">
+              В 3x-ui откройте панель → шестерёнка <strong>Panel Settings</strong> (настройки панели) → поле <strong>API Token</strong>. Если пусто — сгенерируйте, сохраните настройки, скопируйте сюда. Master ходит только с заголовком Authorization: Bearer, логин и пароль не нужны.
+            </span>
+          </span>
+        </label>
+        <input name="api_token" required autocomplete="off" placeholder="вставьте токен из Panel Settings">
+        <span class="hint">Наведите на «?», если не помните, где лежит токен.</span>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <button class="btn" type="submit">Подключить</button>
+        <button class="btn secondary" type="button" data-close="add-node">Отмена</button>
+      </div>
+    </form>
+    <pre class="log" id="node-log"></pre>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('node-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  if (!f.flag.value) {
+    XUI.toast('Выберите флаг', 'err');
+    return;
+  }
+  const btn = f.querySelector('button[type=submit]');
+  try {
+    await XUI.withBusy(btn, async () => {
+      const data = await XUI.api('/api/nodes', 'POST', {
+        flag: f.flag.value,
+        name: f.name.value,
+        clash_name: f.clash_name.value,
+        panel_url: f.panel_url.value,
+        api_token: f.api_token.value,
+      });
+      if (data.logs && data.logs.length) XUI.showLog(document.getElementById('node-log'), data.logs);
+      XUI.toast('Сервер добавлен');
+    });
+    setTimeout(() => location.reload(), 400);
+  } catch (err) {}
+});
+document.querySelectorAll('[data-sync]').forEach((btn) => btn.addEventListener('click', async () => {
+  try {
+    await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + btn.dataset.sync + '/sync', 'POST', {}));
+    location.reload();
+  } catch (e) {}
+}));
+document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('change', async () => {
+  try {
+    await XUI.api('/api/nodes/' + el.dataset.enable, 'PATCH', {enabled: el.checked});
+    XUI.toast(el.checked ? 'Сервер в подписке' : 'Сервер скрыт из подписки');
+  } catch (e) {
+    el.checked = !el.checked;
+    XUI.toast(e.message, 'err');
+  }
+}));
+document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async () => {
+  if (!confirm('Убрать сервер из Master? Панель 3x-ui не трогаем.')) return;
+  try {
+    await XUI.api('/api/nodes/' + btn.dataset.del, 'DELETE');
+    location.reload();
+  } catch (e) { XUI.toast(e.message, 'err'); }
+}));
+</script>
+{% endblock %}

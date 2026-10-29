@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Профиль Clash — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Профиль Clash</h1>
+    <p class="lede">YAML-шаблон. Маркеры XUI_* нужны только здесь: в скачанный профиль они не попадают, вместо них подставляются ноды и IP.</p>
+  </div>
+  <div class="row">
+    <button class="btn" id="save" type="button">Сохранить</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="field">
+    <label>Посмотреть глазами клиента</label>
+    <select id="preview-client">
+      <option value="">Сначала выберите человека</option>
+      {% for c in clients %}
+        <option value="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <details class="help" style="margin-bottom:14px">
+    <summary>Какие куски нельзя выкидывать</summary>
+    <ul>
+      <li><code>XUI_PROXIES</code> — список серверов клиента</li>
+      <li><code>XUI_POOL</code> — имена в группах</li>
+      <li><code>XUI_TUN_EXCLUDE</code> и <code>XUI_CIDRS</code> — IP ваших VPS в обход туннеля</li>
+    </ul>
+    <p>Цель и SNI задаются только во «Входах», не в профиле Clash и не на сервере.</p>
+  </details>
+  <label>YAML</label>
+  <textarea id="yaml" class="editor" spellcheck="false">{{ doc.yaml_text if doc else '' }}</textarea>
+</div>
+<pre class="log" id="log"></pre>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('save').onclick = async (e) => {
+  try {
+    await XUI.withBusy(e.currentTarget, () => XUI.api('/api/config', 'PUT', {
+      yaml_text: document.getElementById('yaml').value,
+    }));
+    XUI.toast('Профиль сохранён');
+  } catch (err) {}
+};
+document.getElementById('preview-client').onchange = async (e) => {
+  if (!e.target.value) return;
+  try {
+    const r = await XUI.api('/api/clients/' + e.target.value + '/preview');
+    XUI.showLog(document.getElementById('log'), r.yaml);
+  } catch (err) { XUI.toast(err.message, 'err'); }
+};
+</script>
+{% endblock %}

@@ -1,0 +1,10 @@
+.env
+data/
+/docker-publish.yml
+test11
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/

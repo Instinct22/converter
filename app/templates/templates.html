@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+{% block title %}Входы — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Входящие подключения</h1>
+    <p class="lede">Здесь задаются цель, SNI, транспорт и REALITY/TLS. На карточке сервера этого нет — только URL панели и токен. Master создаёт inbound на нодах по API.</p>
+  </div>
+  <div class="row">
+    {% if nodes %}
+    <button class="btn secondary" type="button" id="provision-all">Создать на серверах</button>
+    {% endif %}
+    <button class="btn" type="button" id="new-tpl">Новый вход</button>
+  </div>
+</div>
+<pre class="log" id="tpl-log"></pre>
+<script type="application/json" id="node-ids">{{ nodes | map(attribute='id') | list | tojson }}</script>
+
+<div class="card">
+  {% if inbound_templates %}
+  <div class="table-scroll">
+  <table class="table-clients">
+    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th></th></tr></thead>
+    <tbody>
+    {% for t in inbound_templates %}
+      <tr>
+        <td data-label="Примечание"><strong>{{ t.name }}</strong></td>
+        <td class="mono" data-label="Порт">{{ t.port }}</td>
+        <td data-label="Транспорт">{{ t.protocol or 'vless' }} · {{ t.network }}</td>
+        <td data-label="Безопасность">{{ t.security or 'reality' }}</td>
+        <td data-label="Цель / SNI">
+          <div class="mono">{{ t.dest }}</div>
+          <div class="hint" style="margin:0">{{ t.server_names }}</div>
+        </td>
+        <td class="row" data-label="">
+          <button class="btn small secondary" type="button" data-edit='{{ t.model_dump() | tojson }}'>Изменить</button>
+          <button class="btn small danger" type="button" data-del="{{ t.id }}">Удалить</button>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty"><h3>Входов нет</h3><p>Без шаблона Master не создаст порт на пустой панели.</p></div>
+  {% endif %}
+</div>
+
+<div class="overlay" id="edit-tpl">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <div class="page-head" style="margin-bottom:8px">
+      <div>
+        <h2 id="tpl-title">Входящее подключение</h2>
+        <p class="sub">Как в 3x-ui. Ключи Reality Master сгенерирует в момент создания на сервере. Клиент seed нужен API панели — его тоже создадим сами.</p>
+      </div>
+      <button class="btn ghost small" type="button" data-close="edit-tpl">Закрыть</button>
+    </div>
+    <form id="tpl">
+      <input type="hidden" name="id" value="">
+      <div class="tabs" role="tablist">
+        <button class="tab on" type="button" data-pane="general">Основное</button>
+        <button class="tab" type="button" data-pane="stream">Транспорт</button>
+        <button class="tab" type="button" data-pane="security">Безопасность</button>
+      </div>
+
+      <div class="pane on" data-pane="general">
+        <div class="form-grid">
+          <div class="field">
+            <label>Примечание</label>
+            <input name="name" required placeholder="gRPC 443">
+          </div>
+          <div class="field">
+            <label>Протокол</label>
+            <select name="protocol">
+              <option value="vless">vless</option>
+            </select>
+            <span class="hint">Clash-профиль Master собирает только VLESS. Остальные протоколы 3x-ui API примет, но в подписку не попадут.</span>
+          </div>
+          <div class="field">
+            <label>Прослушивать IP</label>
+            <input name="listen" placeholder="пусто = все интерфейсы">
+          </div>
+          <div class="field">
+            <label>Порт</label>
+            <input name="port" type="number" value="443" required>
+          </div>
+        </div>
+        <label class="check">
+          <input type="checkbox" name="sniffing">
+          <span class="txt">Sniffing<small>http / tls / quic / fakedns — как в панели 3x-ui</small></span>
+        </label>
+      </div>
+
+      <div class="pane" data-pane="stream">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label>Передача</label>
+            <select name="network">
+              <option value="tcp">TCP</option>
+              <option value="grpc">gRPC</option>
+              <option value="xhttp">XHTTP</option>
+              <option value="ws">WebSocket</option>
+              <option value="httpupgrade">HTTPUpgrade</option>
+            </select>
+          </div>
+          <div class="field" data-net="grpc">
+            <label>Service Name</label>
+            <input name="grpc_service_name" value="grpc">
+          </div>
+          <div class="field" data-net="grpc">
+            <label>Authority</label>
+            <input name="grpc_authority" placeholder="необязательно">
+          </div>
+          <div class="field span-2" data-net="grpc">
+            <label class="check" style="margin:0">
+              <input type="checkbox" name="grpc_multi_mode">
+              <span class="txt">multiMode</span>
+            </label>
+          </div>
+          <div class="field" data-net="xhttp">
+            <label>Path</label>
+            <input name="xhttp_path" value="/">
+          </div>
+          <div class="field" data-net="xhttp">
+            <label>Host</label>
+            <input name="xhttp_host">
+          </div>
+          <div class="field" data-net="xhttp">
+            <label>Mode</label>
+            <select name="xhttp_mode">
+              <option value="auto">auto</option>
+              <option value="packet-up">packet-up</option>
+              <option value="stream-up">stream-up</option>
+              <option value="stream-one">stream-one</option>
+            </select>
+          </div>
+          <div class="field" data-net="ws,httpupgrade">
+            <label>Path</label>
+            <input name="ws_path" value="/">
+          </div>
+          <div class="field" data-net="ws,httpupgrade">
+            <label>Host</label>
+            <input name="ws_host">
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" data-pane="security">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label>Безопасность</label>
+            <select name="security">
+              <option value="reality">REALITY</option>
+              <option value="tls">TLS</option>
+              <option value="none">none</option>
+            </select>
+          </div>
+        </div>
+
+        <div data-sec="reality">
+          <div class="form-grid">
+            <div class="field span-2">
+              <label>Цель (Target)</label>
+              <input name="dest" placeholder="gitlab.com:443">
+              <span class="hint">Как в 3x-ui → Безопасность → Цель. После вставки Master сам снимет SNI с TLS-сертификата этой цели.</span>
+            </div>
+            <div class="field span-2">
+              <label>Имена сервера (SNI)</label>
+              <input name="server_names" placeholder="подтянутся с цели">
+              <span class="hint" id="sni-meta">Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.</span>
+            </div>
+            <div class="field">
+              <label>uTLS Fingerprint</label>
+              <select name="fingerprint">
+                <option value="chrome">chrome</option>
+                <option value="firefox">firefox</option>
+                <option value="safari">safari</option>
+                <option value="ios">ios</option>
+                <option value="android">android</option>
+                <option value="edge">edge</option>
+                <option value="random">random</option>
+                <option value="randomized">randomized</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>SpiderX</label>
+              <input name="spider_x" value="/">
+            </div>
+            <div class="field">
+              <label>Short IDs</label>
+              <input name="short_ids" placeholder="пусто = сгенерируем при создании">
+            </div>
+            <div class="field">
+              <label>Flow</label>
+              <select name="flow">
+                <option value="">нет</option>
+                <option value="xtls-rprx-vision">xtls-rprx-vision</option>
+              </select>
+              <span class="hint">Имеет смысл на TCP + REALITY.</span>
+            </div>
+          </div>
+        </div>
+
+        <div data-sec="tls" hidden>
+          <div class="form-grid">
+            <div class="field">
+              <label>Server Name</label>
+              <input name="tls_server_name">
+            </div>
+            <div class="field">
+              <label>ALPN</label>
+              <input name="tls_alpn" value="h2,http/1.1">
+            </div>
+            <div class="field">
+              <label>Файл сертификата на VPS</label>
+              <input name="tls_cert_file" placeholder="/root/cert/fullchain.pem">
+            </div>
+            <div class="field">
+              <label>Файл ключа на VPS</label>
+              <input name="tls_key_file" placeholder="/root/cert/privkey.pem">
+            </div>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="reject_unknown_sni">
+            <span class="txt">Reject unknown SNI</span>
+          </label>
+          <p class="hint">Сертификат Master на диск ноды не заливает — только пути, которые уже лежат на сервере. Так умеет API 3x-ui.</p>
+        </div>
+
+        <div data-sec="none" hidden>
+          <p class="hint">Без TLS/REALITY. Для маскировки под сайт обычно нужен REALITY.</p>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <button class="btn" type="submit">Сохранить</button>
+        <button class="btn secondary" type="button" data-close="edit-tpl">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const f = document.getElementById('tpl');
+let destTimer = 0;
+let lastPulledDest = '';
+
+function val(obj, key, fallback) {
+  const v = obj[key];
+  return v === undefined || v === null || v === '' ? fallback : v;
+}
+
+function showNet() {
+  const net = f.network.value;
+  document.querySelectorAll('[data-net]').forEach((el) => {
+    const ok = el.dataset.net.split(',').map((s) => s.trim()).includes(net);
+    el.hidden = !ok;
+  });
+}
+function showSec() {
+  const sec = f.security.value;
+  document.querySelectorAll('[data-sec]').forEach((el) => {
+    el.hidden = el.dataset.sec !== sec;
+  });
+}
+function syncTplUi() {
+  showNet();
+  showSec();
+}
+
+function fillTpl(data) {
+  f.id.value = data.id || '';
+  f.name.value = data.name || '';
+  f.protocol.value = val(data, 'protocol', 'vless');
+  f.listen.value = val(data, 'listen', '');
+  f.port.value = val(data, 'port', 443);
+  f.sniffing.checked = !!data.sniffing;
+  f.network.value = val(data, 'network', 'grpc');
+  f.grpc_service_name.value = val(data, 'grpc_service_name', 'grpc');
+  f.grpc_authority.value = val(data, 'grpc_authority', '');
+  f.grpc_multi_mode.checked = !!data.grpc_multi_mode;
+  f.xhttp_path.value = val(data, 'xhttp_path', '/');
+  f.xhttp_host.value = val(data, 'xhttp_host', '');
+  f.xhttp_mode.value = val(data, 'xhttp_mode', 'auto');
+  f.ws_path.value = val(data, 'ws_path', '/');
+  f.ws_host.value = val(data, 'ws_host', '');
+  f.security.value = val(data, 'security', 'reality');
+  f.dest.value = val(data, 'dest', '');
+  const extra = data.extra_snis ? (',' + data.extra_snis) : '';
+  f.server_names.value = (data.server_names || '') + extra;
+  f.fingerprint.value = val(data, 'fingerprint', 'chrome');
+  f.spider_x.value = val(data, 'spider_x', '/');
+  f.short_ids.value = val(data, 'short_ids', '');
+  f.flow.value = val(data, 'flow', '');
+  f.tls_server_name.value = val(data, 'tls_server_name', '');
+  f.tls_alpn.value = val(data, 'tls_alpn', 'h2,http/1.1');
+  f.tls_cert_file.value = val(data, 'tls_cert_file', '');
+  f.tls_key_file.value = val(data, 'tls_key_file', '');
+  f.reject_unknown_sni.checked = !!data.reject_unknown_sni;
+  lastPulledDest = '';
+  document.getElementById('sni-meta').textContent = 'Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.';
+  document.getElementById('tpl-title').textContent = data.id ? 'Изменить входящее' : 'Новое входящее';
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.pane === 'general'));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.dataset.pane === 'general'));
+  syncTplUi();
+}
+
+async function pullFromTarget(silent) {
+  const dest = (f.dest.value || '').trim();
+  if (!dest || dest === lastPulledDest) return;
+  if (f.security.value !== 'reality') return;
+  try {
+    const data = await XUI.api('/api/dest-sni', 'POST', { dest });
+    lastPulledDest = dest;
+    XUI.applyDestSni(f.server_names, document.getElementById('sni-meta'), data, { toast: !silent });
+  } catch (err) {
+    if (!silent) XUI.toast(err.message, 'err');
+  }
+}
+
+document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t === tab));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.dataset.pane === tab.dataset.pane));
+});
+f.network.onchange = syncTplUi;
+f.security.onchange = syncTplUi;
+f.dest.addEventListener('input', () => {
+  clearTimeout(destTimer);
+  destTimer = setTimeout(() => pullFromTarget(true), 650);
+});
+f.dest.addEventListener('paste', () => setTimeout(() => pullFromTarget(true), 80));
+f.dest.addEventListener('change', () => pullFromTarget(true));
+
+document.getElementById('provision-all')?.addEventListener('click', async (e) => {
+  const ids = JSON.parse(document.getElementById('node-ids').textContent || '[]');
+  if (!ids.length) {
+    XUI.toast('Сначала подключите сервер', 'err');
+    return;
+  }
+  if (!confirm('Создать текущие входы на всех серверах через API 3x-ui? Уже существующие порты панель может отклонить.')) return;
+  const logs = [];
+  try {
+    await XUI.withBusy(e.currentTarget, async () => {
+      for (const id of ids) {
+        const r = await XUI.api('/api/nodes/' + id + '/provision', 'POST', {});
+        logs.push('сервер ' + id, ...(r.logs || []));
+      }
+    });
+    XUI.showLog(document.getElementById('tpl-log'), logs);
+    XUI.toast('Готово');
+  } catch (err) {}
+});
+document.getElementById('new-tpl').onclick = () => {
+  fillTpl({});
+  XUI.openModal('edit-tpl');
+};
+document.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
+  fillTpl(JSON.parse(b.dataset.edit));
+  XUI.openModal('edit-tpl');
+});
+f.onsubmit = async (e) => {
+  e.preventDefault();
+  const body = {
+    name: f.name.value,
+    port: Number(f.port.value),
+    protocol: f.protocol.value,
+    listen: f.listen.value,
+    sniffing: f.sniffing.checked,
+    network: f.network.value,
+    grpc_service_name: f.grpc_service_name.value,
+    grpc_authority: f.grpc_authority.value,
+    grpc_multi_mode: f.grpc_multi_mode.checked,
+    xhttp_path: f.xhttp_path.value,
+    xhttp_host: f.xhttp_host.value,
+    xhttp_mode: f.xhttp_mode.value,
+    ws_path: f.ws_path.value,
+    ws_host: f.ws_host.value,
+    security: f.security.value,
+    dest: f.dest.value,
+    server_names: f.server_names.value,
+    fingerprint: f.fingerprint.value,
+    spider_x: f.spider_x.value,
+    short_ids: f.short_ids.value,
+    flow: f.flow.value,
+    tls_server_name: f.tls_server_name.value,
+    tls_alpn: f.tls_alpn.value,
+    tls_cert_file: f.tls_cert_file.value,
+    tls_key_file: f.tls_key_file.value,
+    reject_unknown_sni: f.reject_unknown_sni.checked,
+    extra_snis: '',
+    use_global_sni: false,
+    enabled: true,
+  };
+  try {
+    if (f.id.value) await XUI.api('/api/templates/' + f.id.value, 'PUT', body);
+    else await XUI.api('/api/templates', 'POST', body);
+    location.reload();
+  } catch (err) { XUI.toast(err.message, 'err'); }
+};
+document.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+  if (!confirm('Удалить шаблон? Уже созданные порты на серверах останутся.')) return;
+  try {
+    await XUI.api('/api/templates/' + b.dataset.del, 'DELETE');
+    location.reload();
+  } catch (e) { XUI.toast(e.message, 'err'); }
+});
+</script>
+{% endblock %}

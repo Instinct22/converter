@@ -1,0 +1,520 @@
+# Шаблон Mihomo для DHQ: proxy-providers тянут Clash-подписку каждой 3x-ui,
+# geox-url качает geoip/geosite. Маркеры XUI в выдачу не попадают.
+log-level: warning
+mixed-port: 7890
+allow-lan: false
+find-process-mode: strict
+mode: rule
+unified-delay: true
+tcp-concurrent: true
+geodata-mode: true
+geo-auto-update: true
+geo-update-interval: 24
+geox-url:
+  geoip: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat
+  geosite: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat
+  mmdb: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb
+  asn: https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb
+
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  route-exclude-address:
+    # {{XUI_TUN_EXCLUDE_BEGIN}}
+    # {{XUI_TUN_EXCLUDE_END}}
+  dns-hijack:
+    - any:53
+
+dns:
+  enable: true
+  respect-rules: true
+  listen: 127.0.0.1:1053
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+  fake-ip-filter:
+    - '+.local'
+    - '+.lan'
+    - 'rule-set:geosite-ru@domain'
+  default-nameserver:
+    - 77.88.8.8
+    - 1.1.1.1
+  nameserver:
+    - https://cloudflare-dns.com/dns-query#PROXY
+    - https://dns.google/dns-query#PROXY
+  nameserver-policy:
+    'rule-set:geosite-ru@domain':
+      - https://common.dot.dns.yandex.net/dns-query#DIRECT
+  proxy-server-nameserver:
+    - 77.88.8.8
+    - 1.1.1.1
+
+proxy-providers:
+  # {{XUI_PROVIDERS_BEGIN}}
+  # {{XUI_PROVIDERS_END}}
+
+proxy-groups:
+  - name: Reality pool
+    type: select
+    proxies:
+      - Reality pool fallback
+      - DIRECT
+    use:
+      # {{XUI_POOL_BEGIN}}
+      # {{XUI_POOL_END}}
+  - name: Reality pool fallback
+    type: fallback
+    url: https://cp.cloudflare.com/generate_204
+    interval: 30
+    lazy: false
+    expected-status: '204'
+    proxies:
+      - DIRECT
+    use:
+      # {{XUI_POOL_BEGIN}}
+      # {{XUI_POOL_END}}
+  - name: PROXY
+    type: select
+    proxies:
+      - Reality pool fallback
+      - Reality pool
+      - DIRECT
+  # --- policy groups (DHQ desktop profile) ---
+  - name: Custom proxy
+    type: select
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Europe_Map.png"
+  - name: Custom local
+    type: select
+    proxies:
+      - Local
+      - PROXY
+    hidden: true
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png"
+  - name: YouTube
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/YouTube.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Remote Access
+    type: select
+    icon: "https://cdn.jsdelivr.net/npm/simple-icons/icons/anydesk.svg"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Discord
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Discord.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Telegram
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Telegram.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Steam
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Steam.png"
+    proxies:
+      - PASS
+      - Local
+      - PROXY
+    hidden: true
+  - name: AI
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Bot.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Media
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Netflix.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: PlayStation
+    type: select
+    icon: "https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/PlayStation.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Google
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Google_Search.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Social
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Twitter.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Dev
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/devicon/devicon-original.svg"
+    proxies:
+      - PROXY
+      - Local
+      - PASS
+    hidden: true
+  - name: Tools
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Speedtest.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Twitch
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Twitch.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Twitter
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Twitter.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Instagram
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Instagram.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Gaming
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Game.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Amazon
+    type: select
+    icon: "https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color/Amazon.png"
+    proxies:
+      - Local
+      - PROXY
+      - PASS
+    hidden: true
+  - name: Cloudflare
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Cloudflare.png"
+    proxies:
+      - PROXY
+      - Local
+      - PASS
+    hidden: true
+  - name: Foreign CDN
+    type: select
+    icon: "https://www.svgrepo.com/show/396567/globe-with-meridians.svg"
+    proxies:
+      - PROXY
+      - PASS
+      - Local
+    hidden: true
+  - name: CDN
+    type: select
+    icon: "https://www.svgrepo.com/show/396567/globe-with-meridians.svg"
+    proxies:
+      - PASS
+      - PROXY
+      - Local
+    hidden: true
+  - name: Adult
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Pornhub.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Foreign or RU Banned
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Europe_Map.png"
+    proxies:
+      - PROXY
+      - Local
+    hidden: true
+  - name: Local
+    type: select
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png"
+    proxies:
+      - DIRECT
+    hidden: true
+  - name: Russia
+    type: select
+    proxies:
+      - Local
+      - PROXY
+      - PASS
+    hidden: true
+    icon: "https://cdn.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Russia.png"
+
+rule-providers:
+  adlist@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/zxc-rv/ad-filter/releases/latest/download/adlist.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  amazon@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/PentiumB/CDN-RuleSet/raw/refs/heads/main/release/amazon.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  akamai@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/akamai.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  akamai@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/PentiumB/CDN-RuleSet/raw/refs/heads/main/release/akamai.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  AS22697@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/asn/AS22697.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  category-ai@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  cdn77@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/cdn77@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  cloudflare@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cloudflare.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  cloudflare@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/cloudflare@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  digitalocean@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/digitalocean.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  digitalocean@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/digitalocean@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  discord@classical: {<<: {type: http, format: text, behavior: classical, interval: 86400}, url: "https://github.com/zxc-rv/assets/raw/main/rules/discord.list", type: http, format: text, behavior: classical, interval: 86400, proxy: DIRECT}
+  epicgames@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/epicgames.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  fastly@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/fastly.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  fastly@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/fastly@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  gcore@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/gcore@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  github@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/github.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  google@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/google.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  google@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/google@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  hetzner@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/hetzner.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  hetzner@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/hetzner@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  meta@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/meta.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  meta@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/meta@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  meta@classical: {<<: {type: http, format: text, behavior: classical, interval: 86400}, url: "https://raw.githubusercontent.com/zxc-rv/assets/refs/heads/main/rules/meta.list", type: http, format: text, behavior: classical, interval: 86400, proxy: DIRECT}
+  netflix@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/netflix.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  netflix@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/netflix.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  oracle@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/oracle.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  oracle@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/PentiumB/CDN-RuleSet/raw/refs/heads/main/release/oracle.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  ovh@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/ovh@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  reddit@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/reddit.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  refilter@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/legiz-ru/mihomo-rule-sets/raw/main/re-filter/domain-rule.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  roblox@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/roblox.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  scaleway@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/scaleway@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  spotify@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/spotify.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  steam@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/steam.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  speedtest@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/speedtest.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  telegram@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/telegram.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  telegram@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/telegram@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  twitch@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/twitch.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  twitter@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/twitter.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  twitter@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/twitter.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  tiktok@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/tiktok.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  vodafone@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/vodafone@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  vultr@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/zxc-rv/zkeenip-rulesets/releases/latest/download/vultr@ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  youtube@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/youtube.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  jetbrains@classical: {<<: {type: http, format: text, behavior: classical, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/refs/heads/meta/geo/geosite/classical/jetbrains.list", type: http, format: text, behavior: classical, interval: 86400, proxy: DIRECT}
+  atlassian@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/atlassian.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  playstation@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/playstation.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  instagram@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/instagram.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  linkedin@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/linkedin.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  facebook@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/facebook.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  ru-blocked@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/legiz-ru/mihomo-rule-sets/raw/refs/heads/main/ru-bundle/itdoginfo-inside-russia.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
+  politic@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/dorian6996/mihomo-rules/raw/refs/heads/main/rules/geosite/politic.yaml", format: yaml, type: http, behavior: domain, interval: 86400, proxy: DIRECT}
+  geosite-ru@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://raw.githubusercontent.com/Davoyan/mihomo-rule-sets/main/rules/category-ru.yaml", format: yaml, type: http, behavior: domain, interval: 86400, proxy: DIRECT}
+  geoip-ru@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://raw.githubusercontent.com/Davoyan/ipinfo/main/geo/geoip/ru.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  # A second, independently maintained view of Russian address space, unioned
+  # with the one above rather than replacing it. The overlap is the point: a
+  # prefix either dataset knows about is one that should stay on the local
+  # network instead of crossing a border to come back, and a gap in one list is
+  # a Russian bank tunnelled abroad and refused.
+  ru-extra@ipcidr: {<<: {type: http, format: text, behavior: ipcidr, interval: 86400}, url: "https://github.com/jameszeroX/zkeen-ip/releases/latest/download/ru", type: http, format: text, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+  ru-extra-v6@ipcidr: {<<: {type: http, format: text, behavior: ipcidr, interval: 86400}, url: "https://github.com/jameszeroX/zkeen-ip/releases/latest/download/ru6", type: http, format: text, behavior: ipcidr, interval: 86400, proxy: DIRECT}
+
+  custom-proxy-domains: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, interval: 3600, url: "https://github.com/dashqee/dhqclash-public/releases/download/custom-mrs/custom-proxy-domains.mrs", type: http, format: mrs, behavior: domain, proxy: DIRECT}
+  custom-proxy-ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, interval: 3600, url: "https://github.com/dashqee/dhqclash-public/releases/download/custom-mrs/custom-proxy-ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, proxy: DIRECT}
+  custom-local-domains: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, interval: 3600, url: "https://github.com/dashqee/dhqclash-public/releases/download/custom-mrs/custom-local-domains.mrs", type: http, format: mrs, behavior: domain, proxy: DIRECT}
+  custom-local-ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, interval: 3600, url: "https://github.com/dashqee/dhqclash-public/releases/download/custom-mrs/custom-local-ipcidr.mrs", type: http, format: mrs, behavior: ipcidr, proxy: DIRECT}
+
+  # Правила по процессам (PROCESS-NAME). classical/text, не .mrs.
+  # Работают на Windows/macOS/Linux/Android; на iOS и на роутере
+  # (find-process-mode: off) не срабатывают.
+  custom-apps-proxy@classical: {<<: {type: http, format: text, behavior: classical, interval: 86400}, interval: 3600, url: "https://github.com/dashqee/dhqclash-public/releases/download/custom-mrs/custom-apps-proxy.list", type: http, format: text, behavior: classical, proxy: DIRECT}
+  custom-apps-local@classical: {<<: {type: http, format: text, behavior: classical, interval: 86400}, interval: 3600, url: "https://github.com/dashqee/dhqclash-public/releases/download/custom-mrs/custom-apps-local.list", type: http, format: text, behavior: classical, proxy: DIRECT}
+  blizzard-domain:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/blizzard.mrs
+    path: ./rule-providers/blizzard-domain.mrs
+    proxy: DIRECT
+    interval: 86400
+  remote-access@classical:
+    type: inline
+    behavior: classical
+    payload:
+      - 'DOMAIN-SUFFIX,anydesk.com'
+      - 'DOMAIN-SUFFIX,net.anydesk.com'
+      - 'DOMAIN-SUFFIX,rustdesk.com'
+      - 'DOMAIN-SUFFIX,teamviewer.com'
+      - 'DOMAIN-SUFFIX,teamviewer.us'
+      - 'DOMAIN-SUFFIX,parsec.app'
+      - 'DOMAIN-SUFFIX,remotedesktop.google.com'
+      - 'DOMAIN-SUFFIX,chromoting-host.talkgadget.google.com'
+      - 'DOMAIN-SUFFIX,client-channel.google.com'
+  xray-block@classical:
+    type: inline
+    behavior: classical
+    payload:
+      - 'AND,((NETWORK,UDP),(DST-PORT,135))'
+      - 'AND,((NETWORK,UDP),(DST-PORT,137))'
+      - 'AND,((NETWORK,UDP),(DST-PORT,138))'
+      - 'AND,((NETWORK,UDP),(DST-PORT,139))'
+  torrent-direct@classical:
+    type: inline
+    behavior: classical
+    payload:
+      - 'PROCESS-NAME,qbittorrent'
+      - 'PROCESS-NAME,qbittorrent.exe'
+      - 'PROCESS-NAME,transmission'
+      - 'PROCESS-NAME,transmission-daemon'
+      - 'PROCESS-NAME,transmission-qt'
+      - 'PROCESS-NAME,transmission-gtk'
+      - 'PROCESS-NAME,Transmission'
+      - 'PROCESS-NAME,deluge'
+      - 'PROCESS-NAME,deluged'
+      - 'PROCESS-NAME,deluge.exe'
+      - 'PROCESS-NAME,utorrent.exe'
+      - 'PROCESS-NAME,uTorrent'
+      - 'PROCESS-NAME,μTorrent'
+      - 'PROCESS-NAME,bittorrent.exe'
+      - 'PROCESS-NAME,BitTorrent'
+      - 'PROCESS-NAME,rtorrent'
+      - 'PROCESS-NAME,tixati.exe'
+      - 'PROCESS-NAME,BiglyBT'
+      - 'PROCESS-NAME,Vuze'
+      - 'PROCESS-NAME,Folx'
+      - 'PROCESS-NAME,webtorrent'
+
+rules:
+  # {{XUI_CIDRS_BEGIN}}
+  # {{XUI_CIDRS_END}}
+
+  - RULE-SET,torrent-direct@classical,DIRECT
+
+
+  # --- DHQ routing (372693108229410816) ---
+
+  # QUIC: блокируем UDP/443 везде, КРОМЕ российских IP —
+  # прямые сайты сохраняют HTTP/3, прокси-трафик уходит в TCP.
+  - AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((RULE-SET,geoip-ru@ipcidr,no-resolve)))),REJECT
+
+  # Base filters
+  - RULE-SET,adlist@domain,REJECT
+  - RULE-SET,xray-block@classical,REJECT
+  - RULE-SET,category-ai@domain,AI
+  - RULE-SET,youtube@domain,YouTube
+  - OR,((RULE-SET,telegram@domain),(RULE-SET,telegram@ipcidr,no-resolve)),Telegram
+
+  # Custom overrides
+  - RULE-SET,custom-apps-local@classical,Custom local
+  - RULE-SET,custom-apps-proxy@classical,Custom proxy
+  - RULE-SET,custom-local-domains,Custom local
+  - RULE-SET,custom-local-ipcidr,Custom local,no-resolve
+  - RULE-SET,custom-proxy-domains,Custom proxy
+  - RULE-SET,custom-proxy-ipcidr,Custom proxy,no-resolve
+  # Правила по процессам (только desktop/Android; на iOS/роутере игнорируются)
+
+  # Поднятые правила (раньше были мёртвыми/конфликтующими)
+  # Instagram теперь ДО meta — иначе geosite:meta перехватывал его в Social
+  - RULE-SET,instagram@domain,Instagram
+  # Заблокированные в РФ — ДО общего российского правила
+  - RULE-SET,ru-blocked@domain,Foreign or RU Banned
+  - RULE-SET,refilter@domain,Foreign or RU Banned
+  - RULE-SET,linkedin@domain,Foreign or RU Banned
+  # Весь российский трафик решается здесь (группа Russia, по умолчанию Local)
+  - OR,((RULE-SET,geosite-ru@domain),(RULE-SET,geoip-ru@ipcidr,no-resolve),(RULE-SET,ru-extra@ipcidr,no-resolve),(RULE-SET,ru-extra-v6@ipcidr,no-resolve)),Russia
+  - RULE-SET,discord@classical,Discord
+  - RULE-SET,steam@domain,Steam
+  - RULE-SET,politic@domain,Foreign or RU Banned
+
+  # Media
+  - RULE-SET,twitch@domain,Twitch
+  - RULE-SET,spotify@domain,Media
+  - OR,((DOMAIN-SUFFIX,gql.twitch.tv),(DOMAIN-SUFFIX,usher.ttvnw.net)),Twitch
+  - OR,((RULE-SET,netflix@domain),(RULE-SET,netflix@ipcidr,no-resolve)),Media
+
+  # Social
+  - RULE-SET,reddit@domain,Social
+  - RULE-SET,tiktok@domain,Social
+  - OR,((RULE-SET,meta@domain),(RULE-SET,meta@ipcidr,no-resolve),(RULE-SET,meta@classical)),Social
+  - OR,((RULE-SET,twitter@domain),(RULE-SET,twitter@ipcidr,no-resolve)),Twitter
+
+  # Dev / Tools / Gaming
+  - RULE-SET,github@domain,Dev
+  - OR,((RULE-SET,google@domain),(RULE-SET,google@ipcidr,no-resolve)),Google
+  - RULE-SET,speedtest@domain,Tools
+  - OR,((RULE-SET,roblox@domain),(RULE-SET,AS22697@ipcidr,no-resolve)),Gaming
+  - RULE-SET,blizzard-domain,Gaming
+  - DOMAIN-SUFFIX,blizzard.com,Gaming
+  - RULE-SET,jetbrains@classical,Dev
+  - RULE-SET,atlassian@domain,Dev
+
+  # PlayStation
+  - RULE-SET,playstation@domain,PlayStation
+
+  # Remote access
+  - RULE-SET,remote-access@classical,Remote Access
+
+  # Остатки бывших xray-* списков, которые нельзя положить в mrs
+  # (keyword / regex / правила с портами). Домены и IP уехали в custom-списки.
+  - DOMAIN-REGEX,^([\w\-\.]+\.)ua$,Foreign or RU Banned
+  - DOMAIN-KEYWORD,farfetch,Foreign or RU Banned
+  - DOMAIN-KEYWORD,asos,Foreign or RU Banned
+  - DOMAIN-KEYWORD,dmarket,Foreign or RU Banned
+  - DOMAIN-KEYWORD,freekassa,Foreign or RU Banned
+  - DOMAIN-KEYWORD,runeforge,Gaming
+  - DOMAIN-KEYWORD,lootspectrum,Gaming
+  - DOMAIN-KEYWORD,allstar,Gaming
+  - DOMAIN-KEYWORD,hearthstone,Gaming
+  - RULE-SET,epicgames@domain,Gaming
+  - DOMAIN-KEYWORD,manyvids,Adult
+  - DOMAIN-KEYWORD,pornhub,Adult
+  - DOMAIN-KEYWORD,mat6tube,Adult
+  - DOMAIN-SUFFIX,onlyfans.com,Adult
+  - DOMAIN-SUFFIX,noodlemagazine.com,Adult
+  - DOMAIN-SUFFIX,bitchesgirls.tv,Adult
+  - DOMAIN-SUFFIX,v1.yaoilib.net,Adult
+  - DOMAIN-SUFFIX,kahoot.it,Adult
+  - DOMAIN-SUFFIX,viralxxxporn.com,Adult
+  - DOMAIN-SUFFIX,lolvvv.com,Adult
+  - DOMAIN-SUFFIX,myanimelist.net,Adult
+  - DOMAIN-SUFFIX,anistar.org,Adult
+  - DOMAIN-SUFFIX,ficbook.net,Adult
+  - DOMAIN-SUFFIX,pornolab.net,Adult
+  - DOMAIN-KEYWORD,xhamster,Adult
+  - DOMAIN-KEYWORD,xvideos,Adult
+  - RULE-SET,oracle@ipcidr,Foreign or RU Banned,no-resolve
+
+  # Cloudflare
+  - OR,((RULE-SET,cloudflare@domain),(RULE-SET,cloudflare@ipcidr,no-resolve)),Cloudflare
+
+  # CDN
+  - RULE-SET,amazon@ipcidr,Amazon,no-resolve
+  - RULE-SET,akamai@domain,Amazon
+  - RULE-SET,akamai@ipcidr,Amazon,no-resolve
+  - OR,((RULE-SET,digitalocean@domain),(RULE-SET,digitalocean@ipcidr,no-resolve)),CDN
+  - OR,((RULE-SET,fastly@domain),(RULE-SET,fastly@ipcidr,no-resolve)),CDN
+  - RULE-SET,oracle@domain,CDN
+  - OR,((RULE-SET,hetzner@domain),(RULE-SET,hetzner@ipcidr,no-resolve)),CDN
+  - RULE-SET,scaleway@ipcidr,CDN,no-resolve
+  - RULE-SET,ovh@ipcidr,CDN,no-resolve
+  - RULE-SET,vultr@ipcidr,CDN,no-resolve
+  - RULE-SET,vodafone@ipcidr,CDN,no-resolve
+  - RULE-SET,gcore@ipcidr,CDN,no-resolve
+  - RULE-SET,cdn77@ipcidr,CDN,no-resolve
+  - MATCH,Local
