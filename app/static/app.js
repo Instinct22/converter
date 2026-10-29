@@ -14,7 +14,7 @@ async function api(path, method, body) {
   const res = await fetch(path, opts);
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
-    window.location.reload();
+    window.location.href = '/login';
     throw new Error('Нужно войти заново');
   }
   if (!res.ok) throw new Error(detailMessage(data.detail) || res.statusText);

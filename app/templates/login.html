@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход — Master</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=17">
+</head>
+<body class="login-body">
+  <div class="login-wrap">
+    <form class="card login-card" method="post" action="/login" autocomplete="on">
+      <div class="login-hero">
+        <div class="brand-mark">M</div>
+        <p class="login-kicker">XUI Master</p>
+        <h1>С возвращением</h1>
+        <p class="lede">Панель управления серверами 3x-ui и подписками Clash. Войдите, чтобы открыть обзор флота.</p>
+      </div>
+      {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+      <div class="field">
+        <label for="username">Логин</label>
+        <input id="username" type="text" name="username" autocomplete="username" autofocus required placeholder="admin">
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input id="password" type="password" name="password" autocomplete="current-password" required placeholder="••••••••">
+      </div>
+      <button class="btn login-submit" type="submit">Войти в панель</button>
+    </form>
+  </div>
+</body>
+</html>
