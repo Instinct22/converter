@@ -55,13 +55,13 @@ def node_clash_sub_url(node: Node, sub_id: str) -> str:
     return f'{base}/{sub_id}'
 
 
-def _health_lines() -> list[str]:
+def _health_lines(*, lazy: bool = False) -> list[str]:
     return [
         '  health-check:',
         '    enable: true',
         '    url: https://cp.cloudflare.com/generate_204',
         '    interval: 300',
-        '    lazy: false',
+        f'    lazy: {"true" if lazy else "false"}',
         "    expected-status: '204'",
     ]
 
@@ -87,6 +87,7 @@ def _provider_block(
     prefix: str | None = None,
     suffix: str | None = None,
     expr: list[str] | None = None,
+    lazy: bool = False,
 ) -> list[str]:
     lines = [
         f'{key}:',
@@ -110,7 +111,7 @@ def _provider_block(
             lines.append('    override-expr:')
             for item in expr:
                 lines.append(f'      - {_y(item)}')
-    lines.extend(_health_lines())
+    lines.extend(_health_lines(lazy=lazy))
     return lines
 
 
@@ -118,6 +119,54 @@ def _is_alt_inbound(inbound: NodeInbound) -> bool:
     if inbound.port == 8443:
         return True
     return (inbound.network or '') in {'xhttp', 'splithttp'}
+
+
+def _reg_domain(host: str) -> str:
+    parts = [part for part in host.split(':')[0].lower().split('.') if part]
+    if len(parts) >= 2:
+        return '.'.join(parts[-2:])
+    return host.lower()
+
+
+def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
+    """First SNI as-is; extra only same site as dest, plus inbound.extra_snis.
+
+    3x-ui often dumps the whole certificate SAN list into serverNames.
+    Cloning a provider per SAN (cdn.js7k.com, ymail, …) makes health-checks
+    fail and drowns the node.
+    """
+    snis = [item for item in published_snis(inbound) if item]
+    if not snis:
+        return ['']
+    primary = snis[0]
+    out = [primary]
+    seen = {primary.lower()}
+    extras = split_csv(inbound.extra_snis)
+    if _is_alt_inbound(inbound):
+        for sni in extras:
+            key = sni.lower()
+            if key and key not in seen:
+                out.append(sni)
+                seen.add(key)
+        return out
+    allowed_extra = {item.lower() for item in extras}
+    root = _reg_domain(primary)
+    for sni in snis[1:]:
+        key = sni.lower()
+        if key in seen:
+            continue
+        if key in allowed_extra or _reg_domain(sni) == root:
+            out.append(sni)
+            seen.add(key)
+    return out
+
+
+def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str, str | None]:
+    """Clash filter/exclude-filter are regexes on proxy *names*, not network."""
+    port = inbound.port or 0
+    if _is_alt_inbound(inbound):
+        return str(port), None
+    return rf'(^|[^0-9]){port}([^0-9]|$)', '8443' if has_alt else None
 
 
 def dump_providers(
@@ -162,10 +211,9 @@ def dump_providers(
         has_alt = any(_is_alt_inbound(row) for row in inbounds)
         primary_emitted = False
         for inbound in inbounds:
-            snis = [item for item in published_snis(inbound) if item]
-            if not snis:
-                snis = ['']
+            snis = inbound_sni_chain(inbound)
             display = (inbound.display_prefix or prefix).strip() or prefix
+            filt, exclude = port_name_filters(inbound, has_alt)
             if _is_alt_inbound(inbound):
                 primary = snis[0]
                 primary_label = sni_label(primary) if primary else str(inbound.port)
@@ -175,8 +223,9 @@ def dump_providers(
                     _provider_block(
                         key=key,
                         url=url,
-                        filt=str(inbound.port),
+                        filt=filt,
                         expr=[f'.name = {json.dumps(f"{display} | {primary_label}", ensure_ascii=False)}'],
+                        lazy=True,
                     )
                 )
                 for sni in snis[1:]:
@@ -188,16 +237,15 @@ def dump_providers(
                         _provider_block(
                             key=key,
                             url=url,
-                            filt=str(inbound.port),
+                            filt=filt,
                             expr=[
                                 f'.servername = {json.dumps(sni)}',
                                 f'.name = {json.dumps(pretty, ensure_ascii=False)}',
                             ],
+                            lazy=True,
                         )
                     )
                 continue
-            filt = 'grpc' if (inbound.network or '') == 'grpc' else str(inbound.port or 443)
-            exclude = '8443' if has_alt else None
             if not primary_emitted:
                 key = take_key(provider_name(node))
                 primary_emitted = True
@@ -226,6 +274,7 @@ def dump_providers(
                         prefix=prefix_sp or None,
                         suffix=f' | {label}',
                         expr=[f'.servername = {json.dumps(sni)}'],
+                        lazy=True,
                     )
                 )
     return (lines or ['{}'], keys)
