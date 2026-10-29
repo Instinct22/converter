@@ -1,7 +1,6 @@
 services:
   xui-master:
     image: ${XUI_MASTER_IMAGE:-liiiiiiiiis/converter:latest}
-    build: .
     ports:
       - "8080:8080"
     env_file:
