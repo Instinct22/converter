@@ -150,28 +150,68 @@ jobs:
             set -eu
             echo "=== Ensure Docker (Debian) ==="
             export DEBIAN_FRONTEND=noninteractive
-            if command -v apt-get >/dev/null 2>&1; then
-              apt-get update -qq
-              apt-get install -y -qq ca-certificates curl
-              for pkg in gnupg iptables nftables uidmap dbus kmod iproute2; do
-                apt-get install -y -qq "$pkg" || true
-              done
-            fi
+            export DEBCONF_NONINTERACTIVE_SEEN=true
+            export NEEDRESTART_MODE=a
+            export NEEDRESTART_SUSPEND=1
+
+            stub_grub_install() {
+              if [ -e /usr/sbin/grub-install ] && [ ! -e /usr/sbin/grub-install.ci-bak ]; then
+                cp -a /usr/sbin/grub-install /usr/sbin/grub-install.ci-bak
+              fi
+              printf '%s\n' '#!/bin/sh' 'exit 0' > /usr/sbin/grub-install
+              chmod 755 /usr/sbin/grub-install
+            }
+
+            restore_grub_install() {
+              if [ -e /usr/sbin/grub-install.ci-bak ]; then
+                mv -f /usr/sbin/grub-install.ci-bak /usr/sbin/grub-install
+              fi
+              if [ -f /var/lib/dpkg/info/grub-pc.postinst.ci-bak ]; then
+                mv -f /var/lib/dpkg/info/grub-pc.postinst.ci-bak /var/lib/dpkg/info/grub-pc.postinst
+              fi
+            }
+
+            unstick_dpkg() {
+              apt-mark hold grub-pc grub-efi-amd64 grub-efi-amd64-bin grub-efi-amd64-signed grub2-common grub-common os-prober >/dev/null 2>&1 || true
+              echo 'grub-pc grub-pc/install_devices_empty boolean true' | debconf-set-selections >/dev/null 2>&1 || true
+              echo 'grub-pc grub-pc/install_devices multiselect' | debconf-set-selections >/dev/null 2>&1 || true
+              echo 'grub-pc grub-pc/install_devices_failed boolean true' | debconf-set-selections >/dev/null 2>&1 || true
+              stub_grub_install
+              if [ -f /var/lib/dpkg/info/grub-pc.postinst ]; then
+                if [ ! -f /var/lib/dpkg/info/grub-pc.postinst.ci-bak ]; then
+                  cp -a /var/lib/dpkg/info/grub-pc.postinst /var/lib/dpkg/info/grub-pc.postinst.ci-bak
+                fi
+                printf '%s\n' '#!/bin/sh' 'set -e' 'exit 0' > /var/lib/dpkg/info/grub-pc.postinst
+                chmod 755 /var/lib/dpkg/info/grub-pc.postinst
+              fi
+              dpkg --configure -a >/dev/null 2>&1 || true
+            }
+
+            apt_ok() {
+              unstick_dpkg
+              apt-get install -y -qq --no-install-recommends "$@"
+            }
+
+            unstick_dpkg
+            apt-get update -qq
+            apt_ok ca-certificates curl
+            for pkg in gnupg iptables nftables uidmap dbus kmod iproute2; do
+              apt_ok "$pkg" || true
+            done
             if ! command -v docker >/dev/null 2>&1; then
-              curl -fsSL https://get.docker.com | sh
+              unstick_dpkg
+              curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+              sh /tmp/get-docker.sh || apt_ok docker.io
             fi
             if command -v systemctl >/dev/null 2>&1; then
-              systemctl enable docker 2>/dev/null || true
-              systemctl start docker 2>/dev/null || true
+              systemctl enable docker >/dev/null 2>&1 || true
+              systemctl start docker >/dev/null 2>&1 || true
             fi
             if ! docker compose version >/dev/null 2>&1; then
-              apt-get install -y -qq docker-compose-plugin || true
-              if ! docker compose version >/dev/null 2>&1; then
-                echo "docker compose plugin missing after install" >&2
-                exit 1
-              fi
+              apt_ok docker-compose-plugin || apt_ok docker-compose-v2 || apt_ok docker-compose || true
             fi
-            if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then
+            restore_grub_install
+            if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
               ufw allow 8080/tcp || true
             fi
             docker --version
@@ -211,14 +251,20 @@ jobs:
               exit 1
             fi
             umask 077
+            env_line() {
+              key=$1
+              val=$2
+              escaped=$(printf '%s' "$val" | sed "s/'/'\\\\''/g")
+              printf "%s='%s'\n" "$key" "$escaped"
+            }
             {
-              echo "XUI_MASTER_IMAGE=${XUI_MASTER_IMAGE}"
-              echo "HOST=0.0.0.0"
-              echo "PORT=8080"
-              echo "PUBLIC_BASE_URL=${PUBLIC_BASE_URL}"
-              echo "SUB_PATH=${SUB_PATH}"
-              printf 'ADMIN_USERNAME=%s\n' "${ADMIN_USERNAME:-admin}"
-              printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD"
+              env_line XUI_MASTER_IMAGE "$XUI_MASTER_IMAGE"
+              env_line HOST 0.0.0.0
+              env_line PORT 8080
+              env_line PUBLIC_BASE_URL "$PUBLIC_BASE_URL"
+              env_line SUB_PATH "$SUB_PATH"
+              env_line ADMIN_USERNAME "${ADMIN_USERNAME:-admin}"
+              env_line ADMIN_PASSWORD "$ADMIN_PASSWORD"
             } > .env
             if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
               printf '%s\n' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
