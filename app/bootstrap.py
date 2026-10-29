@@ -75,19 +75,19 @@ def seed_if_empty(session: Session) -> None:
         )
         session.add(
             InboundTemplate(
-                name='Cloudflare 8443 (gRPC)',
+                name='Yahoo 8443 (gRPC)',
                 port=8443,
                 protocol='vless',
                 network='grpc',
                 security='reality',
-                dest='www.cloudflare.com:443',
-                server_names='www.cloudflare.com',
+                dest='www.yahoo.com:443',
+                server_names='www.yahoo.com, ymail.com, s.yimg.com',
                 grpc_service_name='grpc',
                 fingerprint='chrome',
                 spider_x='/',
                 extra_snis='',
                 use_global_sni=False,
-                provider_label='cloudflare',
+                provider_label='yahoo',
                 use_in_sub=True,
             )
         )

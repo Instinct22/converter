@@ -284,7 +284,7 @@ def dump_providers(
                 else:
                     slug = f'{tag}-{label}' if tag else label
                     key = take_key(_provider_slug(node, slug))
-                    pretty = f'{base_name} | {label}' if base_name else label
+                    pretty = f'{base_name} | {sni}' if base_name else sni
                     expr = [
                         f'.servername = "{sni}"',
                         f'.name = "{pretty}"',
