@@ -57,6 +57,8 @@ def test_render_injects_node_proxy():
         assert 'tokentoken123456' in yaml_text
         assert 'IP-CIDR,150.241.73.105/32,DIRECT' in yaml_text
         assert 'proxy-providers:' in yaml_text
+        assert 'auth.gitlab.com' in yaml_text
+        assert 'exclude-filter' in yaml_text
         assert 'geox-url:' in yaml_text
         assert 'geoip.dat' in yaml_text
         assert 'type: http' in yaml_text

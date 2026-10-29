@@ -55,33 +55,176 @@ def node_clash_sub_url(node: Node, sub_id: str) -> str:
     return f'{base}/{sub_id}'
 
 
-def dump_providers(nodes: list[Node], sub_id: str) -> list[str]:
+def _health_lines() -> list[str]:
+    return [
+        '  health-check:',
+        '    enable: true',
+        '    url: https://cp.cloudflare.com/generate_204',
+        '    interval: 300',
+        '    lazy: false',
+        "    expected-status: '204'",
+    ]
+
+
+def _provider_slug(node: Node, extra: str = '') -> str:
+    base = provider_name(node)
+    if not extra:
+        return base
+    tail = re.sub(r'[^a-z0-9]+', '-', extra.lower()).strip('-') or 'sni'
+    return f'{base}-{tail}'[:64]
+
+
+def _provider_block(
+    *,
+    key: str,
+    url: str,
+    filt: str | None = None,
+    exclude_filter: str | None = None,
+    prefix: str | None = None,
+    suffix: str | None = None,
+    expr: list[str] | None = None,
+) -> list[str]:
+    lines = [
+        f'{key}:',
+        f'  name: {key}',
+        '  type: http',
+        f'  url: {json.dumps(url)}',
+        f'  path: ./providers/{key}.yaml',
+        '  interval: 3600',
+    ]
+    if filt:
+        lines.append(f'  filter: {json.dumps(filt)}')
+    if exclude_filter:
+        lines.append(f'  exclude-filter: {json.dumps(exclude_filter)}')
+    if prefix or suffix or expr:
+        lines.append('  override:')
+        if prefix:
+            lines.append(f'    additional-prefix: {json.dumps(prefix, ensure_ascii=False)}')
+        if suffix:
+            lines.append(f'    additional-suffix: {json.dumps(suffix, ensure_ascii=False)}')
+        if expr:
+            lines.append('    override-expr:')
+            for item in expr:
+                lines.append(f'      - {json.dumps(item)}')
+    lines.extend(_health_lines())
+    return lines
+
+
+def _is_alt_inbound(inbound: NodeInbound) -> bool:
+    if inbound.port == 8443:
+        return True
+    return (inbound.network or '') in {'xhttp', 'splithttp'}
+
+
+def dump_providers(
+    nodes: list[Node],
+    sub_id: str,
+    inbound_map: dict[int, list[NodeInbound]] | None = None,
+) -> tuple[list[str], list[str]]:
     lines: list[str] = []
+    keys: list[str] = []
+    used: set[str] = set()
+
+    def take_key(raw: str) -> str:
+        key = raw or 'node'
+        n = 2
+        while key in used:
+            key = f'{raw}-{n}'[:64]
+            n += 1
+        used.add(key)
+        return key
+
     for node in nodes:
         if not (node.public_host or '').strip():
             continue
-        key = provider_name(node)
         url = node_clash_sub_url(node, sub_id)
+        if not url:
+            continue
         prefix = node.clash_prefix()
-        extra = f'{prefix} | ' if prefix else ''
-        lines.extend(
-            [
-                f'{key}:',
-                '  type: http',
-                f'  url: {json.dumps(url)}',
-                f'  path: ./providers/{key}.yaml',
-                '  interval: 3600',
-                '  override:',
-                f'    additional-prefix: {json.dumps(extra, ensure_ascii=False)}',
-                '  health-check:',
-                '    enable: true',
-                '    url: https://cp.cloudflare.com/generate_204',
-                '    interval: 300',
-                '    lazy: false',
-                "    expected-status: '204'",
-            ]
-        )
-    return lines or ['{}']
+        prefix_sp = f'{prefix} | ' if prefix else ''
+        inbounds = [
+            row
+            for row in (inbound_map or {}).get(node.id, [])
+            if row.use_in_sub
+        ]
+        inbounds.sort(key=lambda row: (row.port, row.id or 0))
+        if not inbounds:
+            key = take_key(provider_name(node))
+            keys.append(key)
+            lines.extend(
+                _provider_block(key=key, url=url, prefix=prefix_sp or None)
+            )
+            continue
+        has_alt = any(_is_alt_inbound(row) for row in inbounds)
+        primary_emitted = False
+        for inbound in inbounds:
+            snis = [item for item in published_snis(inbound) if item]
+            if not snis:
+                snis = ['']
+            display = (inbound.display_prefix or prefix).strip() or prefix
+            if _is_alt_inbound(inbound):
+                primary = snis[0]
+                primary_label = sni_label(primary) if primary else str(inbound.port)
+                key = take_key(_provider_slug(node, primary_label))
+                keys.append(key)
+                lines.extend(
+                    _provider_block(
+                        key=key,
+                        url=url,
+                        filt=str(inbound.port),
+                        expr=[f'.name = {json.dumps(f"{display} | {primary_label}", ensure_ascii=False)}'],
+                    )
+                )
+                for sni in snis[1:]:
+                    label = sni_label(sni)
+                    key = take_key(_provider_slug(node, f'{primary_label}-{label}'))
+                    keys.append(key)
+                    pretty = f'{display} | {primary_label} | {label}'
+                    lines.extend(
+                        _provider_block(
+                            key=key,
+                            url=url,
+                            filt=str(inbound.port),
+                            expr=[
+                                f'.servername = {json.dumps(sni)}',
+                                f'.name = {json.dumps(pretty, ensure_ascii=False)}',
+                            ],
+                        )
+                    )
+                continue
+            filt = 'grpc' if (inbound.network or '') == 'grpc' else str(inbound.port or 443)
+            exclude = '8443' if has_alt else None
+            if not primary_emitted:
+                key = take_key(provider_name(node))
+                primary_emitted = True
+            else:
+                key = take_key(_provider_slug(node, str(inbound.port)))
+            keys.append(key)
+            lines.extend(
+                _provider_block(
+                    key=key,
+                    url=url,
+                    filt=filt,
+                    exclude_filter=exclude,
+                    prefix=prefix_sp or None,
+                )
+            )
+            for sni in snis[1:]:
+                label = sni_label(sni)
+                key = take_key(_provider_slug(node, label))
+                keys.append(key)
+                lines.extend(
+                    _provider_block(
+                        key=key,
+                        url=url,
+                        filt=filt,
+                        exclude_filter=exclude,
+                        prefix=prefix_sp or None,
+                        suffix=f' | {label}',
+                        expr=[f'.servername = {json.dumps(sni)}'],
+                    )
+                )
+    return (lines or ['{}'], keys)
 
 
 def dump_proxies(proxies: list[dict[str, Any]]) -> list[str]:
@@ -132,7 +275,10 @@ def published_snis(inbound: NodeInbound, global_extra: list[str] | None = None) 
 def sni_label(sni: str) -> str:
     if not sni:
         return 'default'
-    parts = sni.split('.')
+    host = sni.split(':')[0].strip().lower()
+    parts = [part for part in host.split('.') if part]
+    if len(parts) >= 2 and parts[0] == 'www':
+        return parts[1]
     return parts[0] if parts else sni
 
 
@@ -233,11 +379,18 @@ def render_profile(session: Session, client: Client) -> str:
             cidrs.append(f'{ip}/32')
         if (node.public_host or '').strip():
             provider_nodes.append(node)
-    names = [provider_name(node) for node in provider_nodes]
+    inbound_map: dict[int, list[NodeInbound]] = {}
+    for node in provider_nodes:
+        inbound_map[node.id] = session.exec(
+            select(NodeInbound).where(NodeInbound.node_id == node.id)
+        ).all()
     text = doc.yaml_text
     if 'XUI_PROVIDERS_BEGIN' in text:
-        text = replace_block(text, 'PROVIDERS', dump_providers(provider_nodes, client.sub_token))
-        pool_lines = [f'- {name}' for name in names]
+        provider_lines, names = dump_providers(
+            provider_nodes, client.sub_token, inbound_map
+        )
+        text = replace_block(text, 'PROVIDERS', provider_lines)
+        pool_lines = [f'- {name}' for name in names] if names else ['- DIRECT']
         text = replace_block(text, 'POOL', pool_lines)
     else:
         proxies, proxy_names, extra_cidrs = collect_proxies(session, client, [])

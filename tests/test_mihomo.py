@@ -62,7 +62,7 @@ def test_node_clash_sub_url_matches_3xui():
     )
     url = node_clash_sub_url(node, '2amob9we0rzfk1z5')
     assert url == 'https://82.40.58.78:2096/no1m62cdabx5fb5e/2amob9we0rzfk1z5'
-    dumped = '\n'.join(dump_providers([node], '2amob9we0rzfk1z5'))
+    dumped = '\n'.join(dump_providers([node], '2amob9we0rzfk1z5')[0])
     assert url in dumped
     assert provider_name(node) in dumped
     assert 'type: http' in dumped
@@ -142,6 +142,55 @@ def test_format_bytes_and_cpu():
     assert format_bytes(1536) == '1.5 КБ'
     assert cpu_percent(0.42) == 42
     assert cpu_percent(87) == 87
+
+
+def test_providers_expand_snis_and_ports():
+    from app.mihomo import dump_providers
+    from app.models import Node, NodeInbound
+
+    node = Node(
+        id=1,
+        name='Finland-82',
+        clash_name='Finland-82',
+        panel_url='https://82.40.58.78:2053/',
+        public_host='82.40.58.78',
+        sub_port=2096,
+        sub_clash_path='no1m62cdabx5fb5e',
+        flag='FI',
+    )
+    grpc = NodeInbound(
+        id=1,
+        node_id=1,
+        xui_inbound_id=1,
+        port=443,
+        protocol='vless',
+        network='grpc',
+        server_names='gitlab.com,auth.gitlab.com,gprd.gitlab.com',
+        use_in_sub=True,
+    )
+    xhttp = NodeInbound(
+        id=2,
+        node_id=1,
+        xui_inbound_id=2,
+        port=8443,
+        protocol='vless',
+        network='xhttp',
+        server_names='www.yahoo.com,news.yahoo.com',
+        use_in_sub=True,
+    )
+    lines, keys = dump_providers([node], 'tok', {1: [grpc, xhttp]})
+    text = '\n'.join(lines)
+    assert keys[0] == 'n1-finland-82'
+    assert 'n1-finland-82-auth' in keys
+    assert 'n1-finland-82-gprd' in keys
+    assert 'n1-finland-82-yahoo' in keys
+    assert 'n1-finland-82-yahoo-news' in keys
+    assert 'filter: "grpc"' in text
+    assert 'exclude-filter: "8443"' in text
+    assert 'auth.gitlab.com' in text
+    assert 'news.yahoo.com' in text
+    assert 'filter: "8443"' in text
+    assert text.count('url:') == len(keys)
 
 
 def test_published_snis_from_inbound_only():
