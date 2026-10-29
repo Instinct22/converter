@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Серверы</h1>
-    <p class="lede">Нода = панель 3x-ui: флаг, имя, URL и API Token. IP для Clash берётся из URL. Входы настраиваются в разделе «Входы».</p>
+    <p class="lede">Нода = панель 3x-ui. Шаблоны входов (SNI, порты) создаются в «Входах», здесь выбираете какие из них действуют на сервере. «Создать на серверах» — во вкладке Входы.</p>
   </div>
   <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
 </div>
@@ -23,6 +23,7 @@
       <tr>
         <th>Сервер</th>
         <th>IP для клиента<span class="th-hint">из URL панели</span></th>
+        <th>Входы<span class="th-hint">шаблоны с «Входов»</span></th>
         <th>В Clash<span class="th-hint">в ссылке клиента</span></th>
         <th></th>
       </tr>
@@ -39,6 +40,20 @@
           {% if n.last_error %}<div class="hint" style="margin:4px 0 0" title="{{ n.last_error }}">Нет связи с панелью</div>{% endif %}
         </td>
         <td class="mono" data-label="IP для клиента">{{ n.public_host }}</td>
+        <td data-label="Входы">
+          {% set picked = node_templates.get(n.id, []) if node_templates is defined else [] %}
+          <details class="tpl-picker">
+            <summary>{% if picked|length %}{{ picked|length }} вход(ов){% else %}не выбраны{% endif %}</summary>
+            <select multiple class="mono" data-node-templates="{{ n.id }}" size="{{ [inbound_templates|length, 6]|min }}">
+              {% for t in inbound_templates %}
+              {% if t.enabled %}
+              <option value="{{ t.id }}" {% if t.id in picked %}selected{% endif %}>{{ t.name }} · {{ t.port }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+            <button type="button" class="btn small" data-save-templates="{{ n.id }}" style="margin-top:6px">Сохранить</button>
+          </details>
+        </td>
         <td data-label="В Clash">
           <label class="switch" title="Показывать этот сервер в подписке">
             <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
@@ -162,6 +177,17 @@ document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('
     el.checked = !el.checked;
     XUI.toast(e.message, 'err');
   }
+}));
+document.querySelectorAll('[data-save-templates]').forEach((btn) => btn.addEventListener('click', async () => {
+  const nodeId = btn.dataset.saveTemplates;
+  const sel = document.querySelector('[data-node-templates="' + nodeId + '"]');
+  if (!sel) return;
+  const ids = [...sel.selectedOptions].map((o) => Number(o.value));
+  try {
+    await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + nodeId, 'PATCH', { template_ids: ids }));
+    XUI.toast('Входы сохранены');
+    setTimeout(() => location.reload(), 300);
+  } catch (e) { XUI.toast(e.message, 'err'); }
 }));
 document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async () => {
   if (!confirm('Убрать сервер из Master? Панель 3x-ui не трогаем.')) return;

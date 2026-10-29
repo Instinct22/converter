@@ -8,7 +8,15 @@ import httpx
 from sqlmodel import Session, select
 
 from app.crypto_reality import generate_reality_keys, random_short_id
-from app.models import Client, ClientPlacement, InboundTemplate, Node, NodeInbound, utcnow
+from app.models import (
+    Client,
+    ClientPlacement,
+    InboundTemplate,
+    Node,
+    NodeInbound,
+    NodeTemplateAssignment,
+    utcnow,
+)
 from app.parse_inbound import parse_inbound
 from app.xui import XuiClient, XuiError, as_obj, email_from_client_row
 
@@ -168,6 +176,83 @@ def refresh_clash_sub_path(session: Session, node: Node) -> None:
         )
 
 
+def node_template_ids(session: Session, node_id: int) -> list[int]:
+    rows = session.exec(
+        select(NodeTemplateAssignment.template_id).where(
+            NodeTemplateAssignment.node_id == node_id
+        )
+    ).all()
+    return [int(item) for item in rows]
+
+
+def set_node_template_ids(session: Session, node_id: int, template_ids: list[int]) -> None:
+    for row in session.exec(
+        select(NodeTemplateAssignment).where(NodeTemplateAssignment.node_id == node_id)
+    ).all():
+        session.delete(row)
+    seen: set[int] = set()
+    for tid in template_ids:
+        if tid in seen:
+            continue
+        seen.add(tid)
+        session.add(NodeTemplateAssignment(node_id=node_id, template_id=tid))
+    session.commit()
+
+
+def templates_for_node(session: Session, node: Node | int) -> list[InboundTemplate]:
+    node_id = node.id if isinstance(node, Node) else int(node)
+    ids = node_template_ids(session, node_id)
+    if ids:
+        rows = session.exec(
+            select(InboundTemplate).where(
+                InboundTemplate.id.in_(ids),
+                InboundTemplate.enabled == True,  # noqa: E712
+            )
+        ).all()
+        order = {tid: idx for idx, tid in enumerate(ids)}
+        return sorted(rows, key=lambda row: (order.get(row.id or 0, 999), row.port))
+    return session.exec(
+        select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
+    ).all()
+
+
+def templates_by_port_for_node(session: Session, node: Node) -> dict[int, InboundTemplate]:
+    by_port: dict[int, InboundTemplate] = {}
+    for template in templates_for_node(session, node):
+        by_port[template.port] = template
+    return by_port
+
+
+def apply_subscription_from_template(
+    row: NodeInbound,
+    template: InboundTemplate | None,
+) -> None:
+    if template is None:
+        return
+    row.server_names = template.server_names
+    row.extra_snis = template.extra_snis
+    row.provider_label = template.provider_label
+    row.use_in_sub = template.use_in_sub
+    row.use_global_sni = template.use_global_sni
+    row.snis_locked = True
+
+
+def ensure_default_node_templates(session: Session) -> None:
+    templates = session.exec(
+        select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
+    ).all()
+    if not templates:
+        return
+    template_ids = [t.id for t in templates if t.id is not None]
+    nodes = session.exec(select(Node)).all()
+    for node in nodes:
+        if node.id is None:
+            continue
+        if node_template_ids(session, node.id):
+            continue
+        set_node_template_ids(session, node.id, template_ids)
+
+
 def sync_node(session: Session, node: Node) -> list[NodeInbound]:
     with XuiClient(node) as xui:
         try:
@@ -177,6 +262,7 @@ def sync_node(session: Session, node: Node) -> list[NodeInbound]:
             pass
         remote = xui.inbounds()
     seen: set[int] = set()
+    template_by_port = templates_by_port_for_node(session, node)
     existing = {
         row.xui_inbound_id: row
         for row in session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
@@ -198,7 +284,10 @@ def sync_node(session: Session, node: Node) -> list[NodeInbound]:
         row.short_id = parsed['short_id']
         row.fingerprint = parsed['fingerprint']
         row.dest = parsed['dest']
-        if not row.snis_locked:
+        tpl = template_by_port.get(parsed['port'])
+        if tpl is not None:
+            apply_subscription_from_template(row, tpl)
+        elif not row.snis_locked:
             row.server_names = parsed['server_names']
         elif not (row.server_names or '').strip():
             row.server_names = parsed['server_names']

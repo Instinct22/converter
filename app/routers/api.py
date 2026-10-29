@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
@@ -14,12 +14,15 @@ from app.sub_link import client_sub_url
 from app.provision import (
     apply_sub_settings,
     delete_client_remote,
+    node_template_ids,
     provision_client,
     provision_templates,
     push_server_names,
     reconcile_clients,
+    set_node_template_ids,
     split_csv,
     sync_node,
+    templates_for_node,
 )
 from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
@@ -50,6 +53,7 @@ class NodePatch(BaseModel):
     sub_path: str | None = None
     sub_clash_path: str | None = None
     sub_scheme: str | None = None
+    template_ids: list[int] | None = None
 
 
 class InboundPatch(BaseModel):
@@ -93,6 +97,8 @@ class TemplateIn(BaseModel):
     extra_snis: str = ''
     use_global_sni: bool = False
     enabled: bool = True
+    use_in_sub: bool = True
+    provider_label: str = ''
 
 
 class ClientIn(BaseModel):
@@ -119,8 +125,8 @@ class ConfigIn(BaseModel):
     global_extra_snis: str | None = None
 
 
-def _node_out(node: Node) -> dict:
-    return {
+def _node_out(node: Node, session: Session | None = None) -> dict:
+    out = {
         'id': node.id,
         'flag': node.flag,
         'name': node.name,
@@ -139,12 +145,15 @@ def _node_out(node: Node) -> dict:
         'sub_scheme': node.sub_scheme,
         'clash_sub_base': node_clash_sub_base(node),
     }
+    if session is not None and node.id is not None:
+        out['template_ids'] = node_template_ids(session, node.id)
+    return out
 
 
 @router.get('/nodes')
 def list_nodes(session: SessionDep) -> list[dict]:
     rows = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-    return [_node_out(n) for n in rows]
+    return [_node_out(n, session) for n in rows]
 
 
 @router.post('/nodes')
@@ -177,7 +186,16 @@ def create_node(body: NodeIn, session: SessionDep) -> dict:
         session.add(node)
         session.commit()
         logs.append(str(exc))
-    return {'node': _node_out(node), 'logs': logs}
+    if node.id is not None:
+        all_tpl = session.exec(
+            select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
+        ).all()
+        set_node_template_ids(
+            session,
+            node.id,
+            [t.id for t in all_tpl if t.id is not None],
+        )
+    return {'node': _node_out(node, session), 'logs': logs}
 
 
 @router.post('/nodes/{node_id}/test')
@@ -232,11 +250,18 @@ def api_provision_node(node_id: int, session: SessionDep, body: ProvisionIn | No
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
-    query = select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
     ids = (body.template_ids if body else None) or []
     if ids:
-        query = query.where(InboundTemplate.id.in_(ids))
-    templates = session.exec(query).all()
+        templates = session.exec(
+            select(InboundTemplate).where(
+                InboundTemplate.enabled == True,  # noqa: E712
+                InboundTemplate.id.in_(ids),
+            )
+        ).all()
+    else:
+        templates = templates_for_node(session, node)
+    if not templates:
+        raise HTTPException(400, 'На сервере не выбраны входы — отметьте шаблоны в списке «Входы»')
     logs = provision_templates(session, node, templates)
     return {'ok': True, 'logs': logs}
 
@@ -255,12 +280,15 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
         data['panel_url'] = normalize_panel_url(data['panel_url'])
         if not data.get('public_host'):
             data['public_host'] = public_host_from_url(data['panel_url'])
+    template_ids = data.pop('template_ids', None)
     for key, value in data.items():
         setattr(node, key, value)
     session.add(node)
     session.commit()
     session.refresh(node)
-    return _node_out(node)
+    if template_ids is not None and node.id is not None:
+        set_node_template_ids(session, node.id, template_ids)
+    return _node_out(node, session)
 
 
 @router.delete('/nodes/{node_id}')
@@ -268,8 +296,12 @@ def delete_node(node_id: int, session: SessionDep, wipe_remote: bool = False) ->
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
-    from app.models import ClientPlacement
+    from app.models import ClientPlacement, NodeTemplateAssignment
 
+    for row in session.exec(
+        select(NodeTemplateAssignment).where(NodeTemplateAssignment.node_id == node_id)
+    ).all():
+        session.delete(row)
     inbounds = session.exec(select(NodeInbound).where(NodeInbound.node_id == node_id)).all()
     placements = session.exec(select(ClientPlacement).where(ClientPlacement.node_id == node_id)).all()
     for row in placements:
@@ -572,7 +604,7 @@ def overview(session: SessionDep) -> dict:
         st = probe.get('status') or {}
         node_out.append(
             {
-                **_node_out(node),
+                **_node_out(node, session),
                 'online': online,
                 'cpu': st.get('cpu'),
                 'mem_used': st.get('mem_used'),

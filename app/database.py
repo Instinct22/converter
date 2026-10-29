@@ -27,6 +27,12 @@ NODE_COLUMNS = {
 }
 
 TEMPLATE_COLUMNS = {
+    'use_in_sub': 'INTEGER DEFAULT 1',
+    'provider_label': "TEXT DEFAULT ''",
+}
+
+
+LEGACY_TEMPLATE_COLUMNS = {
     'protocol': "TEXT DEFAULT 'vless'",
     'listen': "TEXT DEFAULT ''",
     'security': "TEXT DEFAULT 'reality'",
@@ -63,7 +69,7 @@ NODEINBOUND_COLUMNS = {
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
-    _ensure_columns('inboundtemplate', TEMPLATE_COLUMNS)
+    _ensure_columns('inboundtemplate', {**LEGACY_TEMPLATE_COLUMNS, **TEMPLATE_COLUMNS})
     _ensure_columns('node', NODE_COLUMNS)
     _ensure_columns('nodeinbound', NODEINBOUND_COLUMNS)
 

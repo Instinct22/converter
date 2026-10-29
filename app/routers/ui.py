@@ -9,7 +9,7 @@ from app.deps import SessionDep, credentials_ok, request_authorized
 from app.mihomo import days_left, is_expired
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
-from app.provision import split_csv
+from app.provision import node_template_ids, split_csv
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
 
@@ -132,13 +132,24 @@ def nodes_page(request: Request, session: SessionDep):
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     templates_rows = session.exec(select(InboundTemplate)).all()
     counts = {}
+    node_templates: dict[int, list[int]] = {}
     for node in nodes:
+        if node.id is None:
+            continue
         counts[node.id] = len(
             session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
         )
+        node_templates[node.id] = node_template_ids(session, node.id)
     return templates.TemplateResponse(
         'nodes.html',
-        _ctx(request, page='nodes', nodes=nodes, inbound_templates=templates_rows, inbound_counts=counts),
+        _ctx(
+            request,
+            page='nodes',
+            nodes=nodes,
+            inbound_templates=templates_rows,
+            inbound_counts=counts,
+            node_templates=node_templates,
+        ),
     )
 
 

@@ -20,6 +20,9 @@ async def lifespan(_app: FastAPI):
     init_db()
     with Session(engine) as session:
         seed_if_empty(session)
+        from app.provision import ensure_default_node_templates
+
+        ensure_default_node_templates(session)
         path = init_sub_path(session)
     _app.add_api_route(
         f'/{path}/{{token}}',

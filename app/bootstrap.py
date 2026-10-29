@@ -69,6 +69,7 @@ def seed_if_empty(session: Session) -> None:
                 fingerprint='chrome',
                 extra_snis='',
                 use_global_sni=False,
+                enabled=False,
             )
         )
         session.add(
@@ -85,6 +86,8 @@ def seed_if_empty(session: Session) -> None:
                 spider_x='/',
                 extra_snis='de.nachrichten.yahoo.com,cdn.js7k.com',
                 use_global_sni=False,
+                provider_label='yahoo',
+                use_in_sub=True,
             )
         )
     session.commit()

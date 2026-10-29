@@ -73,6 +73,14 @@ class InboundTemplate(SQLModel, table=True):
     extra_snis: str = ''
     use_global_sni: bool = True
     enabled: bool = True
+    # Подписка Mihomo / Clash для этого порта
+    use_in_sub: bool = True
+    provider_label: str = ''
+
+
+class NodeTemplateAssignment(SQLModel, table=True):
+    node_id: int = Field(foreign_key='node.id', primary_key=True)
+    template_id: int = Field(foreign_key='inboundtemplate.id', primary_key=True)
 
 
 class NodeInbound(SQLModel, table=True):

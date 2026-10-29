@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Входящие подключения</h1>
-    <p class="lede">Здесь задаются цель, SNI, транспорт и REALITY/TLS. На карточке сервера этого нет — только URL панели и токен. Master создаёт inbound на нодах по API.</p>
+    <p class="lede">Шаблон входа: порт, SNI, подписка Mihomo. На странице «Серверы» выбираете, какие шаблоны висят на каждой ноде. Кнопка ниже создаёт или обновляет inbound на панелях по API.</p>
   </div>
   <div class="row">
     {% if nodes %}
@@ -20,7 +20,7 @@
   {% if inbound_templates %}
   <div class="table-scroll">
   <table class="table-clients">
-    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th></th></tr></thead>
+    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th>Подписка</th><th></th></tr></thead>
     <tbody>
     {% for t in inbound_templates %}
       <tr>
@@ -31,6 +31,11 @@
         <td data-label="Цель / SNI">
           <div class="mono">{{ t.dest }}</div>
           <div class="hint" style="margin:0">{{ t.server_names }}</div>
+          {% if t.extra_snis %}<div class="hint" style="margin:0">+ {{ t.extra_snis }}</div>{% endif %}
+        </td>
+        <td data-label="Подписка">
+          {% if t.use_in_sub %}в подписке{% else %}<span class="hint">скрыт</span>{% endif %}
+          {% if t.provider_label %}<div class="hint mono" style="margin:4px 0 0">alt: {{ t.provider_label }}</div>{% endif %}
         </td>
         <td class="row" data-label="">
           <button class="btn small secondary" type="button" data-edit='{{ t.model_dump() | tojson }}'>Изменить</button>
@@ -61,6 +66,7 @@
         <button class="tab on" type="button" data-pane="general">Основное</button>
         <button class="tab" type="button" data-pane="stream">Транспорт</button>
         <button class="tab" type="button" data-pane="security">Безопасность</button>
+        <button class="tab" type="button" data-pane="subscription">Подписка</button>
       </div>
 
       <div class="pane on" data-pane="general">
@@ -232,6 +238,26 @@
         </div>
       </div>
 
+      <div class="pane" data-pane="subscription">
+        <p class="hint">Как этот порт попадёт в Mihomo/DHQ после sync с панелью. На 8443 обычно метка <code>yahoo</code>.</p>
+        <div class="form-grid">
+          <div class="field span-2">
+            <label>Extra SNI (только Mihomo, через запятую)</label>
+            <input name="extra_snis" placeholder="ymail.com,s.yimg.com">
+          </div>
+          <div class="field">
+            <label>Метка alt-порта</label>
+            <input name="provider_label" placeholder="yahoo для 8443">
+          </div>
+          <div class="field">
+            <label class="check" style="margin-top:28px">
+              <input type="checkbox" name="use_in_sub" checked>
+              <span class="txt">В подписке клиента</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div class="row" style="margin-top:16px">
         <button class="btn" type="submit">Сохранить</button>
         <button class="btn secondary" type="button" data-close="edit-tpl">Отмена</button>
@@ -287,8 +313,10 @@ function fillTpl(data) {
   f.ws_host.value = val(data, 'ws_host', '');
   f.security.value = val(data, 'security', 'reality');
   f.dest.value = val(data, 'dest', '');
-  const extra = data.extra_snis ? (',' + data.extra_snis) : '';
-  f.server_names.value = (data.server_names || '') + extra;
+  f.server_names.value = data.server_names || '';
+  f.extra_snis.value = val(data, 'extra_snis', '');
+  f.provider_label.value = val(data, 'provider_label', '');
+  f.use_in_sub.checked = data.use_in_sub !== false;
   f.fingerprint.value = val(data, 'fingerprint', 'chrome');
   f.spider_x.value = val(data, 'spider_x', '/');
   f.short_ids.value = val(data, 'short_ids', '');
@@ -338,7 +366,7 @@ document.getElementById('provision-all')?.addEventListener('click', async (e) =>
     XUI.toast('Сначала подключите сервер', 'err');
     return;
   }
-  if (!confirm('Создать или обновить входы на всех серверах? Клиенты на нодах не трогаются. Если порт уже есть — обновится примечание и настройки входа.')) return;
+  if (!confirm('Создать или обновить на каждом сервере только выбранные там входы? Клиенты не трогаем.')) return;
   const logs = [];
   try {
     await XUI.withBusy(e.currentTarget, async () => {
@@ -388,9 +416,11 @@ f.onsubmit = async (e) => {
     tls_cert_file: f.tls_cert_file.value,
     tls_key_file: f.tls_key_file.value,
     reject_unknown_sni: f.reject_unknown_sni.checked,
-    extra_snis: '',
+    extra_snis: f.extra_snis.value,
     use_global_sni: false,
     enabled: true,
+    use_in_sub: f.use_in_sub.checked,
+    provider_label: f.provider_label.value,
   };
   try {
     if (f.id.value) await XUI.api('/api/templates/' + f.id.value, 'PUT', body);

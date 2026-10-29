@@ -1,8 +1,7 @@
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models import Node, NodeInbound
-from app.provision import sync_node
-from app.xui import XuiClient
+from app.models import InboundTemplate, Node, NodeInbound
+from app.provision import set_node_template_ids, sync_node
 
 
 class FakeXui:
@@ -31,7 +30,7 @@ class FakeXui:
         ]
 
 
-def test_sync_preserves_locked_server_names(monkeypatch):
+def test_sync_uses_template_sni_when_assigned(monkeypatch):
     engine = create_engine('sqlite://')
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
@@ -41,18 +40,17 @@ def test_sync_preserves_locked_server_names(monkeypatch):
             api_token='t',
             public_host='150.241.73.105',
         )
+        tpl = InboundTemplate(
+            name='443 gitlab',
+            port=443,
+            server_names='www.yahoo.com,ymail.com',
+        )
         session.add(node)
+        session.add(tpl)
         session.commit()
         session.refresh(node)
-        row = NodeInbound(
-            node_id=node.id,
-            xui_inbound_id=99,
-            server_names='www.yahoo.com,ymail.com',
-            snis_locked=True,
-            port=8443,
-        )
-        session.add(row)
-        session.commit()
+        session.refresh(tpl)
+        set_node_template_ids(session, node.id or 0, [tpl.id or 0])
 
         monkeypatch.setattr('app.provision.XuiClient', FakeXui)
         monkeypatch.setattr('app.provision.apply_sub_settings', lambda *a, **k: None)
