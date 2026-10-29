@@ -152,18 +152,10 @@ jobs:
             export DEBIAN_FRONTEND=noninteractive
             if command -v apt-get >/dev/null 2>&1; then
               apt-get update -qq
-              apt-get install -y -qq \
-                ca-certificates \
-                curl \
-                gnupg \
-                iptables \
-                nftables \
-                uidmap \
-                dbus \
-                kmod \
-                iproute2 \
-                apt-transport-https \
-                software-properties-common
+              apt-get install -y -qq ca-certificates curl
+              for pkg in gnupg iptables nftables uidmap dbus kmod iproute2; do
+                apt-get install -y -qq "$pkg" || true
+              done
             fi
             if ! command -v docker >/dev/null 2>&1; then
               curl -fsSL https://get.docker.com | sh
@@ -173,7 +165,11 @@ jobs:
               systemctl start docker 2>/dev/null || true
             fi
             if ! docker compose version >/dev/null 2>&1; then
-              apt-get install -y -qq docker-compose-plugin
+              apt-get install -y -qq docker-compose-plugin || true
+              if ! docker compose version >/dev/null 2>&1; then
+                echo "docker compose plugin missing after install" >&2
+                exit 1
+              fi
             fi
             if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then
               ufw allow 8080/tcp || true
