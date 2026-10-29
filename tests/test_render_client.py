@@ -60,7 +60,8 @@ def test_render_injects_node_proxy():
         assert 'IP-CIDR,150.241.73.105/32,DIRECT' in yaml_text
         assert 'proxy-providers:' in yaml_text
         assert 'auth.gitlab.com' in yaml_text
-        assert '443-' in yaml_text
+        # один inbound 443 без 8443 — exclude-filter не нужен
+        assert 'filter:' not in yaml_text.split('proxy-providers:')[1].split('proxy-groups:')[0]
         assert 'geox-url:' in yaml_text
         assert 'geoip.dat' in yaml_text
         assert 'type: http' in yaml_text

@@ -176,12 +176,16 @@ def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
     return out
 
 
-def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str, str | None]:
-    """Regex on 3x-ui Clash proxy *names* (``443-slug``, ``8443``)."""
+def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str | None, str | None]:
+    """Как test11: основной inbound — без filter, только exclude 8443.
+
+    3x-ui отдаёт два прокси: ``443-<slug>`` и ``8443``. exclude-filter достаточно.
+    Regex filter ломается, если Mihomo/DHQ матчит уже после ``additional-prefix``
+    (имя ``🇫🇮 … | 443-slug`` не начинается с 443) — провайдер пустой → Timeout.
+    """
     if _is_alt_inbound(inbound):
         return '8443', None
-    # test11: grpc + exclude 8443; names from 3x-ui are ``443-<email>``, not ``grpc``.
-    return '443-', '8443' if has_alt else None
+    return None, '8443' if has_alt else None
 
 
 def _publishable_inbound(inbound: NodeInbound) -> bool:
