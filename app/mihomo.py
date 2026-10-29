@@ -78,6 +78,15 @@ def _y(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _filter_yaml(filt: str) -> str:
+    """Mihomo filters proxy names by regex; literal ``grpc`` does not match ``443-*`` names."""
+    if filt in {'8443', '443'}:
+        return f"  filter: '{filt}'"
+    if filt.startswith('^') or filt.startswith('('):
+        return f"  filter: '{filt}'"
+    return f'  filter: {_y(filt)}'
+
+
 def _provider_block(
     *,
     key: str,
@@ -98,9 +107,9 @@ def _provider_block(
         '  interval: 3600',
     ]
     if filt:
-        lines.append(f'  filter: {_y(filt)}')
+        lines.append(_filter_yaml(filt))
     if exclude_filter:
-        lines.append(f'  exclude-filter: {_y(exclude_filter)}')
+        lines.append(f"  exclude-filter: '{exclude_filter}'")
     if prefix or suffix or expr:
         lines.append('  override:')
         if prefix:
@@ -154,11 +163,10 @@ def inbound_sni_chain(inbound: NodeInbound) -> list[str]:
 
 
 def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str, str | None]:
-    """Clash filter/exclude-filter are regexes on proxy *names*, not network."""
-    port = inbound.port or 0
+    """Regex on 3x-ui proxy *names* (e.g. ``443-bane139``, ``8443``)."""
     if _is_alt_inbound(inbound):
-        return str(port), None
-    return rf'(^|[^0-9]){port}([^0-9]|$)', '8443' if has_alt else None
+        return '8443', None
+    return '^443', '8443' if has_alt else None
 
 
 def dump_providers(
@@ -207,24 +215,24 @@ def dump_providers(
             display = (inbound.display_prefix or prefix).strip() or prefix
             filt, exclude = port_name_filters(inbound, has_alt)
             if _is_alt_inbound(inbound):
-                primary = snis[0]
-                primary_label = sni_label(primary) if primary else str(inbound.port)
-                key = take_key(_provider_slug(node, primary_label))
+                # test11 / DHQ: one yahoo provider per 8443 inbound; extras only via extra_snis
+                key = take_key(_provider_slug(node, 'yahoo'))
                 keys.append(key)
                 lines.extend(
                     _provider_block(
                         key=key,
                         url=url,
                         filt=filt,
-                        expr=[f'.name = {json.dumps(f"{display} | {primary_label}", ensure_ascii=False)}'],
-                        lazy=True,
+                        expr=[
+                            f'.name = {json.dumps(f"{display} | yahoo", ensure_ascii=False)}',
+                        ],
                     )
                 )
-                for sni in snis[1:]:
+                for sni in split_csv(inbound.extra_snis):
                     label = sni_label(sni)
-                    key = take_key(_provider_slug(node, f'{primary_label}-{label}'))
+                    key = take_key(_provider_slug(node, f'yahoo-{label}'))
                     keys.append(key)
-                    pretty = f'{display} | {primary_label} | {label}'
+                    pretty = f'{display} | yahoo | {label}'
                     lines.extend(
                         _provider_block(
                             key=key,
@@ -234,7 +242,6 @@ def dump_providers(
                                 f'.servername = {json.dumps(sni)}',
                                 f'.name = {json.dumps(pretty, ensure_ascii=False)}',
                             ],
-                            lazy=True,
                         )
                     )
                 continue
@@ -266,7 +273,6 @@ def dump_providers(
                         prefix=prefix_sp or None,
                         suffix=f' | {label}',
                         expr=[f'.servername = {json.dumps(sni)}'],
-                        lazy=True,
                     )
                 )
     return (lines or ['{}'], keys)

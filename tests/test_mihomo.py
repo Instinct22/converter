@@ -192,6 +192,7 @@ def test_providers_expand_snis_and_ports():
         protocol='vless',
         network='xhttp',
         server_names='www.yahoo.com,news.yahoo.com',
+        extra_snis='news.yahoo.com',
         use_in_sub=True,
     )
     lines, keys = dump_providers([node], 'tok', {1: [grpc, xhttp]})
@@ -201,11 +202,11 @@ def test_providers_expand_snis_and_ports():
     assert 'n1-finland-82-gprd' in keys
     assert 'n1-finland-82-yahoo' in keys
     assert 'n1-finland-82-yahoo-news' in keys
-    assert 'filter: "(^|[^0-9])443([^0-9]|$)"' in text
-    assert 'exclude-filter: "8443"' in text
+    assert "filter: '^443'" in text
+    assert "exclude-filter: '8443'" in text
     assert 'auth.gitlab.com' in text
     assert 'news.yahoo.com' in text
-    assert 'filter: "8443"' in text
+    assert "filter: '8443'" in text
     assert 'n1-finland-82-yahoo-ymail' not in keys
     assert text.count('url: "https://') == len(keys)
 
