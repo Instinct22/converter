@@ -93,10 +93,17 @@ def _filter_yaml(filt: str) -> str:
     return f'  filter: {_y(filt)}'
 
 
+def _provider_cache_path(key: str, sub_id: str) -> str:
+    """Unique file per client sub token so Mihomo refetches after reprovision."""
+    slug = re.sub(r'[^a-z0-9]+', '', (sub_id or '').lower())[:12] or 'sub'
+    return f'./providers/{key}-{slug}.yaml'
+
+
 def _provider_block(
     *,
     key: str,
     url: str,
+    sub_id: str,
     filt: str | None = None,
     exclude_filter: str | None = None,
     prefix: str | None = None,
@@ -109,7 +116,7 @@ def _provider_block(
         f'  name: {key}',
         '  type: http',
         f'  url: {_y(url)}',
-        f'  path: ./providers/{key}.yaml',
+        f'  path: {_y(_provider_cache_path(key, sub_id))}',
         '  interval: 3600',
     ]
     if filt:
@@ -211,7 +218,7 @@ def dump_providers(
             key = take_key(provider_name(node))
             keys.append(key)
             lines.extend(
-                _provider_block(key=key, url=url, prefix=prefix_sp or None)
+                _provider_block(key=key, url=url, sub_id=sub_id, prefix=prefix_sp or None)
             )
             continue
         has_alt = any(_is_alt_inbound(row) for row in inbounds)
@@ -228,6 +235,7 @@ def dump_providers(
                     _provider_block(
                         key=key,
                         url=url,
+                        sub_id=sub_id,
                         filt=filt,
                         expr=[f'.name = "{display} | yahoo"'],
                     )
@@ -241,6 +249,7 @@ def dump_providers(
                         _provider_block(
                             key=key,
                             url=url,
+                            sub_id=sub_id,
                             filt=filt,
                             expr=[
                                 f'.servername = "{sni}"',
@@ -259,6 +268,7 @@ def dump_providers(
                 _provider_block(
                     key=key,
                     url=url,
+                    sub_id=sub_id,
                     filt=filt,
                     exclude_filter=exclude,
                     prefix=prefix_sp or None,
@@ -272,6 +282,7 @@ def dump_providers(
                     _provider_block(
                         key=key,
                         url=url,
+                        sub_id=sub_id,
                         filt=filt,
                         exclude_filter=exclude,
                         prefix=prefix_sp or None,
