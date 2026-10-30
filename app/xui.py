@@ -115,12 +115,23 @@ class XuiClient:
         return body
 
     def server_logs(self, count: int = 80) -> str:
-        body = self.call(f'/panel/api/server/logs/{int(count)}')
-        if isinstance(body.get('obj'), str):
-            return body['obj']
-        if isinstance(body.get('obj'), list):
-            return '\n'.join(str(item) for item in body['obj'])
-        return json.dumps(body, ensure_ascii=False)[:4000]
+        chunks: list[str] = []
+        for path, method, data in (
+            ('/panel/api/server/status', 'GET', None),
+            (f'/panel/api/server/logs/{int(count)}', 'GET', None),
+            (f'/panel/api/server/log/{int(count)}', 'GET', None),
+            ('/panel/api/server/xrayLogs', 'POST', {}),
+        ):
+            try:
+                body = self.call(path, data=data, method=method)
+            except XuiError as exc:
+                chunks.append(f'{path}: {exc}')
+                continue
+            text = body.get('obj')
+            if isinstance(text, (dict, list)):
+                text = json.dumps(text, ensure_ascii=False)[:2000]
+            chunks.append(f'## {path}\n{text or json.dumps(body, ensure_ascii=False)[:1500]}')
+        return '\n'.join(chunks)
 
     def add_client(
         self,
