@@ -214,6 +214,7 @@ def test_providers_expand_snis_and_ports():
     assert 'filter:' not in text
     assert '/prov/n1-finland-82.yaml' in text
     assert pairs['n1-finland-82']['servername'] == 'gitlab.com'
+    assert pairs['n1-finland-82']['reality-opts']['support-x25519mlkem768'] is True
     assert pairs['n1-finland-82-auth']['servername'] == 'auth.gitlab.com'
     assert pairs['n1-finland-82-yahoo-news']['servername'] == 'news.yahoo.com'
     assert 'n1-finland-82-yahoo-ymail' not in keys

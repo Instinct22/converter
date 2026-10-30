@@ -420,6 +420,10 @@ def build_proxy(
         'reality-opts': {
             'public-key': inbound.public_key,
             'short-id': inbound.short_id or '',
+            # Xray 25+ включает X25519MLKEM768. Без флага Mihomo/DHQ
+            # получает REALITY Authentication: false и показывает Timeout,
+            # хотя клиент Xray с теми же ключами отвечает 204.
+            'support-x25519mlkem768': True,
         },
     }
     if inbound.network == 'grpc':
