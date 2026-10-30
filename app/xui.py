@@ -114,6 +114,14 @@ class XuiClient:
             raise XuiError(body.get('msg') or 'restart xray failed')
         return body
 
+    def server_logs(self, count: int = 80) -> str:
+        body = self.call(f'/panel/api/server/logs/{int(count)}')
+        if isinstance(body.get('obj'), str):
+            return body['obj']
+        if isinstance(body.get('obj'), list):
+            return '\n'.join(str(item) for item in body['obj'])
+        return json.dumps(body, ensure_ascii=False)[:4000]
+
     def add_client(
         self,
         inbound_ids: int | list[int],

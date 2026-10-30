@@ -226,6 +226,18 @@ def test_node(node_id: int, session: SessionDep) -> dict:
         return {'ok': False, 'error': str(exc)}
 
 
+@router.get('/nodes/{node_id}/logs')
+def api_node_logs(node_id: int, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    try:
+        with XuiClient(node) as xui:
+            return {'ok': True, 'logs': xui.server_logs()}
+    except XuiError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.post('/nodes/{node_id}/restart-xray')
 def api_restart_xray(node_id: int, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
