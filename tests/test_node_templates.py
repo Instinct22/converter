@@ -145,6 +145,16 @@ def test_reconcile_keeps_existing_port_creates_missing_deletes_extra(monkeypatch
         session.refresh(node)
         session.refresh(apple)
         session.refresh(yahoo)
+        kept = NodeInbound(
+            node_id=node.id or 0,
+            xui_inbound_id=10,
+            port=8443,
+            use_in_sub=False,
+            server_names='keep.me',
+            snis_locked=True,
+        )
+        session.add(kept)
+        session.commit()
         monkeypatch.setattr('app.provision.XuiClient', FakeXui)
         monkeypatch.setattr('app.provision.apply_sub_settings', lambda *a, **k: None)
         monkeypatch.setattr('app.provision.refresh_clash_sub_path', lambda *a, **k: None)
@@ -154,3 +164,13 @@ def test_reconcile_keeps_existing_port_creates_missing_deletes_extra(monkeypatch
         assert any('порт 8443 уже есть' in line for line in logs)
         assert any('49579' in line and 'удалён' in line for line in logs)
         assert any('443' in line and 'создан' in line for line in logs)
+        kept_row = session.exec(
+            select(NodeInbound).where(NodeInbound.xui_inbound_id == 10)
+        ).one()
+        assert kept_row.use_in_sub is False
+        assert kept_row.server_names == 'keep.me'
+        created_row = session.exec(
+            select(NodeInbound).where(NodeInbound.port == 443)
+        ).one()
+        assert created_row.use_in_sub is True
+        assert created_row.server_names == 'www.apple.com'

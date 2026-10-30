@@ -332,11 +332,20 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
             except XuiError as exc:
                 logs.append(f'{node.name}: вход {template.name} ({port}) не создан: {exc}')
     try:
-        sync_node(session, node)
+        rows = sync_node(session, node, apply_templates=False)
     except XuiError as exc:
         logs.append(f'{node.name}: sync: {exc}')
         node.last_error = str(exc)
         session.add(node)
+        session.commit()
+        rows = []
+    created_ports = {row.port for row in created}
+    for row in rows:
+        template = by_port.get(row.port) if row.port in created_ports else None
+        if template is not None:
+            apply_subscription_from_template(row, template)
+            session.add(row)
+    if created_ports:
         session.commit()
     set_node_template_ids(session, node.id or 0, [row.id for row in wanted if row.id is not None])
     if created:
@@ -434,7 +443,7 @@ def ensure_default_node_templates(session: Session) -> None:
         set_node_template_ids(session, node.id, template_ids)
 
 
-def sync_node(session: Session, node: Node) -> list[NodeInbound]:
+def sync_node(session: Session, node: Node, *, apply_templates: bool = True) -> list[NodeInbound]:
     with XuiClient(node) as xui:
         try:
             apply_sub_settings(node, xui.panel_settings())
@@ -465,7 +474,7 @@ def sync_node(session: Session, node: Node) -> list[NodeInbound]:
         row.short_id = parsed['short_id']
         row.fingerprint = parsed['fingerprint']
         row.dest = parsed['dest']
-        tpl = template_by_port.get(parsed['port'])
+        tpl = template_by_port.get(parsed['port']) if apply_templates else None
         if tpl is not None:
             apply_subscription_from_template(row, tpl)
         elif not row.snis_locked:
