@@ -79,9 +79,8 @@ def test_node_clash_sub_url_matches_3xui():
     url = node_clash_sub_url(node, '2amob9we0rzfk1z5')
     assert url == 'https://82.40.58.78:2096/no1m62cdabx5fb5e/2amob9we0rzfk1z5'
     dumped = '\n'.join(dump_providers([node], '2amob9we0rzfk1z5')[0])
-    assert url in dumped
-    assert provider_name(node) in dumped
-    assert 'type: http' in dumped
+    assert dumped.strip() == '{}'
+    assert provider_name(node) not in dumped
 
 
 def test_missing_marker_unchanged():
@@ -181,6 +180,8 @@ def test_providers_expand_snis_and_ports():
         port=443,
         protocol='vless',
         network='grpc',
+        public_key='pk',
+        short_id='ab',
         server_names='gitlab.com,auth.gitlab.com,gprd.gitlab.com',
         use_in_sub=True,
     )
@@ -191,27 +192,32 @@ def test_providers_expand_snis_and_ports():
         port=8443,
         protocol='vless',
         network='xhttp',
+        public_key='pk2',
+        short_id='cd',
         server_names='www.yahoo.com,news.yahoo.com',
         extra_snis='news.yahoo.com',
         use_in_sub=True,
     )
-    lines, keys = dump_providers([node], 'tok', {1: [grpc, xhttp]})
+    from app.models import Client
+
+    client = Client(name='t', slug='t', uuid='u-1', sub_token='tok')
+    lines, keys = dump_providers([node], 'tok', {1: [grpc, xhttp]}, client)
     text = '\n'.join(lines)
+    from app.mihomo import published_proxies
+
+    pairs = dict(published_proxies([node], client, {1: [grpc, xhttp]}))
     assert keys[0] == 'n1-finland-82'
     assert 'n1-finland-82-auth' in keys
     assert 'n1-finland-82-gprd' in keys
     assert 'n1-finland-82-yahoo' in keys
     assert 'n1-finland-82-yahoo-news' in keys
-    assert "filter: '443-'" in text
-    assert "exclude-filter: '8443'" in text
-    assert 'n1-finland-82:\n  name: n1-finland-82' in text
-    assert '.name = "🇫🇮 Finland-82"' in text
-    assert text.index("filter: '443-'") < text.index('n1-finland-82-auth')
-    assert 'auth.gitlab.com' in text
-    assert 'news.yahoo.com' in text
-    assert "filter: '8443'" in text
+    assert 'filter:' not in text
+    assert '/prov/n1-finland-82.yaml' in text
+    assert pairs['n1-finland-82']['servername'] == 'gitlab.com'
+    assert pairs['n1-finland-82-auth']['servername'] == 'auth.gitlab.com'
+    assert pairs['n1-finland-82-yahoo-news']['servername'] == 'news.yahoo.com'
     assert 'n1-finland-82-yahoo-ymail' not in keys
-    assert text.count('url: "https://') == len(keys)
+    assert text.count('/prov/') == len(keys)
 
 
 def test_inbound_sni_chain_respects_snis_locked():

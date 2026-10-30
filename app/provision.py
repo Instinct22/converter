@@ -185,6 +185,100 @@ def node_template_ids(session: Session, node_id: int) -> list[int]:
     return [int(item) for item in rows]
 
 
+def unprovision_template(session: Session, node: Node, template: InboundTemplate) -> list[str]:
+    """Снять с ноды inbound этого шаблона, если порт больше никому не нужен."""
+    logs: list[str] = []
+    assigned = {
+        row.id
+        for row in templates_for_node(session, node)
+        if row.id is not None and row.id != template.id
+    }
+    if any(row.port == template.port and row.id in assigned for row in templates_for_node(session, node)):
+        logs.append(f'{template.name}: порт {template.port} оставлен, его держит другой вход')
+        return logs
+    rows = session.exec(
+        select(NodeInbound).where(
+            NodeInbound.node_id == node.id,
+            NodeInbound.port == template.port,
+        )
+    ).all()
+    if not rows:
+        logs.append(f'{template.name}: на {node.name} порта {template.port} не было')
+        return logs
+    with XuiClient(node, timeout=60.0) as xui:
+        for row in rows:
+            xui.del_inbound(row.xui_inbound_id)
+            for place in session.exec(
+                select(ClientPlacement).where(ClientPlacement.inbound_id == row.id)
+            ).all():
+                session.delete(place)
+            session.delete(row)
+            logs.append(f'{node.name}: вход {template.name} ({template.port}) удалён')
+    session.commit()
+    return logs
+
+
+def apply_node_templates(session: Session, node: Node, template_ids: list[int]) -> list[str]:
+    """Галочка стоит — inbound создан на ноде. Галочку сняли — inbound удалён."""
+    logs: list[str] = []
+    wanted: list[int] = []
+    seen: set[int] = set()
+    for tid in template_ids:
+        if tid in seen:
+            continue
+        seen.add(tid)
+        wanted.append(tid)
+    old = set(node_template_ids(session, node.id or 0))
+    new = set(wanted)
+    removed_ok: set[int] = set()
+    for tid in sorted(old - new):
+        template = session.get(InboundTemplate, tid)
+        if template is None:
+            removed_ok.add(tid)
+            continue
+        try:
+            logs.extend(unprovision_template(session, node, template))
+            removed_ok.add(tid)
+        except XuiError as exc:
+            logs.append(f'{template.name}: не удалён с {node.name}: {exc}')
+    added = [tid for tid in wanted if tid not in old]
+    added_ok: set[int] = set()
+    if added:
+        templates = [
+            row
+            for tid in added
+            if (row := session.get(InboundTemplate, tid)) is not None and row.enabled
+        ]
+        missing = set(added) - {row.id for row in templates if row.id is not None}
+        for tid in missing:
+            logs.append(f'шаблон {tid} не найден или выключен')
+        if templates:
+            created = provision_templates(session, node, templates)
+            logs.extend(created)
+            for template in templates:
+                if template.id is None:
+                    continue
+                marker = f'inbound {template.name}:{template.port}'
+                if any(marker in line and ('обновлён' in line or 'создан' in line) for line in created):
+                    added_ok.add(template.id)
+                    logs.append(f'{node.name}: вход {template.name} ({template.port}) навешан')
+                else:
+                    logs.append(f'{node.name}: вход {template.name} ({template.port}) не навесился')
+            if added_ok:
+                clients = session.exec(select(Client)).all()
+                for client in clients:
+                    if client_wanted_on_panel(client):
+                        logs.extend(provision_client(session, client, nodes=[node]))
+    final = [tid for tid in wanted if tid in old or tid in added_ok]
+    for tid in sorted(old - removed_ok):
+        if tid not in final:
+            final.append(tid)
+    set_node_template_ids(session, node.id or 0, final)
+    if not logs:
+        logs.append('Список входов не изменился')
+    return logs
+
+
 def set_node_template_ids(session: Session, node_id: int, template_ids: list[int]) -> None:
     for row in session.exec(
         select(NodeTemplateAssignment).where(NodeTemplateAssignment.node_id == node_id)

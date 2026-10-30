@@ -16,6 +16,7 @@ from app.provision import (
     delete_client_remote,
     node_template_ids,
     provision_client,
+    apply_node_templates,
     provision_templates,
     push_server_names,
     reconcile_clients,
@@ -317,6 +318,16 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     if template_ids is not None and node.id is not None:
         set_node_template_ids(session, node.id, template_ids)
     return _node_out(node, session)
+
+
+@router.post('/nodes/{node_id}/templates')
+def api_apply_node_templates(node_id: int, body: ProvisionIn, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    logs = apply_node_templates(session, node, body.template_ids)
+    failed = any('не удалён' in line or 'не навесился' in line for line in logs)
+    return {'ok': not failed, 'logs': logs, 'node': _node_out(node, session)}
 
 
 @router.delete('/nodes/{node_id}')

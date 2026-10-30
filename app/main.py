@@ -24,6 +24,14 @@ async def lifespan(_app: FastAPI):
 
         ensure_default_node_templates(session)
         path = init_sub_path(session)
+    from app.routers.sub import serve_provider_yaml
+
+    _app.add_api_route(
+        f'/{path}/{{token}}/prov/{{key}}.yaml',
+        serve_provider_yaml,
+        methods=['GET', 'HEAD'],
+        name='secret_provider',
+    )
     _app.add_api_route(
         f'/{path}/{{token}}',
         serve_sub,

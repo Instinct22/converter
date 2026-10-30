@@ -97,7 +97,7 @@ def _filter_yaml(filt: str) -> str:
 def _provider_cache_path(key: str, sub_id: str) -> str:
     """Unique file per client sub token so Mihomo refetches after reprovision."""
     slug = re.sub(r'[^a-z0-9]+', '', (sub_id or '').lower())[:12] or 'sub'
-    return f'./providers/{key}-{slug}-p2.yaml'
+    return f'./providers/{key}-{slug}-p3.yaml'
 
 
 def _provider_block(
@@ -216,13 +216,25 @@ def _publishable_inbound(inbound: NodeInbound) -> bool:
     return inbound.port in {443, 8443}
 
 
-def dump_providers(
+def master_provider_url(sub_id: str, key: str) -> str:
+    """Clash-кусок провайдера отдаёт Master, а не :2096 ноды.
+
+    Порт подписки 3x-ui с этой сети часто рвёт TLS. DHQ тогда видит пустой
+    провайдер и рисует Timeout, хотя VLESS на 443/8443 живой.
+    """
+    from app.sub_link import sub_path
+
+    base = (settings.public_base_url or '').rstrip('/')
+    return f'{base}/{sub_path()}/{sub_id}/prov/{key}.yaml'
+
+
+def published_proxies(
     nodes: list[Node],
-    sub_id: str,
+    client: Client,
     inbound_map: dict[int, list[NodeInbound]] | None = None,
-) -> tuple[list[str], list[str]]:
-    lines: list[str] = []
-    keys: list[str] = []
+) -> list[tuple[str, dict[str, Any]]]:
+    """Один провайдер = один уже собранный прокси (имя и SNI внутри файла)."""
+    pairs: list[tuple[str, dict[str, Any]]] = []
     used: set[str] = set()
 
     def take_key(raw: str) -> str:
@@ -237,9 +249,6 @@ def dump_providers(
     for node in nodes:
         if not (node.public_host or '').strip():
             continue
-        url = node_clash_sub_url(node, sub_id)
-        if not url:
-            continue
         prefix = node.clash_prefix()
         inbounds = [
             row
@@ -247,31 +256,18 @@ def dump_providers(
             if _publishable_inbound(row)
         ]
         inbounds.sort(key=lambda row: (row.port, row.id or 0))
-        if not inbounds:
-            key = take_key(provider_name(node))
-            keys.append(key)
-            lines.extend(
-                _provider_block(
-                    key=key,
-                    url=url,
-                    sub_id=sub_id,
-                    expr=[f'.name = "{prefix}"'] if prefix else None,
-                )
-            )
-            continue
-        has_alt = any(_is_alt_inbound(row) for row in inbounds)
         primary_emitted = False
         for inbound in inbounds:
-            snis = inbound_sni_chain(inbound)
+            snis = [item for item in inbound_sni_chain(inbound) if item]
+            if not snis:
+                continue
             display = (inbound.display_prefix or prefix).strip() or prefix
-            filt, exclude = port_name_filters(inbound, has_alt)
             alt = _is_alt_inbound(inbound)
             tag = (inbound.provider_label or '').strip()
             if alt and not tag:
                 tag = 'yahoo'
             base_name = f'{display} | {tag}' if tag else display
             for index, sni in enumerate(snis):
-                label = sni_label(sni)
                 if index == 0:
                     if alt:
                         key = take_key(_provider_slug(node, tag or 'alt'))
@@ -280,26 +276,43 @@ def dump_providers(
                         primary_emitted = True
                     else:
                         key = take_key(_provider_slug(node, str(inbound.port)))
-                    expr = [f'.name = "{base_name}"']
+                    pretty = base_name
                 else:
+                    label = sni_label(sni)
                     slug = f'{tag}-{label}' if tag else label
                     key = take_key(_provider_slug(node, slug))
                     pretty = f'{base_name} | {sni}' if base_name else sni
-                    expr = [
-                        f'.servername = "{sni}"',
-                        f'.name = "{pretty}"',
-                    ]
-                keys.append(key)
-                lines.extend(
-                    _provider_block(
-                        key=key,
-                        url=url,
-                        sub_id=sub_id,
-                        filt=filt,
-                        exclude_filter=exclude,
-                        expr=expr,
-                    )
+                proxy = build_proxy(
+                    name=pretty,
+                    node=node,
+                    inbound=inbound,
+                    client=client,
+                    servername=sni,
                 )
+                if proxy:
+                    pairs.append((key, proxy))
+    return pairs
+
+
+def dump_providers(
+    nodes: list[Node],
+    sub_id: str,
+    inbound_map: dict[int, list[NodeInbound]] | None = None,
+    client: Client | None = None,
+) -> tuple[list[str], list[str]]:
+    if client is None:
+        client = Client(name='sub', slug='sub', uuid='00000000-0000-0000-0000-000000000000', sub_token=sub_id)
+    lines: list[str] = []
+    keys: list[str] = []
+    for key, _proxy in published_proxies(nodes, client, inbound_map):
+        keys.append(key)
+        lines.extend(
+            _provider_block(
+                key=key,
+                url=master_provider_url(sub_id, key),
+                sub_id=sub_id,
+            )
+        )
     return (lines or ['{}'], keys)
 
 
@@ -485,7 +498,7 @@ def render_profile(session: Session, client: Client) -> str:
     text = doc.yaml_text
     if 'XUI_PROVIDERS_BEGIN' in text:
         provider_lines, names = dump_providers(
-            provider_nodes, client.sub_token, inbound_map
+            provider_nodes, client.sub_token, inbound_map, client
         )
         text = replace_block(text, 'PROVIDERS', provider_lines)
         pool_lines = [f'- {name}' for name in names]

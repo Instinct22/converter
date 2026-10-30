@@ -97,6 +97,39 @@ def serve_html(token: str, session: SessionDep, request: Request) -> HTMLRespons
     )
 
 
+def serve_provider_yaml(token: str, key: str, session: SessionDep) -> PlainTextResponse:
+    import yaml
+
+    from app.mihomo import published_proxies
+    from app.models import NodeInbound
+
+    if not re.fullmatch(r'[a-z0-9-]{1,64}', key or ''):
+        raise HTTPException(status_code=404, detail='unknown provider')
+    client = session.exec(select(Client).where(Client.sub_token == token)).first()
+    if client is None:
+        raise HTTPException(status_code=404, detail='unknown subscription')
+    if is_expired(client):
+        raise HTTPException(status_code=403, detail='subscription expired')
+    nodes = session.exec(select(Node).where(Node.enabled.is_(True))).all()
+    inbound_map: dict[int, list[NodeInbound]] = {}
+    for node in nodes:
+        if node.id is None:
+            continue
+        inbound_map[node.id] = session.exec(
+            select(NodeInbound).where(NodeInbound.node_id == node.id)
+        ).all()
+    proxies = [proxy for name, proxy in published_proxies(nodes, client, inbound_map) if name == key]
+    if not proxies:
+        raise HTTPException(status_code=404, detail='unknown provider')
+    body = yaml.dump(
+        {'proxies': proxies},
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    return PlainTextResponse(body, media_type='text/yaml; charset=utf-8')
+
+
 def serve_sub(token: str, session: SessionDep, request: Request):
     if wants_subscription_html(request):
         return serve_html(token, session, request)

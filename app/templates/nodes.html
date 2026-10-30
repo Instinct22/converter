@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Серверы</h1>
-    <p class="lede">Нода = панель 3x-ui. Шаблоны входов (SNI, порты) создаются в «Входах», здесь выбираете какие из них действуют на сервере. «Создать на серверах» — во вкладке Входы.</p>
+    <p class="lede">Нода = панель 3x-ui. Галочка и «Применить» создают вход на сервере. Снятая галочка удаляет этот порт с сервера.</p>
   </div>
   <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
 </div>
@@ -80,9 +80,11 @@
               </div>
               <div class="tpl-dropdown__foot">
                 <button type="button" class="btn ghost small" data-tpl-none>Очистить</button>
-                <button type="button" class="btn small" data-save-templates="{{ n.id }}">Сохранить</button>
+                <button type="button" class="btn small" data-save-templates="{{ n.id }}">Применить</button>
               </div>
             </div>
+            {% set live = live_ports.get(n.id, []) if live_ports is defined else [] %}
+            <div class="hint" style="margin:6px 0 0">{% if live %}На ноде: {{ live|join(', ') }}{% else %}На ноде входов из шаблонов нет{% endif %}</div>
           </div>
         </td>
         <td data-label="В Clash">
@@ -282,8 +284,9 @@ document.querySelectorAll('[data-save-templates]').forEach((btn) => btn.addEvent
   if (!root) return;
   const ids = tplSelectedIds(root);
   try {
-    await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + nodeId, 'PATCH', { template_ids: ids }));
-    XUI.toast('Входы сохранены');
+    const res = await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + nodeId + '/templates', 'POST', { template_ids: ids }));
+    const text = (res.logs || []).join(' · ') || 'Готово';
+    XUI.toast(text, res.ok ? undefined : 'err');
     tplCloseAll();
     setTimeout(() => location.reload(), 300);
   } catch (e) { XUI.toast(e.message, 'err'); }

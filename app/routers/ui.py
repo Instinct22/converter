@@ -133,13 +133,15 @@ def nodes_page(request: Request, session: SessionDep):
     templates_rows = session.exec(select(InboundTemplate)).all()
     counts = {}
     node_templates: dict[int, list[int]] = {}
+    live_ports: dict[int, list[int]] = {}
     for node in nodes:
         if node.id is None:
             continue
-        counts[node.id] = len(
-            session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
-        )
+        rows = session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
+        counts[node.id] = len(rows)
         node_templates[node.id] = node_template_ids(session, node.id)
+        ports = sorted({row.port for row in rows if row.use_in_sub and row.port in {443, 8443}})
+        live_ports[node.id] = ports
     return templates.TemplateResponse(
         'nodes.html',
         _ctx(
@@ -149,6 +151,7 @@ def nodes_page(request: Request, session: SessionDep):
             inbound_templates=templates_rows,
             inbound_counts=counts,
             node_templates=node_templates,
+            live_ports=live_ports,
         ),
     )
 
