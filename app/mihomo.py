@@ -97,7 +97,9 @@ def _filter_yaml(filt: str) -> str:
 def _provider_cache_path(key: str, sub_id: str) -> str:
     """Unique file per client sub token so Mihomo refetches after reprovision."""
     slug = re.sub(r'[^a-z0-9]+', '', (sub_id or '').lower())[:12] or 'sub'
-    return f'./providers/{key}-{slug}-p3.yaml'
+    # Суффикс меняется, когда меняется тело прокси: иначе DHQ час сидит
+    # на старом файле и health-check бьёт в конфиг без MLKEM.
+    return f'./providers/{key}-{slug}-p4.yaml'
 
 
 def _provider_block(
