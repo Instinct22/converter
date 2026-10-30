@@ -52,7 +52,10 @@ def client_payload(client: Client, inbound: NodeInbound | None = None) -> dict:
 
 def _already_on_panel(text: str) -> bool:
     low = text.lower()
-    return any(token in low for token in ('already exists', 'duplicate', 'unique constraint'))
+    return any(
+        token in low
+        for token in ('already exists', 'duplicate', 'unique constraint', 'already in use')
+    )
 
 
 def client_wanted_on_panel(client: Client) -> bool:
@@ -276,6 +279,90 @@ def apply_node_templates(session: Session, node: Node, template_ids: list[int]) 
     set_node_template_ids(session, node.id or 0, final)
     if not logs:
         logs.append('Список входов не изменился')
+    return logs
+
+
+def reconcile_node_templates(session: Session, node: Node, template_ids: list[int]) -> list[str]:
+    """Сверить панель с отмеченными шаблонами.
+
+    Порт уже есть — не трогаем (ключи Reality остаются). Порта нет — создаём.
+    Порт без отмеченного шаблона — удаляем.
+    """
+    logs: list[str] = []
+    wanted: list[InboundTemplate] = []
+    seen: set[int] = set()
+    for tid in template_ids:
+        if tid in seen:
+            continue
+        seen.add(tid)
+        row = session.get(InboundTemplate, tid)
+        if row is None or not row.enabled:
+            logs.append(f'шаблон {tid} не найден или выключен')
+            continue
+        wanted.append(row)
+    by_port = {row.port: row for row in wanted}
+    created: list[InboundTemplate] = []
+    with XuiClient(node, timeout=60.0) as xui:
+        remote = xui.inbounds()
+        present: dict[int, list[int]] = {}
+        for raw in remote:
+            try:
+                port = int(raw.get('port'))
+                inbound_id = int(raw.get('id'))
+            except (TypeError, ValueError):
+                continue
+            present.setdefault(port, []).append(inbound_id)
+        for port, inbound_ids in present.items():
+            if port in by_port:
+                logs.append(f'{node.name}: порт {port} уже есть')
+                continue
+            for inbound_id in inbound_ids:
+                try:
+                    xui.del_inbound(inbound_id)
+                    logs.append(f'{node.name}: лишний порт {port} удалён')
+                except XuiError as exc:
+                    logs.append(f'{node.name}: порт {port} не удалён: {exc}')
+        for port, template in by_port.items():
+            if port in present:
+                continue
+            try:
+                xui.add_inbound(build_inbound_spec(template))
+                created.append(template)
+                logs.append(f'{node.name}: вход {template.name} ({port}) создан')
+            except XuiError as exc:
+                logs.append(f'{node.name}: вход {template.name} ({port}) не создан: {exc}')
+    try:
+        sync_node(session, node)
+    except XuiError as exc:
+        logs.append(f'{node.name}: sync: {exc}')
+        node.last_error = str(exc)
+        session.add(node)
+        session.commit()
+    set_node_template_ids(session, node.id or 0, [row.id for row in wanted if row.id is not None])
+    if created:
+        for client in session.exec(select(Client)).all():
+            if client_wanted_on_panel(client):
+                logs.extend(provision_client(session, client, nodes=[node]))
+    return logs
+
+
+def reconcile_all_nodes(session: Session) -> list[str]:
+    logs: list[str] = []
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    for node in nodes:
+        if node.id is None:
+            continue
+        ids = node_template_ids(session, node.id)
+        if not ids:
+            logs.append(f'{node.name}: шаблоны не выбраны')
+            continue
+        try:
+            logs.extend(reconcile_node_templates(session, node, ids))
+        except XuiError as exc:
+            logs.append(f'{node.name}: {exc}')
+            node.last_error = str(exc)
+            session.add(node)
+            session.commit()
     return logs
 
 

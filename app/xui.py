@@ -73,6 +73,11 @@ class XuiClient:
         else:
             r = self.client.post(url, json=data if data is not None else {})
         body = _as_json(r)
+        if r.status_code == 404 and not body and path.startswith('/panel/api/'):
+            raise XuiError(
+                'панель не приняла API Token. В 3x-ui 3.5 нужен токен из '
+                'Settings → Security → API Token'
+            )
         if r.status_code >= 400 and not body:
             raise XuiError(f'{path} HTTP {r.status_code}')
         return body
@@ -106,7 +111,10 @@ class XuiClient:
         return body
 
     def del_inbound(self, inbound_id: int) -> dict[str, Any]:
-        return self.call(f'/panel/api/inbounds/del/{inbound_id}', {})
+        body = self.call(f'/panel/api/inbounds/del/{inbound_id}', {})
+        if body.get('success') is False:
+            raise XuiError(body.get('msg') or 'del inbound failed')
+        return body
 
     def restart_xray(self) -> dict[str, Any]:
         body = self.call('/panel/api/server/restartXrayService', {})

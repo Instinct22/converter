@@ -18,6 +18,8 @@ from app.provision import (
     provision_client,
     apply_node_templates,
     provision_templates,
+    reconcile_all_nodes,
+    reconcile_node_templates,
     push_server_names,
     reconcile_clients,
     set_node_template_ids,
@@ -320,14 +322,41 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     return _node_out(node, session)
 
 
+def _templates_ok(logs: list[str]) -> bool:
+    return not any(
+        'не удалён' in line or 'не навесился' in line or 'не создан' in line
+        for line in logs
+    )
+
+
+@router.post('/nodes/refresh-templates')
+def api_refresh_all_templates(session: SessionDep) -> dict:
+    logs = reconcile_all_nodes(session)
+    return {'ok': _templates_ok(logs), 'logs': logs}
+
+
+@router.post('/nodes/{node_id}/refresh-templates')
+def api_refresh_node_templates(node_id: int, body: ProvisionIn, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    try:
+        logs = reconcile_node_templates(session, node, body.template_ids)
+    except XuiError as exc:
+        node.last_error = str(exc)
+        session.add(node)
+        session.commit()
+        raise HTTPException(400, str(exc)) from exc
+    return {'ok': _templates_ok(logs), 'logs': logs, 'node': _node_out(node, session)}
+
+
 @router.post('/nodes/{node_id}/templates')
 def api_apply_node_templates(node_id: int, body: ProvisionIn, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
     logs = apply_node_templates(session, node, body.template_ids)
-    failed = any('не удалён' in line or 'не навесился' in line for line in logs)
-    return {'ok': not failed, 'logs': logs, 'node': _node_out(node, session)}
+    return {'ok': _templates_ok(logs), 'logs': logs, 'node': _node_out(node, session)}
 
 
 @router.delete('/nodes/{node_id}')

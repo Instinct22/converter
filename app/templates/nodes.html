@@ -4,9 +4,12 @@
 <div class="page-head">
   <div>
     <h1>Серверы</h1>
-    <p class="lede">Нода = панель 3x-ui. Галочка и «Применить» создают вход на сервере. Снятая галочка удаляет этот порт с сервера.</p>
+    <p class="lede">Нода = панель 3x-ui. «Применить» создаёт отмеченный вход и снимает снятый. «Сверить» проверяет панель: существующий порт не трогает, отсутствующий создаёт, лишний удаляет.</p>
   </div>
-  <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
+  <div class="row">
+    <button class="btn secondary" type="button" data-refresh-all>Сверить все</button>
+    <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
+  </div>
 </div>
 
 {% if nodes %}
@@ -80,6 +83,7 @@
               </div>
               <div class="tpl-dropdown__foot">
                 <button type="button" class="btn ghost small" data-tpl-none>Очистить</button>
+                <button type="button" class="btn small secondary" data-refresh-templates="{{ n.id }}">Сверить</button>
                 <button type="button" class="btn small" data-save-templates="{{ n.id }}">Применить</button>
               </div>
             </div>
@@ -278,16 +282,29 @@ document.querySelectorAll('[data-tpl-none]').forEach((btn) => {
     tplRefreshTrigger(root);
   });
 });
-document.querySelectorAll('[data-save-templates]').forEach((btn) => btn.addEventListener('click', async () => {
-  const nodeId = btn.dataset.saveTemplates;
+async function saveNodeTemplates(btn, nodeId, path) {
   const root = document.querySelector('.tpl-dropdown[data-node-id="' + nodeId + '"]');
   if (!root) return;
   const ids = tplSelectedIds(root);
   try {
-    const res = await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + nodeId + '/templates', 'POST', { template_ids: ids }));
+    const res = await XUI.withBusy(btn, () => XUI.api(path, 'POST', { template_ids: ids }));
     const text = (res.logs || []).join(' · ') || 'Готово';
     XUI.toast(text, res.ok ? undefined : 'err');
     tplCloseAll();
+    setTimeout(() => location.reload(), 300);
+  } catch (e) { XUI.toast(e.message, 'err'); }
+}
+document.querySelectorAll('[data-save-templates]').forEach((btn) => btn.addEventListener('click', () => {
+  saveNodeTemplates(btn, btn.dataset.saveTemplates, '/api/nodes/' + btn.dataset.saveTemplates + '/templates');
+}));
+document.querySelectorAll('[data-refresh-templates]').forEach((btn) => btn.addEventListener('click', () => {
+  saveNodeTemplates(btn, btn.dataset.refreshTemplates, '/api/nodes/' + btn.dataset.refreshTemplates + '/refresh-templates');
+}));
+document.querySelectorAll('[data-refresh-all]').forEach((btn) => btn.addEventListener('click', async () => {
+  try {
+    const res = await XUI.withBusy(btn, () => XUI.api('/api/nodes/refresh-templates', 'POST', {}));
+    const text = (res.logs || []).join(' · ') || 'Готово';
+    XUI.toast(text, res.ok ? undefined : 'err');
     setTimeout(() => location.reload(), 300);
   } catch (e) { XUI.toast(e.message, 'err'); }
 }));
