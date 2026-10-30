@@ -106,9 +106,12 @@ def match_client_row(client_slug: str, client_uuid: str, row: dict[str, Any]) ->
 
 
 def client_is_online(client_slug: str, emails: list[str]) -> bool:
+    slug = (client_slug or '').strip().lower()
+    if not slug:
+        return False
     for raw in emails:
-        email = str(raw or '')
-        if email == client_slug or email.startswith(f'{client_slug}-'):
+        email = str(raw or '').strip().lower()
+        if email == slug or email.startswith(f'{slug}-'):
             return True
     return False
 

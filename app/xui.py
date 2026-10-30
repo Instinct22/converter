@@ -276,21 +276,42 @@ class XuiClient:
         return body
 
     def onlines(self) -> list[str]:
-        for method, data in (('GET', None), ('POST', {})):
-            try:
-                body = self.call('/panel/api/inbounds/onlines', data=data, method=method)
-            except XuiError:
-                continue
-            if not body.get('success'):
-                continue
-            obj = body.get('obj') or []
-            if isinstance(obj, list):
-                return [str(x) for x in obj if x]
-            if isinstance(obj, dict):
-                emails = obj.get('emails') or obj.get('obj') or []
-                if isinstance(emails, list):
-                    return [str(x) for x in emails if x]
+        # 3x-ui 2.6+ отдаёт онлайн с /clients/onlines. Старый /inbounds/onlines
+        # на этих панелях отвечает 404, и обзор видел всех офлайн.
+        for path in ('/panel/api/clients/onlines', '/panel/api/inbounds/onlines'):
+            for method, data in (('POST', {}), ('GET', None)):
+                try:
+                    body = self.call(path, data=data, method=method)
+                except XuiError:
+                    continue
+                emails = online_emails(body)
+                if emails is not None:
+                    return emails
         return []
+
+
+def online_emails(body: Any) -> list[str] | None:
+    """Email клиентов в сети. None — этот ответ не про онлайн."""
+    if not isinstance(body, dict) or not body.get('success'):
+        return None
+    obj = body.get('obj')
+    if obj is None:
+        return []
+    if isinstance(obj, list):
+        emails: list[str] = []
+        for item in obj:
+            if isinstance(item, str) and item.strip():
+                emails.append(item.strip())
+            elif isinstance(item, dict):
+                email = str(item.get('email') or '').strip()
+                if email:
+                    emails.append(email)
+        return emails
+    if isinstance(obj, dict):
+        nested = obj.get('emails') or obj.get('obj')
+        if isinstance(nested, list):
+            return [str(item).strip() for item in nested if str(item).strip()]
+    return None
 
 
 def _as_ids(inbound_ids: int | list[int]) -> list[int]:
