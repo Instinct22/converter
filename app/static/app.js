@@ -41,9 +41,44 @@ function showLog(el, lines) {
   el.classList.add('show');
 }
 
-async function copyText(text) {
-  await navigator.clipboard.writeText(text);
-  toast('Ссылка скопирована');
+function copyViaTextarea(text) {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.top = '0';
+  area.style.left = '0';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.focus();
+  area.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch (err) {
+    ok = false;
+  }
+  area.remove();
+  return ok;
+}
+
+function copyText(text) {
+  const value = String(text || '');
+  if (!value) {
+    toast('Нечего копировать', 'err');
+    return;
+  }
+  const done = () => toast('Ссылка скопирована');
+  const fail = () => toast('Не удалось скопировать', 'err');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(value).then(done).catch(() => {
+      if (copyViaTextarea(value)) done();
+      else fail();
+    });
+    return;
+  }
+  if (copyViaTextarea(value)) done();
+  else fail();
 }
 
 function busy(btn, on) {
@@ -77,6 +112,12 @@ function closeModal(id) {
 }
 
 document.addEventListener('click', (e) => {
+  const copyBtn = e.target.closest && e.target.closest('[data-copy]');
+  if (copyBtn) {
+    e.preventDefault();
+    copyText(copyBtn.dataset.copy || copyBtn.getAttribute('data-copy') || '');
+    return;
+  }
   const closeBtn = e.target.closest && e.target.closest('[data-close]');
   if (closeBtn) {
     closeModal(closeBtn.dataset.close);

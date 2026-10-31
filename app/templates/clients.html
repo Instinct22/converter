@@ -182,7 +182,6 @@ form.onsubmit = async (e) => {
     setTimeout(() => location.reload(), 450);
   } catch (err) {}
 };
-document.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => XUI.copyText(b.dataset.copy));
 document.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
   try { openClientForm(JSON.parse(b.dataset.edit)); }
   catch (err) { XUI.toast('Не удалось открыть форму', 'err'); }

@@ -157,7 +157,6 @@ document.querySelectorAll('[data-add]').forEach((b) => b.onclick = async () => {
     location.reload();
   } catch (e) { XUI.toast(e.message, 'err'); }
 });
-document.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => XUI.copyText(b.dataset.copy));
 loadOverview().catch(() => {});
 </script>
 {% endblock %}
