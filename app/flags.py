@@ -49,8 +49,8 @@ def to_emoji(value: str) -> str:
     return (value or '').strip()
 
 
-def flagcdn(value: str) -> str:
+def flag_src(value: str) -> str:
     iso = to_iso(value)
     if not iso:
         return ''
-    return f'https://flagcdn.com/w40/{iso.lower()}.png'
+    return f'/static/flags/{iso.lower()}.png'

@@ -1,4 +1,5 @@
 .env
+scripts/add_vps.env
 data/
 /docker-publish.yml
 test11

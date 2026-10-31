@@ -139,7 +139,7 @@ function bindFlagPicker(root) {
     const current = (input.value || '').toUpperCase();
     box.innerHTML = FLAGS.map((code) => {
       const on = current === code ? ' on' : '';
-      const src = 'https://flagcdn.com/w40/' + code.toLowerCase() + '.png';
+      const src = '/static/flags/' + code.toLowerCase() + '.png';
       return `<button type="button" class="flag${on}" data-flag="${code}" title="${code}"><img src="${src}" alt="${code}"></button>`;
     }).join('');
     box.addEventListener('click', (e) => {
