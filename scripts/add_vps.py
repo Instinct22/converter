@@ -78,6 +78,7 @@ def remote_script(
     port: int,
     public_ports: list[int],
     master_ip: str,
+    server_ip: str,
     ssl_mode: str,
 ) -> str:
     exports = '\n'.join(
@@ -89,6 +90,7 @@ def remote_script(
             f'export XUI_PANEL_PORT={port}',
             f'export XUI_DB_TYPE=sqlite',
             f'export XUI_SSL_MODE={shlex.quote(ssl_mode)}',
+            f'export XUI_SERVER_IP={shlex.quote(server_ip)}',
         ]
     )
     ports = ' '.join(str(item) for item in public_ports)
@@ -103,8 +105,22 @@ if [[ ! -r /etc/os-release ]] || ! grep -Eq 'debian|ubuntu' /etc/os-release; the
   exit 2
 fi
 export DEBIAN_FRONTEND=noninteractive
-if ! bash <(curl -fsSL {shlex.quote(INSTALL_URL)}); then
+if ! apt-get update -qq || ! apt-get install -y -qq curl ca-certificates; then
+  echo "MASTER_ERROR=не удалось поставить curl"
+  exit 1
+fi
+installer=$(mktemp)
+if ! curl -fsSL {shlex.quote(INSTALL_URL)} -o "$installer"; then
+  echo "MASTER_ERROR=не скачался установщик 3x-ui"
+  exit 1
+fi
+if ! bash "$installer"; then
   echo "MASTER_ERROR=установщик 3x-ui завершился с ошибкой"
+  exit 1
+fi
+rm -f "$installer"
+if [[ ! -x /usr/local/x-ui/x-ui ]]; then
+  echo "MASTER_ERROR=x-ui не появился после установки"
   exit 1
 fi
 install -d -m 700 /etc/x-ui
@@ -169,6 +185,10 @@ ignoreip = 127.0.0.1/8 ::1 {master_ip} $operator_ip
 EOF
 systemctl enable --now fail2ban >/dev/null 2>&1 || true
 systemctl restart fail2ban >/dev/null 2>&1 || true
+if [[ -z "$token" || -z "$host" || "$access" == *"://:"* ]]; then
+  echo "MASTER_ERROR=установщик не вернул адрес или API Token"
+  exit 1
+fi
 echo "MASTER_URL=$access"
 echo "MASTER_USER=${{XUI_USERNAME}}"
 echo "MASTER_PASS=${{XUI_PASSWORD}}"
@@ -329,6 +349,7 @@ def main() -> None:
         port=port,
         public_ports=public_ports,
         master_ip=master_ip,
+        server_ip=args.host,
         ssl_mode=args.ssl,
     )
     print(f'Ставлю 3x-ui на {args.host}. Это несколько минут.', flush=True)
