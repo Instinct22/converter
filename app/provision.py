@@ -301,6 +301,12 @@ def apply_node_templates(session: Session, node: Node, template_ids: list[int]) 
         if tid not in final:
             final.append(tid)
     set_node_template_ids(session, node.id or 0, final)
+    chosen = [
+        row
+        for tid in final
+        if (row := session.get(InboundTemplate, tid)) is not None
+    ]
+    logs.extend(sync_template_fields(session, node, chosen))
     if not logs:
         logs.append('Список входов не изменился')
     return logs
@@ -379,6 +385,7 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
         for client in session.exec(select(Client)).all():
             if client_wanted_on_panel(client):
                 logs.extend(provision_client(session, client, nodes=[node]))
+    logs.extend(sync_template_fields(session, node, wanted))
     return logs
 
 
@@ -452,6 +459,53 @@ def apply_subscription_from_template(
     row.use_in_sub = template.use_in_sub
     row.use_global_sni = template.use_global_sni
     row.snis_locked = True
+
+
+def sync_template_fields(
+    session: Session,
+    node: Node,
+    templates: Iterable[InboundTemplate],
+) -> list[str]:
+    """Переписать SNI входа с шаблона в Master и на панель.
+
+    Ключи Reality не трогаем. Подписка читает имена с записи входа в Master,
+    а не из карточки шаблона. Если синхронизация прошла раньше, чем шаблон
+    привязали к ноде, в конфиге остаются старые имена.
+    """
+    by_port: dict[int, InboundTemplate] = {}
+    for template in templates:
+        if template.enabled:
+            by_port[template.port] = template
+    if not by_port or node.id is None:
+        return []
+    logs: list[str] = []
+    rows = session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
+    for row in rows:
+        template = by_port.get(row.port)
+        if template is None:
+            continue
+        names = split_csv(template.server_names)
+        same = split_csv(row.server_names) == names and split_csv(row.extra_snis) == split_csv(template.extra_snis)
+        row.server_names = template.server_names
+        row.extra_snis = template.extra_snis
+        row.snis_locked = True
+        label = (template.provider_label or '').strip()
+        if not label and names:
+            host = names[0].split(':')[0].strip().lower()
+            parts = [part for part in host.split('.') if part]
+            label = parts[1] if len(parts) >= 2 and parts[0] == 'www' else (parts[0] if parts else '')
+        if label:
+            row.provider_label = label
+        session.add(row)
+        if same:
+            continue
+        try:
+            push_server_names(node, row, names)
+            logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) в конфиге, {len(names)} имён')
+        except XuiError as exc:
+            logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) не записались на панель: {exc}')
+    session.commit()
+    return logs
 
 
 def ensure_default_node_templates(session: Session) -> None:
@@ -699,6 +753,7 @@ def provision_templates(session: Session, node: Node, templates: Iterable[Inboun
         session.commit()
         return logs
     session.commit()
+    logs.extend(sync_template_fields(session, node, ordered))
     return logs
 
 

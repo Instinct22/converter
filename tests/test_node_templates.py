@@ -115,6 +115,17 @@ def test_reconcile_keeps_existing_port_creates_missing_deletes_extra(monkeypatch
             state['rows'] = [row for row in state['rows'] if row['id'] != inbound_id]
             return {'success': True}
 
+        def get_inbound(self, inbound_id):
+            return {
+                'id': inbound_id,
+                'streamSettings': '{"network":"grpc","security":"reality","realitySettings":{"serverNames":["keep.me"],"privateKey":"keep"}}',
+                'settings': '{}',
+                'sniffing': '{}',
+            }
+
+        def update_inbound(self, inbound_id, spec):
+            return {'success': True}
+
         def add_inbound(self, spec):
             state['added'].append(spec['port'])
             state['rows'].append(
@@ -168,7 +179,7 @@ def test_reconcile_keeps_existing_port_creates_missing_deletes_extra(monkeypatch
             select(NodeInbound).where(NodeInbound.xui_inbound_id == 10)
         ).one()
         assert kept_row.use_in_sub is False
-        assert kept_row.server_names == 'keep.me'
+        assert kept_row.server_names == 'www.yahoo.com'
         created_row = session.exec(
             select(NodeInbound).where(NodeInbound.port == 443)
         ).one()
@@ -200,3 +211,76 @@ def test_apply_rejects_two_templates_on_one_port(monkeypatch):
         logs = apply_node_templates(session, node, [yahoo.id or 0, other.id or 0])
         assert any('8443' in line and 'не навесился' in line for line in logs)
         assert any('8443 Yahoo' in line and 'test2222' in line for line in logs)
+
+
+def test_apply_rewrites_snis_from_assigned_template(monkeypatch):
+    import json
+
+    from app.provision import apply_node_templates, set_node_template_ids
+
+    pushed: dict[str, object] = {}
+
+    class FakeXui:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def get_inbound(self, inbound_id):
+            return {
+                'id': inbound_id,
+                'streamSettings': json.dumps({
+                    'network': 'grpc',
+                    'security': 'reality',
+                    'realitySettings': {'serverNames': ['www.yahoo.com'], 'privateKey': 'keep-key'},
+                }),
+                'settings': '{}',
+                'sniffing': '{}',
+            }
+
+        def update_inbound(self, inbound_id, spec):
+            stream = json.loads(spec['streamSettings'])
+            pushed['names'] = stream['realitySettings']['serverNames']
+            pushed['private'] = stream['realitySettings']['privateKey']
+            return {'success': True}
+
+    engine = create_engine('sqlite://')
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        node = Node(name='FI', panel_url='https://127.0.0.1:2053/x', api_token='t')
+        samsung = InboundTemplate(
+            name='test2222',
+            port=8443,
+            enabled=True,
+            server_names='www.samsung.com, images.samsung.com',
+        )
+        session.add(node)
+        session.add(samsung)
+        session.commit()
+        session.refresh(node)
+        session.refresh(samsung)
+        inbound = NodeInbound(
+            node_id=node.id or 0,
+            xui_inbound_id=7,
+            port=8443,
+            remark='test2222',
+            server_names='www.yahoo.com, ymail.com, s.yimg.com',
+            provider_label='yahoo',
+            snis_locked=True,
+            use_in_sub=True,
+        )
+        session.add(inbound)
+        session.commit()
+        set_node_template_ids(session, node.id or 0, [samsung.id or 0])
+        monkeypatch.setattr('app.provision.XuiClient', FakeXui)
+        logs = apply_node_templates(session, node, [samsung.id or 0])
+        session.refresh(inbound)
+        assert inbound.server_names == 'www.samsung.com, images.samsung.com'
+        assert inbound.use_in_sub is True
+        assert pushed['names'] == ['www.samsung.com', 'images.samsung.com']
+        assert pushed['private'] == 'keep-key'
+        assert any('SNI' in line and '2 имён' in line for line in logs)
