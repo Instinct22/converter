@@ -43,11 +43,13 @@
             <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Копировать</button>
           </div>
         </td>
-        <td class="row" data-label="">
-          <button class="btn small secondary" type="button" data-edit='{{ client_edit_payload(c) | tojson }}'>Изменить</button>
-          <button class="btn small secondary" data-add="{{ c.id }}">+30 дней</button>
-          <button class="btn small secondary" data-prev="{{ c.id }}">YAML подписки</button>
-          <button class="btn small danger" data-del="{{ c.id }}">Удалить</button>
+        <td class="cell-actions" data-label="">
+          <div class="row">
+            <button class="btn small secondary" type="button" data-edit='{{ client_edit_payload(c) | tojson }}'>Изменить</button>
+            <button class="btn small secondary" data-add="{{ c.id }}">+30 дней</button>
+            <button class="btn small secondary" data-prev="{{ c.id }}">YAML подписки</button>
+            <button class="btn small danger" data-del="{{ c.id }}">Удалить</button>
+          </div>
         </td>
       </tr>
     {% endfor %}

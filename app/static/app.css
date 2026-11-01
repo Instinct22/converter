@@ -128,7 +128,23 @@ input:focus, textarea:focus, select:focus {
   resize: vertical;
 }
 
-.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
+.table-templates { table-layout: fixed; }
+.table-templates .c-name { width: 14%; }
+.table-templates .c-port { width: 72px; }
+.table-templates .c-net { width: 132px; }
+.table-templates .c-sec { width: 118px; }
+.table-templates .c-sub { width: 128px; }
+.table-templates .c-act { width: 196px; }
+.table-templates td { vertical-align: top; overflow-wrap: anywhere; }
+.cell-clip {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.cell-actions .row { flex-wrap: nowrap; }
 .detail-grid { display: grid; gap: 16px; }
 .detail-grid .card { margin-top: 0; }
 .stack { display: grid; gap: 16px; }
@@ -532,11 +548,13 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .table-inbounds td,
   .table-clients td {
     display: grid;
-    grid-template-columns: 110px 1fr;
+    grid-template-columns: 110px minmax(0, 1fr);
     gap: 8px;
     align-items: center;
     border: 0;
     padding: 8px 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .table-servers td::before,
   .table-inbounds td::before,
@@ -557,6 +575,7 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .table-inbounds td[data-label=""]::before,
   .table-clients td[data-label=""]::before { display: none; }
   .table-servers .col-actions .row { justify-content: flex-start; }
+  .cell-actions .row { flex-wrap: wrap; }
   input, select, textarea { font-size: 16px; }
 }
 
