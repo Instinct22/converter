@@ -32,7 +32,7 @@ function toast(text, kind) {
   el.className = 'toast' + (kind === 'err' ? ' err' : '');
   el.textContent = text;
   wrap.appendChild(el);
-  setTimeout(() => el.remove(), 4200);
+  setTimeout(() => el.remove(), kind === 'err' ? 12000 : 4200);
 }
 
 function showLog(el, lines) {

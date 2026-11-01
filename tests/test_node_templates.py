@@ -174,3 +174,29 @@ def test_reconcile_keeps_existing_port_creates_missing_deletes_extra(monkeypatch
         ).one()
         assert created_row.use_in_sub is True
         assert created_row.server_names == 'www.apple.com'
+
+
+def test_apply_rejects_two_templates_on_one_port(monkeypatch):
+    from app.provision import apply_node_templates
+
+    class FakeXui:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError('панель не должна вызываться')
+
+    engine = create_engine('sqlite://')
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        node = Node(name='EE', panel_url='https://127.0.0.1:2053/x', api_token='t')
+        yahoo = InboundTemplate(name='8443 Yahoo', port=8443, enabled=True)
+        other = InboundTemplate(name='test2222', port=8443, enabled=True)
+        session.add(node)
+        session.add(yahoo)
+        session.add(other)
+        session.commit()
+        session.refresh(node)
+        session.refresh(yahoo)
+        session.refresh(other)
+        monkeypatch.setattr('app.provision.XuiClient', FakeXui)
+        logs = apply_node_templates(session, node, [yahoo.id or 0, other.id or 0])
+        assert any('8443' in line and 'не навесился' in line for line in logs)
+        assert any('8443 Yahoo' in line and 'test2222' in line for line in logs)

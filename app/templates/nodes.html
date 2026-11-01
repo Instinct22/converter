@@ -5,6 +5,7 @@
   <div>
     <h1>Серверы</h1>
     <p class="lede">Нода = панель 3x-ui. «Применить» создаёт отмеченный вход и снимает снятый. «Сверить» проверяет панель: существующий порт не трогает, отсутствующий создаёт, лишний удаляет.</p>
+    <pre class="log" id="node-action-log"></pre>
   </div>
   <div class="row">
     <button class="btn secondary" type="button" data-refresh-all>Сверить все</button>
@@ -288,11 +289,12 @@ async function saveNodeTemplates(btn, nodeId, path) {
   const ids = tplSelectedIds(root);
   try {
     const res = await XUI.withBusy(btn, () => XUI.api(path, 'POST', { template_ids: ids }));
-    const text = (res.logs || []).join(' · ') || 'Готово';
+    const text = (res.logs || []).join('\n') || 'Готово';
+    XUI.showLog(document.getElementById('node-action-log'), text);
     XUI.toast(text, res.ok ? undefined : 'err');
     tplCloseAll();
-    setTimeout(() => location.reload(), 300);
-  } catch (e) { XUI.toast(e.message, 'err'); }
+    if (res.ok) setTimeout(() => location.reload(), 1200);
+  } catch (e) { XUI.showLog(document.getElementById('node-action-log'), e.message); }
 }
 document.querySelectorAll('[data-save-templates]').forEach((btn) => btn.addEventListener('click', () => {
   saveNodeTemplates(btn, btn.dataset.saveTemplates, '/api/nodes/' + btn.dataset.saveTemplates + '/templates');
@@ -303,10 +305,11 @@ document.querySelectorAll('[data-refresh-templates]').forEach((btn) => btn.addEv
 document.querySelectorAll('[data-refresh-all]').forEach((btn) => btn.addEventListener('click', async () => {
   try {
     const res = await XUI.withBusy(btn, () => XUI.api('/api/nodes/refresh-templates', 'POST', {}));
-    const text = (res.logs || []).join(' · ') || 'Готово';
+    const text = (res.logs || []).join('\n') || 'Готово';
+    XUI.showLog(document.getElementById('node-action-log'), text);
     XUI.toast(text, res.ok ? undefined : 'err');
-    setTimeout(() => location.reload(), 300);
-  } catch (e) { XUI.toast(e.message, 'err'); }
+    if (res.ok) setTimeout(() => location.reload(), 1200);
+  } catch (e) { XUI.showLog(document.getElementById('node-action-log'), e.message); }
 }));
 document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async () => {
   if (!confirm('Убрать сервер из Master? Панель 3x-ui не трогаем.')) return;

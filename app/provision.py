@@ -221,8 +221,32 @@ def unprovision_template(session: Session, node: Node, template: InboundTemplate
     return logs
 
 
+def port_clash_logs(session: Session, template_ids: list[int]) -> list[str]:
+    """Два шаблона на одном порту панель не примет. Не трогаем ноду и говорим, кто столкнулся."""
+    by_port: dict[int, list[str]] = {}
+    seen: set[int] = set()
+    for tid in template_ids:
+        if tid in seen:
+            continue
+        seen.add(tid)
+        row = session.get(InboundTemplate, tid)
+        if row is None or not row.enabled:
+            continue
+        by_port.setdefault(row.port, []).append(row.name)
+    logs: list[str] = []
+    for port, names in sorted(by_port.items()):
+        if len(names) < 2:
+            continue
+        joined = ' и '.join(f'«{name}»' for name in names)
+        logs.append(f'порт {port} не навесился: его делят входы {joined}. На сервере может быть только один')
+    return logs
+
+
 def apply_node_templates(session: Session, node: Node, template_ids: list[int]) -> list[str]:
     """Галочка стоит — inbound создан на ноде. Галочку сняли — inbound удалён."""
+    clash = port_clash_logs(session, template_ids)
+    if clash:
+        return clash
     logs: list[str] = []
     wanted: list[int] = []
     seen: set[int] = set()
@@ -288,6 +312,9 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
     Порт уже есть — не трогаем (ключи Reality остаются). Порта нет — создаём.
     Порт без отмеченного шаблона — удаляем.
     """
+    clash = port_clash_logs(session, template_ids)
+    if clash:
+        return clash
     logs: list[str] = []
     wanted: list[InboundTemplate] = []
     seen: set[int] = set()
