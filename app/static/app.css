@@ -248,6 +248,7 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 }
 .tpl-option:has(input:checked) .tpl-option__mark { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 
+.tpl-clash { margin: 0; padding: 8px 12px 0; color: #ff6b7a; }
 .tpl-dropdown__foot {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   padding: 10px 12px; border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.15);

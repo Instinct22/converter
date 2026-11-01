@@ -72,7 +72,7 @@
                 {% for t in inbound_templates %}
                 {% if t.enabled %}
                 <label class="tpl-option">
-                  <input type="checkbox" value="{{ t.id }}" {% if t.id in picked %}checked{% endif %}>
+                  <input type="checkbox" value="{{ t.id }}" data-port="{{ t.port }}" {% if t.id in picked %}checked{% endif %}>
                   <span class="tpl-option__body">
                     <span class="tpl-option__name">{{ t.name }}</span>
                     <span class="tpl-option__meta mono">{{ t.port }} · {{ t.network or 'grpc' }}</span>
@@ -229,6 +229,7 @@ function tplRefreshTrigger(root) {
   const ids = tplSelectedIds(root);
   if (!ids.length) {
     inner.innerHTML = '<span class="tpl-dropdown__empty">Выберите входы</span>';
+    tplSyncClash(root);
     return;
   }
   const pills = [...root.querySelectorAll('.tpl-option input:checked')].map((input) => {
@@ -237,6 +238,42 @@ function tplRefreshTrigger(root) {
     return '<span class="tpl-pill">' + (port || '—') + '</span>';
   }).join('');
   inner.innerHTML = '<span class="tpl-dropdown__count">' + ids.length + '</span><span class="tpl-dropdown__preview">' + pills + '</span>';
+  tplSyncClash(root);
+}
+function tplClashes(root) {
+  const byPort = new Map();
+  root.querySelectorAll('.tpl-option input:checked').forEach((input) => {
+    const port = input.dataset.port || '';
+    const name = input.closest('.tpl-option')?.querySelector('.tpl-option__name')?.textContent?.trim() || port;
+    if (!byPort.has(port)) byPort.set(port, []);
+    byPort.get(port).push(name);
+  });
+  const clashes = [];
+  byPort.forEach((names, port) => {
+    if (names.length > 1) {
+      const titled = names.map((item) => '«' + item + '»').join(' и ');
+      clashes.push('Порт ' + port + ' уже занят входами ' + titled + '. Можно оставить только один.');
+    }
+  });
+  return clashes;
+}
+function tplSyncClash(root) {
+  if (!root) return [];
+  const clashes = tplClashes(root);
+  const blocked = clashes.length > 0;
+  root.querySelectorAll('[data-save-templates], [data-refresh-templates]').forEach((btn) => {
+    btn.disabled = blocked;
+  });
+  let hint = root.querySelector('.tpl-clash');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.className = 'hint tpl-clash';
+    const foot = root.querySelector('.tpl-dropdown__foot');
+    if (foot) foot.before(hint);
+  }
+  hint.hidden = !blocked;
+  hint.textContent = clashes.join(' ');
+  return clashes;
 }
 function tplCloseAll(except) {
   document.querySelectorAll('.tpl-dropdown').forEach((root) => {
@@ -267,13 +304,18 @@ document.querySelectorAll('.tpl-dropdown__panel').forEach((panel) => {
   panel.addEventListener('click', (e) => e.stopPropagation());
 });
 document.querySelectorAll('.tpl-option input').forEach((input) => {
-  input.addEventListener('change', () => tplRefreshTrigger(tplDropdownRoot(input)));
+  input.addEventListener('change', () => {
+    const root = tplDropdownRoot(input);
+    tplRefreshTrigger(root);
+    tplSyncClash(root);
+  });
 });
 document.querySelectorAll('[data-tpl-all]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const root = tplDropdownRoot(btn);
     root.querySelectorAll('.tpl-option input').forEach((i) => { i.checked = true; });
     tplRefreshTrigger(root);
+    tplSyncClash(root);
   });
 });
 document.querySelectorAll('[data-tpl-none]').forEach((btn) => {
@@ -281,11 +323,19 @@ document.querySelectorAll('[data-tpl-none]').forEach((btn) => {
     const root = tplDropdownRoot(btn);
     root.querySelectorAll('.tpl-option input').forEach((i) => { i.checked = false; });
     tplRefreshTrigger(root);
+    tplSyncClash(root);
   });
 });
 async function saveNodeTemplates(btn, nodeId, path) {
   const root = document.querySelector('.tpl-dropdown[data-node-id="' + nodeId + '"]');
   if (!root) return;
+  const clashes = tplSyncClash(root);
+  if (clashes.length) {
+    const text = clashes.join('\n');
+    XUI.showLog(document.getElementById('node-action-log'), text);
+    XUI.toast(text, 'err');
+    return;
+  }
   const ids = tplSelectedIds(root);
   try {
     const res = await XUI.withBusy(btn, () => XUI.api(path, 'POST', { template_ids: ids }));
@@ -311,6 +361,7 @@ document.querySelectorAll('[data-refresh-all]').forEach((btn) => btn.addEventLis
     if (res.ok) setTimeout(() => location.reload(), 1200);
   } catch (e) { XUI.showLog(document.getElementById('node-action-log'), e.message); }
 }));
+document.querySelectorAll('.tpl-dropdown').forEach((root) => tplSyncClash(root));
 document.querySelectorAll('[data-del]').forEach((btn) => btn.addEventListener('click', async () => {
   if (!confirm('Убрать сервер из Master? Панель 3x-ui не трогаем.')) return;
   try {
