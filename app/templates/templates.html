@@ -15,6 +15,7 @@
 </div>
 <pre class="log" id="tpl-log"></pre>
 <script type="application/json" id="node-ids">{{ nodes | map(attribute='id') | list | tojson }}</script>
+<script type="application/json" id="scan-nodes">[{% for n in nodes %}{"id": {{ n.id }}, "name": {{ n.name|tojson }}, "enabled": {{ 'true' if n.enabled else 'false' }}}{% if not loop.last %},{% endif %}{% endfor %}]</script>
 
 <div class="card">
   {% if inbound_templates %}
@@ -180,6 +181,16 @@
               <label>Цель (Target)</label>
               <input name="dest" placeholder="gitlab.com:443">
               <span class="hint">Как в 3x-ui → Безопасность → Цель. После вставки Master сам снимет SNI с TLS-сертификата этой цели.</span>
+            </div>
+            <div class="field span-2">
+              <label>Задержка с сервера</label>
+              <div class="field-split">
+                <select id="scan-node">
+                  <option value="">Все серверы</option>
+                </select>
+                <button class="btn secondary" type="button" id="scan-dest">Проверить</button>
+              </div>
+              <div class="scan-results" id="scan-results"></div>
             </div>
             <div class="field span-2">
               <label>Имена сервера (SNI)</label>
@@ -370,6 +381,48 @@ f.dest.addEventListener('input', () => {
 });
 f.dest.addEventListener('paste', () => setTimeout(() => pullFromTarget(true), 80));
 f.dest.addEventListener('change', () => pullFromTarget(true));
+
+const scanNodes = JSON.parse(document.getElementById('scan-nodes')?.textContent || '[]');
+const scanSelect = document.getElementById('scan-node');
+scanNodes.filter((node) => node.enabled).forEach((node) => {
+  const option = document.createElement('option');
+  option.value = String(node.id);
+  option.textContent = node.name;
+  scanSelect?.appendChild(option);
+});
+
+function escapeScan(value) {
+  return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+
+function scanRow(row) {
+  const name = escapeScan(row.name || 'сервер');
+  if (!row.ok) return `<div class="scan-row bad">${name} · ${escapeScan(row.error || 'ошибка')}</div>`;
+  const delay = row.latency_ms ? `${row.latency_ms} мс` : 'нет ответа';
+  const note = row.feasible ? 'подходит' : (row.note || 'не подходит');
+  return `<div class="scan-row ${row.feasible ? 'ok' : 'bad'}">${name} · ${delay} · ${escapeScan(note)}</div>`;
+}
+
+document.getElementById('scan-dest')?.addEventListener('click', async (event) => {
+  const dest = (f.dest.value || '').trim();
+  const box = document.getElementById('scan-results');
+  if (!dest) {
+    XUI.toast('Укажите цель', 'err');
+    return;
+  }
+  const picked = scanSelect?.value || '';
+  const sni = (f.server_names.value || '').split(',')[0].trim();
+  try {
+    const data = await XUI.withBusy(event.currentTarget, () => XUI.api('/api/dest-scan', 'POST', {
+      dest,
+      sni,
+      node_ids: picked ? [Number(picked)] : [],
+    }));
+    if (box) box.innerHTML = (data.results || []).map(scanRow).join('');
+  } catch (err) {
+    if (box) box.textContent = err.message || 'Проверка не удалась';
+  }
+});
 
 document.getElementById('provision-all')?.addEventListener('click', async (e) => {
   const ids = JSON.parse(document.getElementById('node-ids').textContent || '[]');

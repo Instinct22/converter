@@ -74,6 +74,8 @@ class XuiClient:
             r = self.client.post(url, json=data if data is not None else {})
         body = _as_json(r)
         if r.status_code == 404 and not body and path.startswith('/panel/api/'):
+            if path.endswith('/scanRealityTarget'):
+                raise XuiError('панель не умеет проверку цели')
             raise XuiError(
                 'панель не приняла API Token. В 3x-ui 3.5 нужен токен из '
                 'Settings → Security → API Token'
@@ -81,6 +83,19 @@ class XuiClient:
         if r.status_code >= 400 and not body:
             raise XuiError(f'{path} HTTP {r.status_code}')
         return body
+
+    def scan_reality_target(self, target: str, sni: str = '') -> dict[str, Any]:
+        body = self.call(
+            '/panel/api/server/scanRealityTarget',
+            {'target': target, 'sni': sni, 'xver': 0, 'allowPrivate': False},
+        )
+        obj = body.get('obj')
+        if body.get('success') and isinstance(obj, dict):
+            return obj
+        status = body.get('status')
+        if status == 404:
+            raise XuiError('панель не умеет проверку цели')
+        raise XuiError(_xui_msg(body, 'проверка цели не удалась'))
 
     def panel_settings(self) -> dict[str, Any]:
         body = self.call('/panel/api/setting/all', {})

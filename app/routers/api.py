@@ -434,6 +434,37 @@ class DestSniIn(BaseModel):
     dest: str
 
 
+class DestScanIn(BaseModel):
+    dest: str
+    sni: str = ''
+    node_ids: list[int] = Field(default_factory=list)
+
+
+@router.post('/dest-scan')
+def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.reality_scan import normalize_target, scan_target_on_node, sort_scans
+
+    try:
+        target = normalize_target(body.dest)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    query = select(Node).where(Node.enabled == True)  # noqa: E712
+    if body.node_ids:
+        query = select(Node).where(Node.id.in_(body.node_ids))
+    nodes = session.exec(query.order_by(Node.sort_order, Node.id)).all()
+    if not nodes:
+        raise HTTPException(400, 'Нет сервера для проверки')
+    sni = (body.sni or '').split(',')[0].strip()
+    if len(nodes) == 1:
+        results = [scan_target_on_node(nodes[0], target, sni)]
+    else:
+        with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
+            results = list(pool.map(lambda node: scan_target_on_node(node, target, sni), nodes))
+    return {'target': target, 'results': sort_scans(results)}
+
+
 @router.post('/dest-sni')
 def dest_sni(body: DestSniIn) -> dict:
     try:
