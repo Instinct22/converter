@@ -47,6 +47,7 @@ jobs:
               - 'requirements.txt'
               - 'Dockerfile'
               - 'docker-compose.yml'
+              - 'deploy/**'
               - '.dockerignore'
               - '.github/workflows/docker-publish.yml'
 
@@ -127,7 +128,7 @@ jobs:
             mkdir -p ${{ env.DEPLOY_PATH }}/data
 
       - name: Pack deploy bundle
-        run: tar -czf converter-deploy.tgz docker-compose.yml && ls -lah converter-deploy.tgz
+        run: tar -czf converter-deploy.tgz docker-compose.yml deploy && ls -lah converter-deploy.tgz
 
       - name: Sync deploy bundle
         uses: appleboy/scp-action@v1.0.0
@@ -212,7 +213,8 @@ jobs:
             fi
             restore_grub_install
             if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'Status: active'; then
-              ufw allow 8080/tcp || true
+              ufw allow 80/tcp || true
+              ufw allow 443/tcp || true
             fi
             docker --version
             docker compose version
@@ -223,7 +225,8 @@ jobs:
           XUI_MASTER_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME || 'admin' }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'http://5.180.174.204:8080' }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'https://master.aegis-gate.ru' }}
+          UPDATE_BASE_URL: ${{ vars.UPDATE_BASE_URL || 'https://api.aegis-gate.ru' }}
           SUB_PATH: ${{ vars.SUB_PATH || '' }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -233,7 +236,7 @@ jobs:
           password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
           command_timeout: 15m
           script_stop: false
-          envs: XUI_MASTER_IMAGE,ADMIN_USERNAME,ADMIN_PASSWORD,PUBLIC_BASE_URL,SUB_PATH,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
+          envs: XUI_MASTER_IMAGE,ADMIN_USERNAME,ADMIN_PASSWORD,PUBLIC_BASE_URL,UPDATE_BASE_URL,SUB_PATH,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
           script: |
             set -eu
             echo "=== Deploy converter ==="
@@ -262,6 +265,7 @@ jobs:
               env_line HOST 0.0.0.0
               env_line PORT 8080
               env_line PUBLIC_BASE_URL "$PUBLIC_BASE_URL"
+              env_line UPDATE_BASE_URL "${UPDATE_BASE_URL:-https://api.aegis-gate.ru}"
               env_line SUB_PATH "$SUB_PATH"
               env_line ADMIN_USERNAME "${ADMIN_USERNAME:-admin}"
               env_line ADMIN_PASSWORD "$ADMIN_PASSWORD"
@@ -274,6 +278,10 @@ jobs:
             docker compose ps
             if ! docker compose ps --status running 2>/dev/null | grep -q xui-master; then
               docker compose logs --tail=120 xui-master || true
+              exit 1
+            fi
+            if ! docker compose ps --status running 2>/dev/null | grep -q caddy; then
+              docker compose logs --tail=160 caddy || true
               exit 1
             fi
 

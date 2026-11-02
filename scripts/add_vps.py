@@ -301,7 +301,7 @@ def main() -> None:
     parser.add_argument('--ssh-password', default=os.environ.get('VPS_SSH_PASSWORD', ''))
     parser.add_argument('--name', default=os.environ.get('VPS_NAME', ''), help='Имя в Master, например Netherlands-01')
     parser.add_argument('--flag', default=os.environ.get('VPS_FLAG', ''), help='Флаг, например NL')
-    parser.add_argument('--master', default=os.environ.get('MASTER_URL', 'http://5.180.174.204:8080'))
+    parser.add_argument('--master', default=os.environ.get('MASTER_URL', 'https://master.aegis-gate.ru'))
     parser.add_argument('--master-user', default=os.environ.get('MASTER_USER', ''))
     parser.add_argument('--master-password', default=os.environ.get('MASTER_PASSWORD', ''))
     parser.add_argument(

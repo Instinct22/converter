@@ -1,0 +1,17 @@
+{
+	email admin@aegis-gate.ru
+}
+
+aegis-gate.ru, www.aegis-gate.ru {
+	root * /srv/site
+	encode gzip
+	file_server
+}
+
+master.aegis-gate.ru {
+	reverse_proxy xui-master:8080
+}
+
+api.aegis-gate.ru {
+	reverse_proxy xui-master:8080
+}

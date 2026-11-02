@@ -6,7 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.database import init_db
 from app.database import engine
-from app.routers import api, sub, ui
+from app.routers import api, sub, ui, updates
 from app.scheduler import start_scheduler
 from app.bootstrap import seed_if_empty
 from app.routers.sub import serve_sub
@@ -56,6 +56,7 @@ app.mount('/static', StaticFiles(directory=str(ROOT / 'app' / 'static')), name='
 app.include_router(api.router)
 app.include_router(ui.router)
 app.include_router(sub.router)
+app.include_router(updates.router)
 
 
 def run() -> None:

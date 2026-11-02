@@ -41,7 +41,7 @@ docker compose up --build -d
 
 ## GitHub → Docker Hub → VPS
 
-Push в `main` собирает образ `liiiiiiiiis/converter:latest` и поднимает его на `5.180.174.204` (`/opt/converter`, порт 8080).
+Push в `main` собирает образ `liiiiiiiiis/converter:latest` и поднимает его на `5.180.174.204` (`/opt/converter`). Снаружи открыты 80 и 443: Caddy выпускает сертификаты и отдаёт сайт, панель и API обновлений. Панель на `127.0.0.1:8080` остаётся только для самого сервера.
 
 Secrets (Settings → Secrets and variables → Actions):
 
@@ -49,7 +49,7 @@ Secrets (Settings → Secrets and variables → Actions):
 - `DEPLOY_SSH_PASSWORD` — root по SSH на VPS
 - `ADMIN_USERNAME` (логин панели, обычно `admin`) / `ADMIN_PASSWORD` (пароль входа)
 
-Variable: `PUBLIC_BASE_URL` (по умолчанию `http://5.180.174.204:8080`).
+Variables: `PUBLIC_BASE_URL` (по умолчанию `https://master.aegis-gate.ru`) и `UPDATE_BASE_URL` (по умолчанию `https://api.aegis-gate.ru`).
 
 На голом Debian 13 pipeline сам ставит `ca-certificates`, `curl`, `gnupg`, `iptables`, `nftables`, `uidmap`, `dbus`, `kmod`, `iproute2`, затем Docker CE и compose plugin.
 

@@ -2,9 +2,28 @@ services:
   xui-master:
     image: ${XUI_MASTER_IMAGE:-liiiiiiiiis/converter:latest}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     env_file:
       - .env
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/site:/srv/site:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - xui-master
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
