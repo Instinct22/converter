@@ -216,11 +216,12 @@ th .sort-btn { color: inherit; font: inherit; letter-spacing: inherit; text-tran
     var(--bg);
   box-shadow: inset 3px 0 0 var(--ok);
 }
-tr.is-online td {
+tr.is-online {
   background:
-    linear-gradient(90deg, rgba(61, 214, 140, 0.16), rgba(61, 214, 140, 0.04) 42%, transparent 72%),
+    linear-gradient(90deg, rgba(61, 214, 140, 0.2), rgba(61, 214, 140, 0.05) 36%, transparent 68%),
     var(--bg);
 }
+tr.is-online td { background: transparent; }
 tr.is-online td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 .live-tag {
   display: inline-flex; align-items: center; gap: 6px;
@@ -245,11 +246,12 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 14px 12px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
 th { color: var(--faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
 tr:hover td { background: rgba(255,255,255,0.02); }
-tr.is-online:hover td {
+tr.is-online:hover {
   background:
-    linear-gradient(90deg, rgba(61, 214, 140, 0.24), rgba(61, 214, 140, 0.08) 46%, rgba(255,255,255,0.02) 78%),
+    linear-gradient(90deg, rgba(61, 214, 140, 0.26), rgba(61, 214, 140, 0.08) 36%, rgba(255,255,255,0.03) 68%),
     var(--bg);
 }
+tr.is-online:hover td { background: transparent; }
 .table-servers { table-layout: fixed; min-width: 980px; }
 .table-servers col.col-name { width: 26%; }
 .table-servers col.col-host { width: 16%; }
