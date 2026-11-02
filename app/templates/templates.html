@@ -349,6 +349,10 @@ function fillTpl(data) {
   f.tls_key_file.value = val(data, 'tls_key_file', '');
   f.reject_unknown_sni.checked = !!data.reject_unknown_sni;
   lastPulledDest = '';
+  const scanBox = document.getElementById('scan-results');
+  if (scanBox) scanBox.replaceChildren();
+  const scanNode = document.getElementById('scan-node');
+  if (scanNode) scanNode.value = '';
   document.getElementById('sni-meta').textContent = 'Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.';
   document.getElementById('tpl-title').textContent = data.id ? 'Изменить входящее' : 'Новое входящее';
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.pane === 'general'));
