@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from sqlmodel import select
 
 from app.deps import SessionDep, credentials_ok, request_authorized
@@ -22,9 +23,22 @@ def unique_snis(*parts: str) -> list[str]:
                 ordered.append(item)
     return ordered
 
+def script_json(value) -> Markup:
+    raw = json.dumps(value, ensure_ascii=False, default=str)
+    raw = (
+        raw.replace('&', '\\u0026')
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
+    )
+    return Markup(raw)
+
+
 router = APIRouter()
 templates = Jinja2Templates(directory=str(ROOT / 'app' / 'templates'))
 templates.env.filters['tojson'] = lambda value: json.dumps(value, ensure_ascii=False, default=str)
+templates.env.filters['script_json'] = script_json
 
 
 def client_edit_payload(client: Client) -> dict:
@@ -192,9 +206,19 @@ def templates_page(request: Request, session: SessionDep):
         return redir
     rows = session.exec(select(InboundTemplate)).all()
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    scan_nodes = [
+        {'id': node.id, 'name': node.name, 'enabled': bool(node.enabled)}
+        for node in nodes
+    ]
     return templates.TemplateResponse(
         'templates.html',
-        _ctx(request, page='templates', inbound_templates=rows, nodes=nodes),
+        _ctx(
+            request,
+            page='templates',
+            inbound_templates=rows,
+            nodes=nodes,
+            scan_nodes=scan_nodes,
+        ),
     )
 
 
