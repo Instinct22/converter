@@ -64,12 +64,16 @@ class XuiClient:
         path: str,
         data: Any = None,
         method: str | None = None,
+        form: bool = False,
     ) -> dict[str, Any]:
         self.login()
         url = f'{self.base}{path}'
         verb = method or ('POST' if data is not None else 'GET')
         if verb == 'GET':
             r = self.client.get(url)
+        elif form:
+            fields = data if isinstance(data, dict) else {}
+            r = self.client.post(url, data={key: '' if value is None else str(value) for key, value in fields.items()})
         else:
             r = self.client.post(url, json=data if data is not None else {})
         body = _as_json(r)
@@ -87,7 +91,8 @@ class XuiClient:
     def scan_reality_target(self, target: str, sni: str = '') -> dict[str, Any]:
         body = self.call(
             '/panel/api/server/scanRealityTarget',
-            {'target': target, 'sni': sni, 'xver': 0, 'allowPrivate': False},
+            {'target': target, 'sni': sni, 'xver': '0', 'allowPrivate': 'false'},
+            form=True,
         )
         obj = body.get('obj')
         if body.get('success') and isinstance(obj, dict):
