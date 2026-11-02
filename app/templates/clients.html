@@ -23,10 +23,17 @@
 <div class="card">
   <div class="table-scroll">
   <table class="table-clients">
-    <thead><tr><th>Кто</th><th>Статус</th><th>Срок</th><th>Использовано</th><th>Подписка</th><th></th></tr></thead>
-    <tbody>
+    <thead><tr>
+      <th><button class="sort-btn" type="button" data-sort="name">Кто</button></th>
+      <th><button class="sort-btn" type="button" data-sort="online">Статус</button></th>
+      <th><button class="sort-btn" type="button" data-sort="days">Срок</button></th>
+      <th><button class="sort-btn" type="button" data-sort="used">Использовано</button></th>
+      <th>Подписка</th>
+      <th></th>
+    </tr></thead>
+    <tbody id="client-table">
     {% for c in clients %}
-      <tr data-client="{{ c.id }}">
+      <tr data-client="{{ c.id }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0">
         <td data-label="Кто">
           <strong>{{ c.name }}</strong>
         </td>
@@ -216,8 +223,15 @@ async function fillUsage() {
     if (!row) return;
     const traffic = row.querySelector('[data-traffic]');
     if (traffic) traffic.textContent = c.used_label + ' / ' + c.limit_label;
+    const online = Number(c.online_nodes || 0);
+    row.dataset.online = String(online);
+    row.dataset.used = String(c.used || 0);
+    row.classList.toggle('is-online', online > 0);
     const on = row.querySelector('[data-online]');
-    if (on) on.textContent = c.online_nodes ? ('в сети на ' + c.online_nodes) : 'не в сети';
+    if (on) {
+      on.textContent = online ? ('в сети на ' + online) : 'не в сети';
+      on.classList.toggle('live-tag', online > 0);
+    }
     const status = row.querySelector('[data-status]');
     if (status) {
       status.textContent = c.expired ? 'закрыт' : 'активен';
@@ -225,7 +239,11 @@ async function fillUsage() {
       status.classList.toggle('ok', !c.expired);
     }
   });
+  clientSort.resort();
 }
+const clientSort = document.getElementById('client-table')
+  ? XUI.bindSort(document.getElementById('client-table'))
+  : { resort() {} };
 fillUsage().catch(() => {});
 document.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
   if (!confirm('Удалить человека с серверов и из Master? Ссылка сразу перестанет открываться.')) return;

@@ -169,7 +169,65 @@ function applyDestSni(input, meta, data, opts) {
 
 document.addEventListener('DOMContentLoaded', () => bindFlagPicker(document));
 
+function sortValue(row, key) {
+  const raw = row.dataset[key] ?? '';
+  if (raw === '∞') return Number.POSITIVE_INFINITY;
+  if (raw !== '' && Number.isFinite(Number(raw))) return Number(raw);
+  return raw.toLocaleLowerCase();
+}
+
+function bindSort(list) {
+  const scope = list.closest('.fold, .card') || list.parentElement;
+  const buttons = scope.querySelectorAll('[data-sort]');
+  let key = '';
+  let dir = 1;
+  function marks() {
+    buttons.forEach((btn) => {
+      const on = btn.dataset.sort === key;
+      btn.classList.toggle('on', on);
+      btn.classList.toggle('asc', on && dir > 0);
+      btn.classList.toggle('desc', on && dir < 0);
+    });
+  }
+  function resort() {
+    if (!key) return;
+    const rows = [...list.children].filter((el) => el.matches('article, tr'));
+    rows.sort((a, b) => {
+      const av = sortValue(a, key);
+      const bv = sortValue(b, key);
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), 'ru');
+      return cmp * dir;
+    });
+    rows.forEach((row) => list.appendChild(row));
+  }
+  buttons.forEach((btn) => btn.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const next = btn.dataset.sort;
+    if (key === next) dir *= -1;
+    else {
+      key = next;
+      dir = next === 'name' || next === 'host' ? 1 : -1;
+    }
+    marks();
+    resort();
+  }));
+  return { resort };
+}
+
+function bindFolds(root) {
+  root.querySelectorAll('details.fold[data-fold]').forEach((el) => {
+    const store = 'fold-' + el.dataset.fold;
+    if (localStorage.getItem(store) === '0') el.open = false;
+    el.addEventListener('toggle', () => {
+      localStorage.setItem(store, el.open ? '1' : '0');
+    });
+  });
+}
+
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
-  pullDestSni, applyDestSni,
+  pullDestSni, applyDestSni, bindSort, bindFolds,
 };

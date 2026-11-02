@@ -157,20 +157,78 @@ input:focus, textarea:focus, select:focus {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
+.fold > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary .sub { margin-bottom: 0; }
+.fold-chev {
+  width: 28px; height: 28px; margin-top: 2px; border-radius: 8px; flex: none;
+  border: 1px solid var(--line); color: var(--muted);
+  display: grid; place-items: center;
+}
+.fold-chev::before {
+  content: '';
+  width: 7px; height: 7px;
+  border: solid currentColor; border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -2px);
+}
+.fold:not([open]) .fold-chev::before { transform: rotate(-45deg) translate(-1px, 0); }
+.fold:not([open]) > .fold-body { display: none; }
+.fold-body { margin-top: 16px; }
 .monitor { display: grid; gap: 8px; }
-.monitor-row {
+.monitor-cols {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(140px, 1.35fr) minmax(110px, 0.9fr) minmax(88px, 0.65fr) minmax(140px, 1fr) auto;
   gap: 12px;
   align-items: center;
+}
+.monitor-head { padding: 0 14px 4px; }
+.sort-btn {
+  appearance: none; background: none; border: 0; padding: 0;
+  color: var(--faint); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase; text-align: left;
+  cursor: pointer;
+}
+.sort-btn:hover, .sort-btn.on { color: var(--accent-2); }
+.sort-btn.asc::after { content: ' ↑'; }
+.sort-btn.desc::after { content: ' ↓'; }
+th .sort-btn { color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+.monitor-row {
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--bg);
+}
+.monitor-row.is-online {
+  border-color: rgba(61, 214, 140, 0.5);
+  background:
+    linear-gradient(90deg, rgba(61, 214, 140, 0.2), rgba(61, 214, 140, 0.05) 46%, transparent 78%),
+    var(--bg);
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+tr.is-online td {
+  background:
+    linear-gradient(90deg, rgba(61, 214, 140, 0.16), rgba(61, 214, 140, 0.04) 42%, transparent 72%),
+    var(--bg);
+}
+tr.is-online td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+.live-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: #d8ffe9; font-weight: 700;
+}
+.live-tag::before {
+  content: ''; width: 7px; height: 7px; border-radius: 99px; background: var(--ok);
+  box-shadow: 0 0 0 4px var(--ok-soft);
 }
 .monitor-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .monitor-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; color: var(--muted); font-size: 13px; }
@@ -187,6 +245,11 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 14px 12px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
 th { color: var(--faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
 tr:hover td { background: rgba(255,255,255,0.02); }
+tr.is-online:hover td {
+  background:
+    linear-gradient(90deg, rgba(61, 214, 140, 0.24), rgba(61, 214, 140, 0.08) 46%, rgba(255,255,255,0.02) 78%),
+    var(--bg);
+}
 .table-servers { table-layout: fixed; min-width: 980px; }
 .table-servers col.col-name { width: 26%; }
 .table-servers col.col-host { width: 16%; }
@@ -464,7 +527,7 @@ details.help summary { cursor: pointer; font-weight: 600; }
 details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
 
 @media (min-width: 1280px) {
-  .overview-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+  .overview-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (min-width: 1400px) {
@@ -507,7 +570,8 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .nav a svg { flex: none; }
   .page-head .row { justify-content: stretch; }
   .stats, .form-grid, .split, .overview-grid, .field-split { grid-template-columns: 1fr; }
-  .monitor-row { grid-template-columns: 1fr; }
+  .monitor-head { display: none; }
+  .monitor-cols, .monitor-row { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
   .page-head { flex-direction: column; align-items: stretch; }
   .page-head .row, .page-head > .btn, .page-head > a.btn { width: 100%; justify-content: center; }

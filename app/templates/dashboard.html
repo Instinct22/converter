@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Обзор флота</h1>
-    <p class="lede">Слева — живые ноды 3x-ui. Справа — люди, трафик, срок и продление. Данные подтягиваются с панелей по API.</p>
+    <p class="lede">Сначала ноды, ниже клиенты. Списки можно свернуть. Заголовки колонок сортируют строки. Данные подтягиваются с панелей по API.</p>
   </div>
   <div class="row">
     <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
@@ -19,77 +19,103 @@
 </div>
 
 <div class="overview-grid">
-  <section class="card">
-    <h2>Ноды</h2>
-    <p class="sub">Доступность панели, Xray, порты. Выключите свитч — сервер исчезнет из подписки.</p>
+  <details class="card fold" data-fold="nodes" open>
+    <summary>
+      <div>
+        <h2>Ноды</h2>
+        <p class="sub">Доступность панели, Xray, порты. Выключите свитч — сервер исчезнет из подписки.</p>
+      </div>
+      <span class="fold-chev" aria-hidden="true"></span>
+    </summary>
     {% if nodes %}
-    <div class="monitor" id="node-monitor">
-      {% for n in nodes %}
-      <article class="monitor-row" data-node="{{ n.id }}">
-        <div class="monitor-main">
-          <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
-          <span class="name-flag">
-            {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
-            <strong>{{ n.name }}</strong>
-          </span>
-        </div>
-        <div class="monitor-meta">
-          <span class="mono">{{ n.public_host or '—' }}</span>
-          <span class="hint" data-ports>{{ inbound_counts.get(n.id, 0) }} вх.</span>
-          <span class="hint" data-live>—</span>
-        </div>
-        <div class="monitor-actions">
-          <label class="switch" title="В подписке">
-            <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
-            <span></span>
-          </label>
-          <a class="btn small secondary" href="/nodes/{{ n.id }}">Открыть</a>
-        </div>
-      </article>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty">
-      <h3>Нод ещё нет</h3>
-      <p>Добавьте первую панель 3x-ui: URL и API Token.</p>
-      <a class="btn" href="/nodes">Добавить сервер</a>
-    </div>
-    {% endif %}
-  </section>
-
-  <section class="card">
-    <h2>Клиенты</h2>
-    <p class="sub">Трафик с панелей, сколько дней до отключения, кто сейчас в сети.</p>
-    {% if clients %}
-    <div class="monitor" id="client-monitor">
-      {% for c in clients %}
-      <article class="monitor-row client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}">
-        <div class="monitor-main">
-          <span class="status-dot {{ 'bad' if is_expired(c) else 'ok' }}" data-cdot></span>
-          <div>
-            <strong>{{ c.name }}</strong>
-            <div class="hint" style="margin:0" data-expire>{{ expire_label(c) }}</div>
+    <div class="fold-body">
+      <div class="monitor-head monitor-cols">
+        <button class="sort-btn" type="button" data-sort="name">Сервер</button>
+        <button class="sort-btn" type="button" data-sort="host">Адрес</button>
+        <button class="sort-btn" type="button" data-sort="ports">Входы</button>
+        <button class="sort-btn" type="button" data-sort="cpu">Состояние</button>
+        <span></span>
+      </div>
+      <div class="monitor" id="node-monitor">
+        {% for n in nodes %}
+        <article class="monitor-row monitor-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1">
+          <div class="monitor-main">
+            <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
+            <span class="name-flag">
+              {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+              <strong>{{ n.name }}</strong>
+            </span>
           </div>
-        </div>
-        <div class="monitor-meta">
-          <span data-traffic>трафик…</span>
-          <span class="hint" data-online>—</span>
-        </div>
-        <div class="monitor-actions">
-          <button class="btn small secondary" type="button" data-add="{{ c.id }}">+30 дней</button>
-          <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Ссылка</button>
-        </div>
-      </article>
-      {% endfor %}
+          <span class="mono">{{ n.public_host or '—' }}</span>
+          <span class="hint" data-ports-label>{{ inbound_counts.get(n.id, 0) }} вх.</span>
+          <span class="hint" data-live>—</span>
+          <div class="monitor-actions">
+            <label class="switch" title="В подписке">
+              <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
+              <span></span>
+            </label>
+            <a class="btn small secondary" href="/nodes/{{ n.id }}">Открыть</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
     </div>
     {% else %}
-    <div class="empty">
-      <h3>Клиентов нет</h3>
-      <p>После серверов выдайте человеку ссылку подписки — её вставляют в DHQ, не файл YAML.</p>
-      <a class="btn" href="/clients">Выдать доступ</a>
+    <div class="fold-body">
+      <div class="empty">
+        <h3>Нод ещё нет</h3>
+        <p>Добавьте первую панель 3x-ui: URL и API Token.</p>
+        <a class="btn" href="/nodes">Добавить сервер</a>
+      </div>
     </div>
     {% endif %}
-  </section>
+  </details>
+
+  <details class="card fold" data-fold="clients" open>
+    <summary>
+      <div>
+        <h2>Клиенты</h2>
+        <p class="sub">Трафик с панелей, сколько дней до отключения, кто сейчас в сети.</p>
+      </div>
+      <span class="fold-chev" aria-hidden="true"></span>
+    </summary>
+    {% if clients %}
+    <div class="fold-body">
+      <div class="monitor-head monitor-cols">
+        <button class="sort-btn" type="button" data-sort="name">Кто</button>
+        <button class="sort-btn" type="button" data-sort="used">Трафик</button>
+        <button class="sort-btn" type="button" data-sort="days">Срок</button>
+        <button class="sort-btn" type="button" data-sort="online">Сеть</button>
+        <span></span>
+      </div>
+      <div class="monitor" id="client-monitor">
+        {% for c in clients %}
+        <article class="monitor-row monitor-cols client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0">
+          <div class="monitor-main">
+            <span class="status-dot {{ 'bad' if is_expired(c) else 'ok' }}" data-cdot></span>
+            <strong>{{ c.name }}</strong>
+          </div>
+          <span data-traffic>трафик…</span>
+          <span class="hint" data-expire>{{ expire_label(c) }}</span>
+          <span class="hint" data-online>—</span>
+          <div class="monitor-actions">
+            <button class="btn small secondary" type="button" data-add="{{ c.id }}">+30 дней</button>
+            <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Ссылка</button>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="fold-body">
+      <div class="empty">
+        <h3>Клиентов нет</h3>
+        <p>После серверов выдайте человеку ссылку подписки — её вставляют в DHQ, не файл YAML.</p>
+        <a class="btn" href="/clients">Выдать доступ</a>
+      </div>
+    </div>
+    {% endif %}
+  </details>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -118,22 +144,35 @@ async function loadOverview() {
         live.textContent = bits.join(' · ') || 'онлайн';
       }
     }
-    const ports = row.querySelector('[data-ports]');
-    if (ports && n.inbound_count != null) ports.textContent = n.inbound_count + ' вх.';
+    const ports = row.querySelector('[data-ports-label]');
+    if (ports && n.inbound_count != null) {
+      ports.textContent = n.inbound_count + ' вх.';
+      row.dataset.ports = String(n.inbound_count);
+    }
+    row.dataset.cpu = n.online && n.cpu != null ? String(n.cpu) : '-1';
   });
   (data.clients || []).forEach((c) => {
     const row = document.querySelector('[data-client="' + c.id + '"]');
     if (!row) return;
     const traffic = row.querySelector('[data-traffic]');
     if (traffic) traffic.textContent = c.used_label + ' / ' + c.limit_label;
+    row.dataset.used = String(c.used || 0);
+    const online = Number(c.online_nodes || 0);
+    row.dataset.online = String(online);
+    row.classList.toggle('is-online', online > 0);
     const on = row.querySelector('[data-online]');
-    if (on) on.textContent = c.online_nodes ? ('в сети на ' + c.online_nodes) : 'не в сети';
+    if (on) {
+      on.textContent = online ? ('в сети на ' + online) : 'не в сети';
+      on.classList.toggle('live-tag', online > 0);
+    }
     const dot = row.querySelector('[data-cdot]');
     if (dot) {
       dot.classList.remove('ok', 'bad');
       dot.classList.add(c.expired ? 'bad' : 'ok');
     }
   });
+  nodeSort.resort();
+  clientSort.resort();
 }
 
 document.getElementById('refresh-overview')?.addEventListener('click', async (e) => {
@@ -157,6 +196,13 @@ document.querySelectorAll('[data-add]').forEach((b) => b.onclick = async () => {
     location.reload();
   } catch (e) { XUI.toast(e.message, 'err'); }
 });
+const nodeSort = document.getElementById('node-monitor')
+  ? XUI.bindSort(document.getElementById('node-monitor'))
+  : { resort() {} };
+const clientSort = document.getElementById('client-monitor')
+  ? XUI.bindSort(document.getElementById('client-monitor'))
+  : { resort() {} };
+XUI.bindFolds(document);
 loadOverview().catch(() => {});
 </script>
 {% endblock %}
