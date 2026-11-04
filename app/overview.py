@@ -71,6 +71,44 @@ def probe_node(node: Node) -> dict[str, Any]:
     return out
 
 
+def probe_presence(node: Node) -> dict[str, Any]:
+    """Только список email в сети. Без статистики трафика и статуса Xray."""
+    out: dict[str, Any] = {
+        'id': node.id,
+        'online': False,
+        'error': '',
+        'online_emails': [],
+    }
+    try:
+        with XuiClient(node, timeout=5.0) as xui:
+            out['online_emails'] = xui.onlines()
+        out['online'] = True
+    except Exception as exc:
+        out['error'] = str(exc)
+    return out
+
+
+def probe_nodes_presence(nodes: list[Node]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    if not nodes:
+        return result
+    workers = min(8, len(nodes))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(probe_presence, node): node.id for node in nodes if node.id}
+        for fut in as_completed(futs):
+            node_id = futs[fut]
+            try:
+                result[node_id] = fut.result()
+            except Exception as exc:
+                result[node_id] = {
+                    'id': node_id,
+                    'online': False,
+                    'error': str(exc),
+                    'online_emails': [],
+                }
+    return result
+
+
 def probe_nodes(nodes: list[Node]) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
     if not nodes:

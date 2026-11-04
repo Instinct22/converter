@@ -25,3 +25,12 @@ def test_client_online_if_any_node_reports_email():
     }
     usage = aggregate_client_usage(client, nodes, probes)
     assert usage['online_nodes'] == 1
+
+
+def test_presence_probe_counts_without_traffic_rows():
+    client = Client(name='Bane', slug='bane139', uuid='u', sub_token='t')
+    nodes = [Node(id=3, name='NL', panel_url='https://nl', api_token='a')]
+    probes = {3: {'online_emails': ['bane139']}}
+    usage = aggregate_client_usage(client, nodes, probes)
+    assert usage['online_nodes'] == 1
+    assert usage['used'] == 0

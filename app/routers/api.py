@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from app.deps import SessionDep, require_admin
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
-from app.overview import aggregate_client_usage, probe_nodes
+from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence
 from app.sub_link import client_sub_url
 from app.provision import (
     apply_sub_settings,
@@ -736,3 +736,19 @@ def overview(session: SessionDep) -> dict:
             }
         )
     return {'nodes': node_out, 'clients': client_out}
+
+
+@router.get('/presence')
+def presence(session: SessionDep) -> dict:
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    clients = session.exec(select(Client).order_by(Client.id.desc())).all()
+    probes = probe_nodes_presence(nodes)
+    return {
+        'clients': [
+            {
+                'id': client.id,
+                'online_nodes': aggregate_client_usage(client, nodes, probes)['online_nodes'],
+            }
+            for client in clients
+        ]
+    }

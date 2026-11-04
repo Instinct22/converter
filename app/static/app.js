@@ -217,6 +217,46 @@ function bindSort(list) {
   return { resort };
 }
 
+function applyClientPresence(clients) {
+  (clients || []).forEach((client) => {
+    const row = document.querySelector('[data-client="' + client.id + '"]');
+    if (!row) return;
+    const online = Number(client.online_nodes || 0);
+    row.dataset.online = String(online);
+    row.classList.toggle('is-online', online > 0);
+    const label = row.querySelector('[data-online]');
+    if (!label) return;
+    label.textContent = online ? ('в сети на ' + online) : 'не в сети';
+    label.classList.toggle('live-tag', online > 0);
+  });
+}
+
+function watchPresence(after) {
+  const everyMs = 10000;
+  let timer = 0;
+  let busy = false;
+
+  async function tick() {
+    if (document.hidden || busy) return;
+    busy = true;
+    try {
+      const data = await api('/api/presence');
+      applyClientPresence(data.clients);
+      if (after) after();
+    } catch (err) {
+      // Последний статус остаётся на экране, страница не перезагружается.
+    } finally {
+      busy = false;
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) tick();
+  });
+  timer = setInterval(tick, everyMs);
+  return { tick, stop() { clearInterval(timer); } };
+}
+
 function bindFolds(root) {
   root.querySelectorAll('details.fold[data-fold]').forEach((el) => {
     const store = 'fold-' + el.dataset.fold;
@@ -229,5 +269,5 @@ function bindFolds(root) {
 
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
-  pullDestSni, applyDestSni, bindSort, bindFolds,
+  pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, watchPresence,
 };

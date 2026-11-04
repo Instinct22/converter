@@ -223,15 +223,8 @@ async function fillUsage() {
     if (!row) return;
     const traffic = row.querySelector('[data-traffic]');
     if (traffic) traffic.textContent = c.used_label + ' / ' + c.limit_label;
-    const online = Number(c.online_nodes || 0);
-    row.dataset.online = String(online);
     row.dataset.used = String(c.used || 0);
-    row.classList.toggle('is-online', online > 0);
-    const on = row.querySelector('[data-online]');
-    if (on) {
-      on.textContent = online ? ('в сети на ' + online) : 'не в сети';
-      on.classList.toggle('live-tag', online > 0);
-    }
+    XUI.applyClientPresence([c]);
     const status = row.querySelector('[data-status]');
     if (status) {
       status.textContent = c.expired ? 'закрыт' : 'активен';
@@ -244,7 +237,9 @@ async function fillUsage() {
 const clientSort = document.getElementById('client-table')
   ? XUI.bindSort(document.getElementById('client-table'))
   : { resort() {} };
-fillUsage().catch(() => {});
+fillUsage().catch(() => {}).finally(() => {
+  XUI.watchPresence(() => clientSort.resort());
+});
 document.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
   if (!confirm('Удалить человека с серверов и из Master? Ссылка сразу перестанет открываться.')) return;
   try {

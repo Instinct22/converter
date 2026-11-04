@@ -157,20 +157,13 @@ async function loadOverview() {
     const traffic = row.querySelector('[data-traffic]');
     if (traffic) traffic.textContent = c.used_label + ' / ' + c.limit_label;
     row.dataset.used = String(c.used || 0);
-    const online = Number(c.online_nodes || 0);
-    row.dataset.online = String(online);
-    row.classList.toggle('is-online', online > 0);
-    const on = row.querySelector('[data-online]');
-    if (on) {
-      on.textContent = online ? ('в сети на ' + online) : 'не в сети';
-      on.classList.toggle('live-tag', online > 0);
-    }
     const dot = row.querySelector('[data-cdot]');
     if (dot) {
       dot.classList.remove('ok', 'bad');
       dot.classList.add(c.expired ? 'bad' : 'ok');
     }
   });
+  XUI.applyClientPresence(data.clients);
   nodeSort.resort();
   clientSort.resort();
 }
@@ -203,6 +196,8 @@ const clientSort = document.getElementById('client-monitor')
   ? XUI.bindSort(document.getElementById('client-monitor'))
   : { resort() {} };
 XUI.bindFolds(document);
-loadOverview().catch(() => {});
+loadOverview().catch(() => {}).finally(() => {
+  XUI.watchPresence(() => clientSort.resort());
+});
 </script>
 {% endblock %}
