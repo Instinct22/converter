@@ -743,12 +743,17 @@ def presence(session: SessionDep) -> dict:
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     clients = session.exec(select(Client).order_by(Client.id.desc())).all()
     probes = probe_nodes_presence(nodes)
-    return {
-        'clients': [
+    client_out = []
+    for client in clients:
+        usage = aggregate_client_usage(client, nodes, probes)
+        limit = client.traffic_limit_bytes or 0
+        client_out.append(
             {
                 'id': client.id,
-                'online_nodes': aggregate_client_usage(client, nodes, probes)['online_nodes'],
+                'online_nodes': usage['online_nodes'],
+                'used': usage['used'],
+                'used_label': format_bytes(usage['used']),
+                'limit_label': format_bytes(limit) if limit else 'без лимита',
             }
-            for client in clients
-        ]
-    }
+        )
+    return {'clients': client_out}

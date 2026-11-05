@@ -27,6 +27,21 @@ def test_client_online_if_any_node_reports_email():
     assert usage['online_nodes'] == 1
 
 
+def test_usage_sums_traffic_from_client_rows():
+    client = Client(name='Bane', slug='bane139', uuid='u', sub_token='t')
+    nodes = [
+        Node(id=1, name='FI', panel_url='https://fi', api_token='a'),
+        Node(id=2, name='DE', panel_url='https://de', api_token='a'),
+    ]
+    probes = {
+        1: {'online_emails': [], 'client_rows': [{'email': 'bane139', 'up': 100, 'down': 400}]},
+        2: {'online_emails': ['bane139'], 'client_rows': [{'email': 'bane139', 'up': 50, 'down': 50}]},
+    }
+    usage = aggregate_client_usage(client, nodes, probes)
+    assert usage['used'] == 600
+    assert usage['online_nodes'] == 1
+
+
 def test_presence_probe_counts_without_traffic_rows():
     client = Client(name='Bane', slug='bane139', uuid='u', sub_token='t')
     nodes = [Node(id=3, name='NL', panel_url='https://nl', api_token='a')]

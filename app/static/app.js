@@ -225,9 +225,15 @@ function applyClientPresence(clients) {
     row.dataset.online = String(online);
     row.classList.toggle('is-online', online > 0);
     const label = row.querySelector('[data-online]');
-    if (!label) return;
-    label.textContent = online ? ('в сети на ' + online) : 'не в сети';
-    label.classList.toggle('live-tag', online > 0);
+    if (label) {
+      label.textContent = online ? ('в сети на ' + online) : 'не в сети';
+      label.classList.toggle('live-tag', online > 0);
+    }
+    if (client.used_label) {
+      row.dataset.used = String(client.used || 0);
+      const traffic = row.querySelector('[data-traffic]');
+      if (traffic) traffic.textContent = client.used_label + ' / ' + (client.limit_label || 'без лимита');
+    }
   });
 }
 

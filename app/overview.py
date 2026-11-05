@@ -22,6 +22,32 @@ def _status_bits(obj: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def client_rows_from_inbounds(remote: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw in remote:
+        settings = as_obj(raw.get('settings')) or {}
+        clients = settings.get('clients') if isinstance(settings, dict) else []
+        uuid_by_email: dict[str, str] = {}
+        if isinstance(clients, list):
+            for client in clients:
+                if isinstance(client, dict) and client.get('email'):
+                    uuid_by_email[str(client.get('email'))] = str(client.get('id') or '')
+        for st in raw.get('clientStats') or []:
+            if not isinstance(st, dict):
+                continue
+            email = str(st.get('email') or '')
+            rows.append(
+                {
+                    'email': email,
+                    'uuid': uuid_by_email.get(email) or '',
+                    'up': int(st.get('up') or 0),
+                    'down': int(st.get('down') or 0),
+                    'total': int(st.get('total') or 0),
+                }
+            )
+    return rows
+
+
 def probe_node(node: Node) -> dict[str, Any]:
     out: dict[str, Any] = {
         'id': node.id,
@@ -40,27 +66,7 @@ def probe_node(node: Node) -> dict[str, Any]:
                 out['status'] = {}
             remote = xui.inbounds()
             out['inbound_count'] = len(remote)
-            for raw in remote:
-                settings = as_obj(raw.get('settings')) or {}
-                clients = settings.get('clients') if isinstance(settings, dict) else []
-                uuid_by_email: dict[str, str] = {}
-                if isinstance(clients, list):
-                    for client in clients:
-                        if isinstance(client, dict) and client.get('email'):
-                            uuid_by_email[str(client.get('email'))] = str(client.get('id') or '')
-                for st in raw.get('clientStats') or []:
-                    if not isinstance(st, dict):
-                        continue
-                    email = str(st.get('email') or '')
-                    out['client_rows'].append(
-                        {
-                            'email': email,
-                            'uuid': uuid_by_email.get(email) or '',
-                            'up': int(st.get('up') or 0),
-                            'down': int(st.get('down') or 0),
-                            'total': int(st.get('total') or 0),
-                        }
-                    )
+            out['client_rows'] = client_rows_from_inbounds(remote)
             try:
                 out['online_emails'] = xui.onlines()
             except XuiError:
@@ -72,15 +78,17 @@ def probe_node(node: Node) -> dict[str, Any]:
 
 
 def probe_presence(node: Node) -> dict[str, Any]:
-    """Только список email в сети. Без статистики трафика и статуса Xray."""
+    """Кто в сети и сколько трафика потратил. Без статуса Xray и загрузки CPU."""
     out: dict[str, Any] = {
         'id': node.id,
         'online': False,
         'error': '',
         'online_emails': [],
+        'client_rows': [],
     }
     try:
-        with XuiClient(node, timeout=5.0) as xui:
+        with XuiClient(node, timeout=7.0) as xui:
+            out['client_rows'] = client_rows_from_inbounds(xui.inbounds())
             out['online_emails'] = xui.onlines()
         out['online'] = True
     except Exception as exc:
@@ -105,6 +113,7 @@ def probe_nodes_presence(nodes: list[Node]) -> dict[int, dict[str, Any]]:
                     'online': False,
                     'error': str(exc),
                     'online_emails': [],
+                    'client_rows': [],
                 }
     return result
 
