@@ -1,4 +1,4 @@
-from app.firewall import firewall_plan, protected_ports, wanted_ports
+from app.firewall import _script, firewall_plan, protected_ports, wanted_ports
 from app.models import Node
 
 
@@ -24,6 +24,12 @@ def test_firewall_keeps_only_inbound_and_service_ports():
     assert ('delete', 9999) in actions
     assert ('allow', 443) not in actions
     assert all(port not in {22, 80, 2096, 21096, 443} for kind, port in actions if kind == 'delete')
+
+
+def test_script_installs_ufw_when_missing():
+    script = _script(_node(), {443})
+    assert 'apt-get install -y -qq ufw' in script
+    assert 'command -v ufw' in script
 
 
 def test_firewall_opens_missing_service_port():

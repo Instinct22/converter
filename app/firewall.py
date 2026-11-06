@@ -62,8 +62,18 @@ def _script(node: Node, open_ports: set[int]) -> str:
     ssh_port = int(getattr(node, 'ssh_port', 0) or 22)
     allow_list = ' '.join(str(port) for port in wanted)
     return f'''set -eu
+export PATH="/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+export DEBIAN_FRONTEND=noninteractive
+if ! command -v ufw >/dev/null 2>&1; then
+  apt-get update -qq
+  apt-get install -y -qq ufw
+  echo "! installed"
+fi
 keep={shlex.quote(keep)}
 ssh_port={ssh_port}
+if ! ufw status | awk '{{print $1}}' | grep -Eq "^${{ssh_port}}(/tcp)?$"; then
+  ufw limit "$ssh_port/tcp" >/dev/null || ufw allow "$ssh_port/tcp" >/dev/null
+fi
 for _round in $(seq 1 40); do
   hit=$(ufw status numbered | awk -v keep="$keep" '
     /^\\[[[:space:]]*[0-9]+\\]/ {{
@@ -115,6 +125,7 @@ def _summary(name: str, output: str) -> list[str]:
     opened: list[str] = []
     closed: list[str] = []
     enabled = False
+    installed = False
     for line in output.splitlines():
         if line.startswith('+ '):
             port = line[2:].strip()
@@ -126,8 +137,12 @@ def _summary(name: str, output: str) -> list[str]:
                 closed.append(port)
         elif line.strip() == '! enabled':
             enabled = True
+        elif line.strip() == '! installed':
+            installed = True
     bits = [f'{port} открыт' for port in opened]
     bits.extend(f'{port} закрыт' for port in closed)
+    if installed:
+        bits.append('ufw поставлен')
     if enabled:
         bits.append('файрвол включён')
     if not bits:
@@ -175,37 +190,6 @@ def _run(node: Node, command: str, timeout: int) -> tuple[int, str, str]:
     return code, out, err
 
 
-def probe_node_firewall(node: Node, session=None) -> list[str]:
-    """Один заход по SSH: ufw отвечает и включён — «вкл», иначе «выкл»."""
-    if not (getattr(node, 'ssh_password', '') or '').strip():
-        _remember(node, session, False, 'нет SSH-пароля')
-        return [f'{node.name}: файрвол выкл, нет SSH-пароля']
-    host = (node.public_host or '').strip() or (urlparse(node.panel_url or '').hostname or '')
-    if not host:
-        _remember(node, session, False, 'нет адреса сервера')
-        return [f'{node.name}: файрвол выкл, нет адреса сервера']
-    try:
-        import paramiko  # noqa: F401
-    except ImportError:
-        _remember(node, session, False, 'нет библиотеки SSH')
-        return [f'{node.name}: файрвол выкл, нет библиотеки SSH']
-    try:
-        code, out, err = _run(node, 'ufw status', 25)
-    except Exception as exc:
-        _remember(node, session, False, str(exc)[:240])
-        return [f'{node.name}: файрвол выкл: {exc}']
-    if code != 0:
-        detail = err or out.strip() or f'код {code}'
-        _remember(node, session, False, detail[:240])
-        return [f'{node.name}: файрвол выкл: {detail[:300]}']
-    active = 'inactive' not in out.lower().split('\n', 1)[0].lower()
-    if not active:
-        _remember(node, session, False, 'ufw выключен')
-        return [f'{node.name}: файрвол выкл, ufw выключен']
-    _remember(node, session, True, 'ufw отвечает')
-    return [f'{node.name}: файрвол вкл']
-
-
 def sync_node_firewall(node: Node, open_ports: set[int], session=None) -> list[str]:
     if not (getattr(node, 'ssh_password', '') or '').strip():
         _remember(node, session, False, 'нет SSH-пароля')
@@ -220,7 +204,7 @@ def sync_node_firewall(node: Node, open_ports: set[int], session=None) -> list[s
         _remember(node, session, False, 'нет библиотеки SSH')
         return [f'{node.name}: файрвол не сверил, нет библиотеки SSH']
     try:
-        code, out, err = _run(node, _script(node, open_ports), 60)
+        code, out, err = _run(node, _script(node, open_ports), 180)
     except Exception as exc:
         _remember(node, session, False, str(exc)[:240])
         return [f'{node.name}: файрвол не обновился: {exc}']

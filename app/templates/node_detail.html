@@ -81,7 +81,7 @@
       <div class="field span-2">
         <label>SSH-пароль</label>
         <input name="ssh_password" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.ssh_password else 'нужен, чтобы проверять ufw' }}">
-        <span class="hint">Сохранение один раз проверяет ufw и ставит «вкл» или «выкл». «Применить» и «Сверить» оставляют в файрволе только порты выбранных входов, SSH, 80, порт панели и порт подписки. Пустое поле пароль не стирает.</span>
+        <span class="hint">Сохранение сверяет ufw с входами, которые уже навешаны на сервер. Если ufw нет, Master ставит его. Пустое поле пароль не стирает. SSH, 80, порт панели и порт подписки остаются открытыми.</span>
       </div>
     </div>
     <button class="btn" type="submit">Сохранить и проверить</button>
@@ -138,9 +138,11 @@ document.getElementById('firewall').onsubmit = async (e) => {
   };
   if (f.ssh_password.value) body.ssh_password = f.ssh_password.value;
   try {
-    await XUI.withBusy(e.submitter, () => XUI.api('/api/nodes/' + id, 'PATCH', body));
-    XUI.toast('Файрвол проверен');
-    location.reload();
+    const r = await XUI.withBusy(e.submitter, () => XUI.api('/api/nodes/' + id, 'PATCH', body));
+    const text = (r.logs && r.logs[0]) || (r.firewall_on ? 'Файрвол вкл' : 'Файрвол выкл');
+    XUI.showLog(log, text);
+    XUI.toast(text, r.firewall_on ? undefined : 'err');
+    setTimeout(() => location.reload(), 1600);
   } catch (err) { XUI.toast(err.message, 'err'); }
 };
 </script>

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
-from app.firewall import probe_node_firewall, sync_node_firewall
+from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence
@@ -332,12 +332,16 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     session.add(node)
     session.commit()
     session.refresh(node)
+    logs: list[str] = []
     if {'ssh_user', 'ssh_port', 'ssh_password'} & set(data):
-        probe_node_firewall(node, session)
+        ports = {row.port for row in templates_for_node(session, node)}
+        logs = sync_node_firewall(node, ports, session)
         session.refresh(node)
     if template_ids is not None and node.id is not None:
         set_node_template_ids(session, node.id, template_ids)
-    return _node_out(node, session)
+    out = _node_out(node, session)
+    out['logs'] = logs
+    return out
 
 
 def _templates_ok(logs: list[str]) -> bool:
