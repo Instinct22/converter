@@ -185,6 +185,25 @@ def node_detail(request: Request, node_id: int, session: SessionDep):
     )
 
 
+@router.get('/protection', response_class=HTMLResponse)
+def protection_page(request: Request, session: SessionDep):
+    if (redir := _need_admin(request)):
+        return redir
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    protecting = sum(1 for node in nodes if node.fail2ban_state == 'protecting')
+    return templates.TemplateResponse(
+        'protection.html',
+        _ctx(
+            request,
+            page='protection',
+            nodes=nodes,
+            protecting=protecting,
+            banned_now=sum(int(node.fail2ban_banned or 0) for node in nodes),
+            banned_day=sum(int(node.fail2ban_day or 0) for node in nodes),
+        ),
+    )
+
+
 @router.get('/clients', response_class=HTMLResponse)
 def clients_page(request: Request, session: SessionDep):
     if (redir := _need_admin(request)):

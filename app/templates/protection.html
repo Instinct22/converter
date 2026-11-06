@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Защита — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Защита</h1>
+    <p class="lede">Одно правило на весь флот. Fail2ban ставится по SSH из настроек сервера. Страница показывает последнюю проверку и сама на машины не ходит.</p>
+    <pre class="log" id="guard-log"></pre>
+  </div>
+  <div class="row">
+    <button class="btn secondary" type="button" id="guard-refresh">Обновить</button>
+    <button class="btn" type="button" id="guard-install">Поставить защиту</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card"><div class="label">Серверов под защитой</div><div class="value">{{ protecting }} / {{ nodes|length }}</div></div>
+  <div class="stat-card"><div class="label">Адреса в бане сейчас</div><div class="value">{{ banned_now }}</div></div>
+  <div class="stat-card"><div class="label">Банов за 24 часа</div><div class="value">{{ banned_day }}</div></div>
+</div>
+
+<div class="note-warn">Клиентские порты не баним. 443 и остальные входы Reality — это трафик людей, а не подбор пароля. Сторожим только SSH и адреса, которые уже попадали в бан несколько раз. Localhost и IP Master в бан не попадают.</div>
+
+<div class="guard-layout">
+  <div class="card">
+    <h2>Серверы</h2>
+    <p class="sub">Число в колонке «В бане» открывает список адресов этого сервера.</p>
+    {% if nodes %}
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Сервер</th>
+            <th>Состояние</th>
+            <th>Что сторожит</th>
+            <th>В бане</th>
+            <th>За сутки</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for n in nodes %}
+          {% set state = n.fail2ban_state or '' %}
+          <tr>
+            <td>
+              <span class="name-flag">
+                {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+                <strong>{{ n.name }}</strong>
+              </span>
+            </td>
+            <td>
+              {% if state == 'protecting' %}
+              <span class="fw-tag on" title="{{ n.fail2ban_note or '' }}">защищает</span>
+              {% elif state == 'error' %}
+              <span class="fw-tag bad" title="{{ n.fail2ban_note or '' }}">ошибка</span>
+              {% elif state == 'no_ssh' %}
+              <span class="fw-tag warn" title="{{ n.fail2ban_note or '' }}">нет SSH</span>
+              {% elif state == 'missing' %}
+              <span class="fw-tag" title="{{ n.fail2ban_note or '' }}">не установлен</span>
+              {% else %}
+              <span class="fw-tag">не проверяли</span>
+              {% endif %}
+            </td>
+            <td class="hint">{% if state == 'protecting' %}SSH · повтор{% else %}—{% endif %}</td>
+            <td>
+              <button class="btn ghost small" type="button" data-bans="{{ n.id }}" data-name="{{ n.name }}">{{ n.fail2ban_banned or 0 }}</button>
+            </td>
+            <td>{{ n.fail2ban_day or 0 }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty"><h3>Серверов нет</h3><p>Сначала добавьте панель в «Серверах».</p></div>
+    {% endif %}
+  </div>
+
+  <div class="card" id="ban-card">
+    <h2 id="ban-title">Баны</h2>
+    <p class="sub" id="ban-note">Нажмите число в колонке «В бане».</p>
+    <div id="ban-body"></div>
+    <div class="row" id="ban-actions" hidden>
+      <button class="btn danger small" type="button" id="ban-clear">Снять все на сервере</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Правило на весь флот</h2>
+  <p class="sub">Отдельных порогов на каждый сервер нет. «Поставить защиту» записывает это правило на все машины, где уже сохранён SSH, и включает службу. Повтор не плодит jail.</p>
+  <table>
+    <thead>
+      <tr><th>Сторож</th><th>За что</th><th>Порог</th><th>Бан</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>SSH</td><td>неудачный вход</td><td>4 раза за 10 минут</td><td>1 час</td></tr>
+      <tr><td>Повтор</td><td>этот адрес уже банили</td><td>3 бана за сутки</td><td>7 дней</td></tr>
+      <tr><td>Не банить</td><td>localhost и IP Master</td><td>—</td><td>никогда</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const log = document.getElementById('guard-log');
+const banBody = document.getElementById('ban-body');
+const banTitle = document.getElementById('ban-title');
+const banNote = document.getElementById('ban-note');
+const banActions = document.getElementById('ban-actions');
+let currentId = 0;
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[ch]);
+}
+
+function paintBans(name, data) {
+  banTitle.textContent = name;
+  banNote.textContent = data.note && data.note !== 'ok' ? data.note : 'Активные баны на этом сервере.';
+  const rows = data.bans || [];
+  if (!rows.length) {
+    banBody.innerHTML = '<p class="hint">Активных банов нет.</p>';
+    banActions.hidden = true;
+    return;
+  }
+  const body = rows.map((row) => (
+    '<tr><td class="mono">' + esc(row.ip) + '</td><td>' + esc(row.reason) + '</td><td>' + esc(row.failures) +
+    '</td><td>' + esc(row.times) + '</td><td>' + esc(row.until) +
+    '</td><td><button class="btn ghost small" type="button" data-unban="' + esc(row.ip) + '">Снять</button></td></tr>'
+  )).join('');
+  banBody.innerHTML = '<div class="table-scroll"><table><thead><tr><th>Адрес</th><th>Причина</th><th>Ошибок</th><th>Раз банили</th><th>До снятия</th><th></th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  banActions.hidden = false;
+}
+
+async function openBans(id, name, btn) {
+  currentId = id;
+  const data = await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + id + '/bans'));
+  paintBans(name, data);
+}
+
+async function runGuard(btn, path) {
+  const res = await XUI.withBusy(btn, () => XUI.api(path, 'POST', {}));
+  const text = (res.logs || []).join('\n') || 'Готово';
+  XUI.showLog(log, text);
+  XUI.toast((res.logs || ['Готово'])[0], res.ok ? undefined : 'err');
+  setTimeout(() => location.reload(), 1600);
+}
+
+document.getElementById('guard-refresh').onclick = (e) => runGuard(e.currentTarget, '/api/protection/refresh').catch(() => {});
+document.getElementById('guard-install').onclick = (e) => runGuard(e.currentTarget, '/api/protection/install').catch(() => {});
+
+document.querySelectorAll('[data-bans]').forEach((btn) => {
+  btn.onclick = () => openBans(btn.dataset.bans, btn.dataset.name, btn).catch(() => {});
+});
+
+banBody.addEventListener('click', async (event) => {
+  const btn = event.target.closest('[data-unban]');
+  if (!btn || !currentId) return;
+  try {
+    const data = await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + currentId + '/unban', 'POST', {ip: btn.dataset.unban}));
+    paintBans(banTitle.textContent, data);
+    XUI.toast((data.logs || ['Снято'])[0]);
+  } catch (err) {}
+});
+
+document.getElementById('ban-clear').onclick = async (e) => {
+  if (!currentId) return;
+  try {
+    const data = await XUI.withBusy(e.currentTarget, () => XUI.api('/api/nodes/' + currentId + '/unban', 'POST', {all: true}));
+    paintBans(banTitle.textContent, data);
+    XUI.toast((data.logs || ['Снято'])[0]);
+  } catch (err) {}
+};
+</script>
+{% endblock %}

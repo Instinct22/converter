@@ -212,6 +212,25 @@ input:focus, textarea:focus, select:focus {
   color: var(--faint);
 }
 .fw-tag.on { color: var(--ok); }
+.fw-tag.bad { color: var(--danger); }
+.fw-tag.warn { color: var(--warn); }
+.note-warn {
+  background: var(--warn-soft);
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  line-height: 1.45;
+}
+.guard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.guard-layout > .card { margin-top: 0; }
+#ban-actions[hidden] { display: none; }
 .sort-btn {
   appearance: none; background: none; border: 0; padding: 0;
   color: var(--faint); font-size: 12px; font-weight: 600;
@@ -592,6 +611,7 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .nav a svg { flex: none; }
   .page-head .row { justify-content: stretch; }
   .stats, .form-grid, .split, .overview-grid, .field-split { grid-template-columns: 1fr; }
+  .guard-layout { grid-template-columns: 1fr; }
   .monitor-head { display: none; }
   .monitor-cols, .monitor-row { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }

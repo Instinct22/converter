@@ -29,6 +29,10 @@ NODE_COLUMNS = {
     'ssh_password': "TEXT DEFAULT ''",
     'firewall_on': 'INTEGER DEFAULT 0',
     'firewall_note': "TEXT DEFAULT ''",
+    'fail2ban_state': "TEXT DEFAULT ''",
+    'fail2ban_banned': 'INTEGER DEFAULT 0',
+    'fail2ban_day': 'INTEGER DEFAULT 0',
+    'fail2ban_note': "TEXT DEFAULT ''",
 }
 
 TEMPLATE_COLUMNS = {

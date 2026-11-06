@@ -31,6 +31,10 @@ class Node(SQLModel, table=True):
     ssh_password: str = ''
     firewall_on: bool = False
     firewall_note: str = ''
+    fail2ban_state: str = ''
+    fail2ban_banned: int = 0
+    fail2ban_day: int = 0
+    fail2ban_note: str = ''
     created_at: datetime = Field(default_factory=utcnow)
 
     def clash_prefix(self) -> str:

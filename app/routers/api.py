@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
+from app.fail2ban import GuardView, _remember, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
@@ -795,3 +796,84 @@ def presence(session: SessionDep) -> dict:
             }
         )
     return {'clients': client_out}
+
+
+def _guard_nodes(session: SessionDep, install: bool) -> dict:
+    logs: list[str] = []
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    for node in nodes:
+        logs.extend(sync_node_guard(node, session, install=install))
+    return {'ok': True, 'logs': logs}
+
+
+@router.post('/protection/refresh')
+def refresh_protection(session: SessionDep) -> dict:
+    return _guard_nodes(session, install=False)
+
+
+@router.post('/protection/install')
+def install_protection(session: SessionDep) -> dict:
+    return _guard_nodes(session, install=True)
+
+
+@router.get('/nodes/{node_id}/bans')
+def node_bans(node_id: int, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    try:
+        view, bans = read_bans(node)
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _remember(node, session, GuardView(view.state, view.banned, view.day, view.note, view.installed))
+    return {
+        'state': view.state,
+        'note': view.note,
+        'banned': view.banned,
+        'day': view.day,
+        'bans': [
+            {
+                'ip': row.ip,
+                'jail': row.jail,
+                'reason': row.reason,
+                'failures': row.failures,
+                'times': row.times,
+                'until': row.until,
+            }
+            for row in bans
+        ],
+    }
+
+
+class UnbanIn(BaseModel):
+    ip: str = ''
+    all: bool = False
+
+
+@router.post('/nodes/{node_id}/unban')
+def node_unban(node_id: int, body: UnbanIn, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    try:
+        logs = unban(node, body.ip, body.all)
+        view, bans = read_bans(node)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _remember(node, session, GuardView(view.state, view.banned, view.day, view.note))
+    return {
+        'ok': True,
+        'logs': logs,
+        'bans': [
+            {
+                'ip': row.ip,
+                'reason': row.reason,
+                'failures': row.failures,
+                'times': row.times,
+                'until': row.until,
+            }
+            for row in bans
+        ],
+    }

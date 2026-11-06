@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     admin_password: str = 'changeme'
     session_secret: str = ''
     public_base_url: str = 'http://127.0.0.1:8080'
+    master_ip: str = '5.180.174.204'
     update_base_url: str = 'https://api.aegis-gate.ru'
     sub_path: str = ''
     host: str = '0.0.0.0'
