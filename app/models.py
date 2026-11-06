@@ -29,6 +29,8 @@ class Node(SQLModel, table=True):
     ssh_user: str = 'root'
     ssh_port: int = 22
     ssh_password: str = ''
+    firewall_on: bool = False
+    firewall_note: str = ''
     created_at: datetime = Field(default_factory=utcnow)
 
     def clash_prefix(self) -> str:

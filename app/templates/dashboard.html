@@ -29,16 +29,17 @@
     </summary>
     {% if nodes %}
     <div class="fold-body">
-      <div class="monitor-head monitor-cols">
+      <div class="monitor-head monitor-cols nodes-cols">
         <button class="sort-btn" type="button" data-sort="name">Сервер</button>
         <button class="sort-btn" type="button" data-sort="host">Адрес</button>
         <button class="sort-btn" type="button" data-sort="ports">Входы</button>
         <button class="sort-btn" type="button" data-sort="cpu">Состояние</button>
+        <button class="sort-btn" type="button" data-sort="fw">Файрвол</button>
         <span></span>
       </div>
       <div class="monitor" id="node-monitor">
         {% for n in nodes %}
-        <article class="monitor-row monitor-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1">
+        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
             <span class="name-flag">
@@ -49,6 +50,7 @@
           <span class="mono">{{ n.public_host or '—' }}</span>
           <span class="hint" data-ports-label>{{ inbound_counts.get(n.id, 0) }} вх.</span>
           <span class="hint" data-live>—</span>
+          <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
           <div class="monitor-actions">
             <label class="switch" title="В подписке">
               <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
@@ -81,7 +83,7 @@
     </summary>
     {% if clients %}
     <div class="fold-body">
-      <div class="monitor-head monitor-cols">
+      <div class="monitor-head monitor-cols clients-cols">
         <button class="sort-btn" type="button" data-sort="name">Кто</button>
         <button class="sort-btn" type="button" data-sort="used">Трафик</button>
         <button class="sort-btn" type="button" data-sort="days">Срок</button>
@@ -90,7 +92,7 @@
       </div>
       <div class="monitor" id="client-monitor">
         {% for c in clients %}
-        <article class="monitor-row monitor-cols client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0">
+        <article class="monitor-row monitor-cols clients-cols client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if is_expired(c) else 'ok' }}" data-cdot></span>
             <strong>{{ c.name }}</strong>

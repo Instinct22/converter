@@ -22,6 +22,7 @@
       <col class="col-host">
       <col class="col-tpl">
       <col class="col-status">
+      <col class="col-fw">
       <col class="col-actions">
     </colgroup>
     <thead>
@@ -30,6 +31,7 @@
         <th>IP для клиента<span class="th-hint">из URL панели</span></th>
         <th>Входы<span class="th-hint">шаблоны с «Входов»</span></th>
         <th>В Clash<span class="th-hint">в ссылке клиента</span></th>
+        <th>Файрвол<span class="th-hint">последняя проверка</span></th>
         <th></th>
       </tr>
     </thead>
@@ -97,6 +99,9 @@
             <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
             <span></span>
           </label>
+        </td>
+        <td data-label="Файрвол">
+          <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
         </td>
         <td class="col-actions" data-label="">
           <div class="row">

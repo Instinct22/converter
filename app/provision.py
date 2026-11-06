@@ -308,7 +308,7 @@ def apply_node_templates(session: Session, node: Node, template_ids: list[int]) 
         if (row := session.get(InboundTemplate, tid)) is not None
     ]
     logs.extend(sync_template_fields(session, node, chosen))
-    logs.extend(sync_node_firewall(node, {row.port for row in chosen}))
+    logs.extend(sync_node_firewall(node, {row.port for row in chosen}, session))
     if not logs:
         logs.append('Список входов не изменился')
     return logs
@@ -388,7 +388,7 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
             if client_wanted_on_panel(client):
                 logs.extend(provision_client(session, client, nodes=[node]))
     logs.extend(sync_template_fields(session, node, wanted))
-    logs.extend(sync_node_firewall(node, {row.port for row in wanted}))
+    logs.extend(sync_node_firewall(node, {row.port for row in wanted}, session))
     return logs
 
 

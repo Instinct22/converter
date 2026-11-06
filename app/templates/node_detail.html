@@ -60,6 +60,16 @@
         </label>
         <input name="api_token" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else 'вставьте токен' }}">
       </div>
+    </div>
+    <button class="btn" type="submit">Сохранить</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Файрвол</h2>
+  <p class="sub">SSH нужен, чтобы открывать и закрывать порты входов. Сейчас: <span class="fw-tag {{ 'on' if node.firewall_on else '' }}">{{ 'вкл' if node.firewall_on else 'выкл' }}</span>{% if node.firewall_note %} — {{ node.firewall_note }}{% endif %}</p>
+  <form id="firewall">
+    <div class="form-grid">
       <div class="field">
         <label>SSH-пользователь</label>
         <input name="ssh_user" value="{{ node.ssh_user or 'root' }}">
@@ -70,11 +80,11 @@
       </div>
       <div class="field span-2">
         <label>SSH-пароль</label>
-        <input name="ssh_password" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.ssh_password else 'нужен, чтобы открывать порты входов' }}">
-        <span class="hint">После «Применить» или «Сверить» в файрволе остаются только порты выбранных входов, SSH, 80, порт панели и порт подписки. Остальные правила ufw снимаются. Пустое поле пароль не стирает.</span>
+        <input name="ssh_password" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.ssh_password else 'нужен, чтобы проверять ufw' }}">
+        <span class="hint">Сохранение один раз проверяет ufw и ставит «вкл» или «выкл». «Применить» и «Сверить» оставляют в файрволе только порты выбранных входов, SSH, 80, порт панели и порт подписки. Пустое поле пароль не стирает.</span>
       </div>
     </div>
-    <button class="btn" type="submit">Сохранить</button>
+    <button class="btn" type="submit">Сохранить и проверить</button>
   </form>
 </div>
 {% endblock %}
@@ -111,14 +121,26 @@ document.getElementById('edit').onsubmit = async (e) => {
     sub_port: Number(f.sub_port.value),
     sub_scheme: f.sub_scheme.value,
     sub_clash_path: f.sub_clash_path.value,
-    ssh_user: f.ssh_user.value,
-    ssh_port: Number(f.ssh_port.value),
   };
   if (f.api_token.value) body.api_token = f.api_token.value;
-  if (f.ssh_password.value) body.ssh_password = f.ssh_password.value;
   try {
     await XUI.api('/api/nodes/' + id, 'PATCH', body);
     XUI.toast('Сохранено');
+  } catch (err) { XUI.toast(err.message, 'err'); }
+};
+
+document.getElementById('firewall').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    ssh_user: f.ssh_user.value,
+    ssh_port: Number(f.ssh_port.value),
+  };
+  if (f.ssh_password.value) body.ssh_password = f.ssh_password.value;
+  try {
+    await XUI.withBusy(e.submitter, () => XUI.api('/api/nodes/' + id, 'PATCH', body));
+    XUI.toast('Файрвол проверен');
+    location.reload();
   } catch (err) { XUI.toast(err.message, 'err'); }
 };
 </script>

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
-from app.firewall import sync_node_firewall
+from app.firewall import probe_node_firewall, sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence
@@ -154,6 +154,8 @@ def _node_out(node: Node, session: Session | None = None) -> dict:
         'ssh_user': node.ssh_user or 'root',
         'ssh_port': node.ssh_port or 22,
         'has_ssh_password': bool((node.ssh_password or '').strip()),
+        'firewall_on': bool(node.firewall_on),
+        'firewall_note': node.firewall_note or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
     if session is not None and node.id is not None:
@@ -304,7 +306,7 @@ def api_provision_node(node_id: int, session: SessionDep, body: ProvisionIn | No
     logs = provision_templates(session, node, templates)
     ports = {row.port for row in templates_for_node(session, node)}
     ports.update(row.port for row in templates)
-    logs.extend(sync_node_firewall(node, ports))
+    logs.extend(sync_node_firewall(node, ports, session))
     return {'ok': True, 'logs': logs}
 
 
@@ -330,6 +332,9 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     session.add(node)
     session.commit()
     session.refresh(node)
+    if {'ssh_user', 'ssh_port', 'ssh_password'} & set(data):
+        probe_node_firewall(node, session)
+        session.refresh(node)
     if template_ids is not None and node.id is not None:
         set_node_template_ids(session, node.id, template_ids)
     return _node_out(node, session)
