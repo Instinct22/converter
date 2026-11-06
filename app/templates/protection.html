@@ -23,7 +23,7 @@
 
 <div class="card">
     <h2>Серверы</h2>
-    <p class="sub">Число в колонке «В бане» открывает список адресов этого сервера.</p>
+    <p class="sub">Нажмите строку сервера — откроется актуальный список банов.</p>
     {% if nodes %}
     <div class="table-scroll">
       <table class="table-guard">
@@ -46,7 +46,7 @@
         <tbody>
         {% for n in nodes %}
           {% set state = n.fail2ban_state or '' %}
-          <tr>
+          <tr data-bans="{{ n.id }}" data-name="{{ n.name }}">
             <td>
               <span class="name-flag">
                 {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
@@ -67,9 +67,7 @@
               {% endif %}
             </td>
             <td class="hint">{% if state == 'protecting' %}SSH · повтор{% else %}—{% endif %}</td>
-            <td>
-              <button class="btn ghost small" type="button" data-bans="{{ n.id }}" data-name="{{ n.name }}">{{ n.fail2ban_banned or 0 }}</button>
-            </td>
+            <td>{{ n.fail2ban_banned or 0 }}</td>
             <td>{{ n.fail2ban_day or 0 }}</td>
           </tr>
         {% endfor %}
@@ -83,7 +81,7 @@
 
 <div class="card" id="ban-card">
     <h2 id="ban-title">Баны</h2>
-    <p class="sub" id="ban-note">Нажмите число в колонке «В бане».</p>
+    <p class="sub" id="ban-note">Нажмите строку сервера.</p>
     <div id="ban-body"></div>
     <div class="row" id="ban-actions" hidden>
       <button class="btn danger small" type="button" id="ban-clear">Снять все на сервере</button>
@@ -124,6 +122,8 @@ function paintBans(name, data) {
   banTitle.textContent = name;
   banNote.textContent = data.note && data.note !== 'ok' ? data.note : 'Активные баны на этом сервере.';
   const rows = data.bans || [];
+  const selected = document.querySelector('.table-guard tr.is-selected');
+  if (selected && data.banned != null) selected.cells[3].textContent = String(data.banned);
   if (!rows.length) {
     banBody.innerHTML = '<p class="hint">Активных банов нет.</p>';
     banActions.hidden = true;
@@ -138,12 +138,6 @@ function paintBans(name, data) {
   banActions.hidden = false;
 }
 
-async function openBans(id, name, btn) {
-  currentId = id;
-  const data = await XUI.withBusy(btn, () => XUI.api('/api/nodes/' + id + '/bans'));
-  paintBans(name, data);
-}
-
 async function runGuard(btn, path) {
   const res = await XUI.withBusy(btn, () => XUI.api(path, 'POST', {}));
   const text = (res.logs || []).join('\n') || 'Готово';
@@ -155,8 +149,21 @@ async function runGuard(btn, path) {
 document.getElementById('guard-refresh').onclick = (e) => runGuard(e.currentTarget, '/api/protection/refresh').catch(() => {});
 document.getElementById('guard-install').onclick = (e) => runGuard(e.currentTarget, '/api/protection/install').catch(() => {});
 
-document.querySelectorAll('[data-bans]').forEach((btn) => {
-  btn.onclick = () => openBans(btn.dataset.bans, btn.dataset.name, btn).catch(() => {});
+document.querySelectorAll('.table-guard tbody tr').forEach((row) => {
+  row.onclick = async () => {
+    document.querySelectorAll('.table-guard tbody tr').forEach((el) => el.classList.remove('is-selected'));
+    row.classList.add('is-selected', 'is-loading');
+    currentId = row.dataset.bans;
+    try {
+      const data = await XUI.api('/api/nodes/' + currentId + '/bans');
+      paintBans(row.dataset.name, data);
+      document.getElementById('ban-card').scrollIntoView({block: 'nearest'});
+    } catch (err) {
+      XUI.toast(err.message || String(err), 'err');
+    } finally {
+      row.classList.remove('is-loading');
+    }
+  };
 });
 
 banBody.addEventListener('click', async (event) => {

@@ -230,6 +230,9 @@ input:focus, textarea:focus, select:focus {
 .table-guard col.g-ban { width: 16%; }
 .table-guard col.g-day { width: 20%; }
 .table-guard th { white-space: nowrap; }
+.table-guard tbody tr { cursor: pointer; }
+.table-guard tbody tr.is-selected { background: rgba(255, 255, 255, 0.04); }
+.table-guard tbody tr.is-loading { opacity: 0.55; }
 .table-guard th:nth-child(4),
 .table-guard td:nth-child(4),
 .table-guard th:nth-child(5),
