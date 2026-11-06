@@ -26,6 +26,9 @@ class Node(SQLModel, table=True):
     sub_path: str = ''
     sub_clash_path: str = ''
     sub_scheme: str = 'https'
+    ssh_user: str = 'root'
+    ssh_port: int = 22
+    ssh_password: str = ''
     created_at: datetime = Field(default_factory=utcnow)
 
     def clash_prefix(self) -> str:

@@ -24,6 +24,9 @@ NODE_COLUMNS = {
     'sub_path': "TEXT DEFAULT ''",
     'sub_clash_path': "TEXT DEFAULT ''",
     'sub_scheme': "TEXT DEFAULT 'https'",
+    'ssh_user': "TEXT DEFAULT 'root'",
+    'ssh_port': 'INTEGER DEFAULT 22',
+    'ssh_password': "TEXT DEFAULT ''",
 }
 
 TEMPLATE_COLUMNS = {

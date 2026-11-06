@@ -57,6 +57,9 @@ class NodePatch(BaseModel):
     sub_path: str | None = None
     sub_clash_path: str | None = None
     sub_scheme: str | None = None
+    ssh_user: str | None = None
+    ssh_port: int | None = None
+    ssh_password: str | None = None
     template_ids: list[int] | None = None
 
 
@@ -147,6 +150,9 @@ def _node_out(node: Node, session: Session | None = None) -> dict:
         'sub_path': node.sub_path,
         'sub_clash_path': node.sub_clash_path,
         'sub_scheme': node.sub_scheme,
+        'ssh_user': node.ssh_user or 'root',
+        'ssh_port': node.ssh_port or 22,
+        'has_ssh_password': bool((node.ssh_password or '').strip()),
         'clash_sub_base': node_clash_sub_base(node),
     }
     if session is not None and node.id is not None:
@@ -306,6 +312,8 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     data = body.model_dump(exclude_unset=True)
     if data.get('api_token') == '':
         data.pop('api_token')
+    if data.get('ssh_password') == '':
+        data.pop('ssh_password')
     if data.get('flag'):
         data['flag'] = to_iso(data['flag']) or data['flag']
     if 'panel_url' in data and data['panel_url'] is not None:
