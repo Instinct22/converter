@@ -21,13 +21,19 @@
 
 <div class="note-warn">Клиентские порты не баним. 443 и остальные входы Reality — это трафик людей, а не подбор пароля. Сторожим только SSH и адреса, которые уже попадали в бан несколько раз. Localhost и IP Master в бан не попадают.</div>
 
-<div class="guard-layout">
-  <div class="card">
+<div class="card">
     <h2>Серверы</h2>
     <p class="sub">Число в колонке «В бане» открывает список адресов этого сервера.</p>
     {% if nodes %}
     <div class="table-scroll">
-      <table>
+      <table class="table-guard">
+        <colgroup>
+          <col class="g-name">
+          <col class="g-state">
+          <col class="g-watch">
+          <col class="g-ban">
+          <col class="g-day">
+        </colgroup>
         <thead>
           <tr>
             <th>Сервер</th>
@@ -73,16 +79,15 @@
     {% else %}
     <div class="empty"><h3>Серверов нет</h3><p>Сначала добавьте панель в «Серверах».</p></div>
     {% endif %}
-  </div>
+</div>
 
-  <div class="card" id="ban-card">
+<div class="card" id="ban-card">
     <h2 id="ban-title">Баны</h2>
     <p class="sub" id="ban-note">Нажмите число в колонке «В бане».</p>
     <div id="ban-body"></div>
     <div class="row" id="ban-actions" hidden>
       <button class="btn danger small" type="button" id="ban-clear">Снять все на сервере</button>
     </div>
-  </div>
 </div>
 
 <div class="card">

@@ -222,15 +222,18 @@ input:focus, textarea:focus, select:focus {
   margin-bottom: 16px;
   line-height: 1.45;
 }
-.guard-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.9fr);
-  gap: 16px;
-  align-items: start;
-  margin-bottom: 16px;
-}
-.guard-layout > .card { margin-top: 0; }
 #ban-actions[hidden] { display: none; }
+.table-guard { table-layout: fixed; width: 100%; }
+.table-guard col.g-name { width: 24%; }
+.table-guard col.g-state { width: 18%; }
+.table-guard col.g-watch { width: 22%; }
+.table-guard col.g-ban { width: 16%; }
+.table-guard col.g-day { width: 20%; }
+.table-guard th { white-space: nowrap; }
+.table-guard th:nth-child(4),
+.table-guard td:nth-child(4),
+.table-guard th:nth-child(5),
+.table-guard td:nth-child(5) { text-align: right; }
 .sort-btn {
   appearance: none; background: none; border: 0; padding: 0;
   color: var(--faint); font-size: 12px; font-weight: 600;
@@ -611,7 +614,6 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .nav a svg { flex: none; }
   .page-head .row { justify-content: stretch; }
   .stats, .form-grid, .split, .overview-grid, .field-split { grid-template-columns: 1fr; }
-  .guard-layout { grid-template-columns: 1fr; }
   .monitor-head { display: none; }
   .monitor-cols, .monitor-row { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
