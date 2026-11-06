@@ -497,13 +497,21 @@ def sync_template_fields(
         if label:
             row.provider_label = label
         session.add(row)
-        if same:
-            continue
-        try:
-            push_server_names(node, row, names)
-            logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) в конфиге, {len(names)} имён')
-        except XuiError as exc:
-            logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) не записались на панель: {exc}')
+        if not same:
+            try:
+                push_server_names(node, row, names)
+                logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) в конфиге, {len(names)} имён')
+            except XuiError as exc:
+                logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) не записались на панель: {exc}')
+        remark = (template.name or '').strip()
+        if remark and remark != (row.remark or ''):
+            try:
+                push_inbound_remark(node, row, remark)
+                row.remark = remark
+                session.add(row)
+                logs.append(f'{node.name}: имя входа ({row.port}) теперь «{remark}»')
+            except XuiError as exc:
+                logs.append(f'{node.name}: имя входа ({row.port}) не записалось на панель: {exc}')
     session.commit()
     return logs
 
@@ -918,6 +926,25 @@ def reconcile_clients(session: Session) -> list[str]:
     if not logs:
         logs.append('Серверы совпадают с Master')
     return logs
+
+
+def push_inbound_remark(node: Node, inbound: NodeInbound, remark: str) -> None:
+    """Меняет только подпись входа в 3x-ui. Ключи и клиенты не трогает."""
+    with XuiClient(node) as xui:
+        obj = xui.get_inbound(inbound.xui_inbound_id)
+        if str(obj.get('remark') or '') == remark:
+            return
+        obj['remark'] = remark
+        settings = as_obj(obj.get('settings'))
+        if isinstance(settings, dict):
+            obj['settings'] = json.dumps(settings)
+        stream = as_obj(obj.get('streamSettings'))
+        if isinstance(stream, dict):
+            obj['streamSettings'] = json.dumps(stream)
+        sniffing = as_obj(obj.get('sniffing'))
+        if isinstance(sniffing, dict):
+            obj['sniffing'] = json.dumps(sniffing)
+        xui.update_inbound(inbound.xui_inbound_id, obj)
 
 
 def push_server_names(node: Node, inbound: NodeInbound, names: list[str]) -> None:

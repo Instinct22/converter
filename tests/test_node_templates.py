@@ -284,3 +284,76 @@ def test_apply_rewrites_snis_from_assigned_template(monkeypatch):
         assert pushed['names'] == ['www.samsung.com', 'images.samsung.com']
         assert pushed['private'] == 'keep-key'
         assert any('SNI' in line and '2 имён' in line for line in logs)
+
+
+def test_sync_pushes_renamed_remark(monkeypatch):
+    import json
+
+    from app.provision import sync_template_fields
+
+    pushed: dict[str, object] = {}
+
+    class FakeXui:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def get_inbound(self, inbound_id):
+            return {
+                'id': inbound_id,
+                'remark': '443 Apple',
+                'streamSettings': json.dumps({
+                    'network': 'grpc',
+                    'security': 'reality',
+                    'realitySettings': {'serverNames': ['www.wikipedia.org'], 'privateKey': 'keep-key'},
+                }),
+                'settings': '{}',
+                'sniffing': '{}',
+            }
+
+        def update_inbound(self, inbound_id, spec):
+            pushed['remark'] = spec.get('remark')
+            pushed['private'] = json.loads(spec['streamSettings'])['realitySettings']['privateKey']
+            return {'success': True}
+
+    engine = create_engine('sqlite://')
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        node = Node(name='IT', panel_url='https://127.0.0.1:2053/x', api_token='t')
+        wiki = InboundTemplate(
+            name='2083 Wikipedia',
+            port=2083,
+            enabled=True,
+            server_names='www.wikipedia.org',
+            provider_label='wikipedia',
+            use_in_sub=True,
+        )
+        session.add(node)
+        session.add(wiki)
+        session.commit()
+        session.refresh(node)
+        session.refresh(wiki)
+        inbound = NodeInbound(
+            node_id=node.id or 0,
+            xui_inbound_id=4,
+            port=2083,
+            remark='443 Apple',
+            server_names='www.wikipedia.org',
+            provider_label='wikipedia',
+            snis_locked=True,
+            use_in_sub=True,
+        )
+        session.add(inbound)
+        session.commit()
+        monkeypatch.setattr('app.provision.XuiClient', FakeXui)
+        logs = sync_template_fields(session, node, [wiki])
+        session.refresh(inbound)
+        assert inbound.remark == '2083 Wikipedia'
+        assert pushed['remark'] == '2083 Wikipedia'
+        assert pushed['private'] == 'keep-key'
+        assert any('имя входа' in line for line in logs)

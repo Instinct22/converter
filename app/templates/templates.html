@@ -496,8 +496,10 @@ f.onsubmit = async (e) => {
     provider_label: f.provider_label.value,
   };
   try {
-    if (f.id.value) await XUI.api('/api/templates/' + f.id.value, 'PUT', body);
-    else await XUI.api('/api/templates', 'POST', body);
+    if (f.id.value) saved = await XUI.api('/api/templates/' + f.id.value, 'PUT', body);
+    else saved = await XUI.api('/api/templates', 'POST', body);
+    const bad = (saved.logs || []).filter((line) => line.indexOf('не ') !== -1);
+    if (bad.length) XUI.toast(bad.join(' '), 'err');
     location.reload();
   } catch (err) { XUI.toast(err.message, 'err'); }
 };

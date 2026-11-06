@@ -25,6 +25,7 @@ from app.provision import (
     set_node_template_ids,
     split_csv,
     sync_node,
+    sync_template_fields,
     templates_for_node,
 )
 from app.tls_sni import fetch_dest_sni, parse_dest
@@ -500,7 +501,23 @@ def update_template(template_id: int, body: TemplateIn, session: SessionDep) -> 
     session.add(row)
     session.commit()
     session.refresh(row)
-    return row.model_dump()
+    logs: list[str] = []
+    from app.models import NodeTemplateAssignment
+
+    assignments = session.exec(
+        select(NodeTemplateAssignment).where(NodeTemplateAssignment.template_id == row.id)
+    ).all()
+    for assignment in assignments:
+        node = session.get(Node, assignment.node_id)
+        if node is None:
+            continue
+        try:
+            logs.extend(sync_template_fields(session, node, [row]))
+        except XuiError as exc:
+            logs.append(f'{node.name}: имя входа не записалось на панель: {exc}')
+    out = row.model_dump()
+    out['logs'] = logs
+    return out
 
 
 @router.delete('/templates/{template_id}')

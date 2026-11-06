@@ -212,9 +212,15 @@ def port_name_filters(inbound: NodeInbound, has_alt: bool) -> tuple[str | None, 
 
 
 def _publishable_inbound(inbound: NodeInbound) -> bool:
-    """Only standard template ports go to Mihomo (skip test/tcp junk on panel)."""
+    """В подписку идёт вход шаблона на любом порту.
+
+    Случайный inbound с панели (тест, tcp) без лока шаблона по-прежнему
+    скрыт, если это не 443 и не 8443.
+    """
     if not inbound.use_in_sub:
         return False
+    if inbound.snis_locked:
+        return True
     return inbound.port in {443, 8443}
 
 

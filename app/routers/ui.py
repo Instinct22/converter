@@ -154,7 +154,9 @@ def nodes_page(request: Request, session: SessionDep):
         rows = session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
         counts[node.id] = len(rows)
         node_templates[node.id] = node_template_ids(session, node.id)
-        ports = sorted({row.port for row in rows if row.use_in_sub and row.port in {443, 8443}})
+        from app.mihomo import _publishable_inbound
+
+        ports = sorted({row.port for row in rows if _publishable_inbound(row)})
         live_ports[node.id] = ports
     return templates.TemplateResponse(
         'nodes.html',
