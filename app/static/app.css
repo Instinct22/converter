@@ -193,7 +193,7 @@ input:focus, textarea:focus, select:focus {
 }
 .monitor-cols > * { min-width: 0; }
 .nodes-cols {
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr) 76px minmax(0, 1.2fr) 64px 148px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr) 76px minmax(0, 1.2fr) 64px 168px;
 }
 .nodes-cols [data-live] {
   overflow: hidden;
