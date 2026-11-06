@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Релизы — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Релизы</h1>
+    <p class="lede">Клиент получает только файл, отмеченный как текущий. Остальные установщики лежат рядом и скачиваются по точному имени, пока их не удалить.</p>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card"><div class="label">Файлов на диске</div><div class="value">{{ on_disk }}</div></div>
+  <div class="stat-card"><div class="label">Сейчас в каталоге</div><div class="value">{{ current }}</div></div>
+</div>
+
+<div class="card">
+  <h2>Установщики</h2>
+  <p class="sub">Удаление стирает файл. Если это текущий релиз, клиенты перестают его получать.</p>
+  {% if rows %}
+  <div class="table-scroll">
+    <table class="table-releases">
+      <colgroup>
+        <col class="r-file">
+        <col class="r-size">
+        <col class="r-when">
+        <col class="r-role">
+        <col class="r-act">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Файл</th>
+          <th>Размер</th>
+          <th>На диске</th>
+          <th>Каталог</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr data-file="{{ row.filename }}">
+          <td>
+            <strong>{{ row.filename }}</strong>
+            {% if row.notes %}<span class="hint release-notes">{{ row.notes }}</span>{% endif %}
+          </td>
+          <td>{{ row.size_label }}</td>
+          <td>{{ row.modified }}</td>
+          <td>
+            {% if row.current and row.on_disk %}
+            <span class="fw-tag on">текущий {{ row.version }}</span>
+            {% elif row.current %}
+            <span class="fw-tag bad">файла нет</span>
+            {% else %}
+            <span class="fw-tag">не в каталоге</span>
+            {% endif %}
+          </td>
+          <td>
+            <button
+              class="btn danger small"
+              type="button"
+              data-delete="{{ row.filename }}"
+              data-current="{{ '1' if row.current else '0' }}"
+              data-version="{{ row.version }}"
+              data-on-disk="{{ '1' if row.on_disk else '0' }}"
+            >Удалить</button>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><h3>Файлов нет</h3><p>Каталог пуст, и в папке установщиков ничего нет.</p></div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-delete]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const name = button.dataset.delete;
+    const current = button.dataset.current === '1';
+    const onDisk = button.dataset.onDisk === '1';
+    let question = 'Удалить ' + name + '? Скачать этот файл больше нельзя.';
+    if (current && onDisk) {
+      question = 'Это текущий релиз ' + (button.dataset.version || '') + '. Удалить файл? Клиенты перестанут получать обновление.';
+    } else if (current) {
+      question = 'Файла на диске уже нет. Убрать ' + (button.dataset.version || name) + ' из каталога?';
+    }
+    if (!window.confirm(question)) return;
+    button.disabled = true;
+    try {
+      await XUI.api('/api/releases/' + encodeURIComponent(name), 'DELETE');
+      const row = button.closest('tr');
+      if (row) row.remove();
+      XUI.toast(current ? 'Релиз снят' : 'Файл удалён');
+      if (!document.querySelector('.table-releases tbody tr')) {
+        window.location.reload();
+      }
+    } catch (err) {
+      button.disabled = false;
+      XUI.toast(err.message || 'Не удалось удалить', 'err');
+    }
+  });
+});
+</script>
+{% endblock %}

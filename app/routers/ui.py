@@ -11,6 +11,7 @@ from app.mihomo import days_left, is_expired
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
 from app.provision import node_template_ids, split_csv
+from app.routers.updates import installer_rows
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
 
@@ -200,6 +201,23 @@ def protection_page(request: Request, session: SessionDep):
             protecting=protecting,
             banned_now=sum(int(node.fail2ban_banned or 0) for node in nodes),
             banned_day=sum(int(node.fail2ban_day or 0) for node in nodes),
+        ),
+    )
+
+
+@router.get('/releases', response_class=HTMLResponse)
+def releases_page(request: Request):
+    if (redir := _need_admin(request)):
+        return redir
+    rows = installer_rows()
+    return templates.TemplateResponse(
+        'releases.html',
+        _ctx(
+            request,
+            page='releases',
+            rows=rows,
+            on_disk=sum(1 for row in rows if row['on_disk']),
+            current=sum(1 for row in rows if row['current']),
         ),
     )
 

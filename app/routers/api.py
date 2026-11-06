@@ -30,6 +30,7 @@ from app.provision import (
     sync_template_fields,
     templates_for_node,
 )
+from app.routers.updates import delete_installer
 from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
 from app.flags import to_iso
@@ -877,3 +878,8 @@ def node_unban(node_id: int, body: UnbanIn, session: SessionDep) -> dict:
             for row in bans
         ],
     }
+
+
+@router.delete('/releases/{filename}')
+def delete_release(filename: str) -> dict:
+    return delete_installer(filename)
