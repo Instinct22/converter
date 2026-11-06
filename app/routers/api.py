@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
+from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence
@@ -301,6 +302,9 @@ def api_provision_node(node_id: int, session: SessionDep, body: ProvisionIn | No
     if not templates:
         raise HTTPException(400, 'На сервере не выбраны входы — отметьте шаблоны в списке «Входы»')
     logs = provision_templates(session, node, templates)
+    ports = {row.port for row in templates_for_node(session, node)}
+    ports.update(row.port for row in templates)
+    logs.extend(sync_node_firewall(node, ports))
     return {'ok': True, 'logs': logs}
 
 

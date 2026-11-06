@@ -1,9 +1,9 @@
-from app.firewall import firewall_actions, protected_ports
+from app.firewall import firewall_plan, protected_ports, wanted_ports
 from app.models import Node
 
 
-def test_firewall_opens_inbound_and_keeps_service_ports():
-    node = Node(
+def _node() -> Node:
+    return Node(
         name='EE',
         panel_url='https://179.254.190.75:21096/secret',
         api_token='t',
@@ -11,9 +11,26 @@ def test_firewall_opens_inbound_and_keeps_service_ports():
         sub_port=2096,
         ssh_port=22,
     )
+
+
+def test_firewall_keeps_only_inbound_and_service_ports():
+    node = _node()
     assert protected_ports(node) == {22, 80, 2096, 21096}
-    actions = firewall_actions(node, {2083, 443}, {8443, 22, 2096, 21096, 80, 2083})
-    assert ('allow', 443) in actions
+    assert wanted_ports(node, {443, 2083}) == {22, 80, 443, 2083, 2096, 21096}
+    current = {22, 80, 443, 8443, 2096, 21096, 9999}
+    actions = firewall_plan(node, {443, 2083}, current)
     assert ('allow', 2083) in actions
     assert ('delete', 8443) in actions
-    assert all(port not in {22, 80, 2096, 21096} for kind, port in actions if kind == 'delete')
+    assert ('delete', 9999) in actions
+    assert ('allow', 443) not in actions
+    assert all(port not in {22, 80, 2096, 21096, 443} for kind, port in actions if kind == 'delete')
+
+
+def test_firewall_opens_missing_service_port():
+    node = _node()
+    actions = firewall_plan(node, {443}, {443, 8443})
+    assert ('allow', 22) in actions
+    assert ('allow', 80) in actions
+    assert ('allow', 2096) in actions
+    assert ('allow', 21096) in actions
+    assert ('delete', 8443) in actions

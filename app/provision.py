@@ -219,7 +219,6 @@ def unprovision_template(session: Session, node: Node, template: InboundTemplate
             session.delete(row)
             logs.append(f'{node.name}: вход {template.name} ({template.port}) удалён')
     session.commit()
-    logs.extend(sync_node_firewall(node, set(), {template.port}))
     return logs
 
 
@@ -309,6 +308,7 @@ def apply_node_templates(session: Session, node: Node, template_ids: list[int]) 
         if (row := session.get(InboundTemplate, tid)) is not None
     ]
     logs.extend(sync_template_fields(session, node, chosen))
+    logs.extend(sync_node_firewall(node, {row.port for row in chosen}))
     if not logs:
         logs.append('Список входов не изменился')
     return logs
@@ -340,7 +340,6 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
     with XuiClient(node, timeout=60.0) as xui:
         remote = xui.inbounds()
         present: dict[int, list[int]] = {}
-        deleted_ports: set[int] = set()
         for raw in remote:
             try:
                 port = int(raw.get('port'))
@@ -355,7 +354,6 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
             for inbound_id in inbound_ids:
                 try:
                     xui.del_inbound(inbound_id)
-                    deleted_ports.add(port)
                     logs.append(f'{node.name}: лишний порт {port} удалён')
                 except XuiError as exc:
                     logs.append(f'{node.name}: порт {port} не удалён: {exc}')
@@ -390,7 +388,7 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
             if client_wanted_on_panel(client):
                 logs.extend(provision_client(session, client, nodes=[node]))
     logs.extend(sync_template_fields(session, node, wanted))
-    logs.extend(sync_node_firewall(node, {row.port for row in wanted}, deleted_ports))
+    logs.extend(sync_node_firewall(node, {row.port for row in wanted}))
     return logs
 
 
@@ -736,7 +734,6 @@ def _keep_remote_clients(existing: dict, spec: dict) -> dict:
 def provision_templates(session: Session, node: Node, templates: Iterable[InboundTemplate]) -> list[str]:
     logs: list[str] = []
     ordered = sorted(list(templates), key=lambda row: (row.port, row.id or 0))
-    opened: set[int] = set()
     with XuiClient(node, timeout=60.0) as xui:
         remote = xui.inbounds()
         by_port: dict[int, dict] = {}
@@ -756,7 +753,6 @@ def provision_templates(session: Session, node: Node, templates: Iterable[Inboun
                 else:
                     xui.add_inbound(spec)
                     logs.append(f'inbound {template.name}:{template.port} создан')
-                opened.add(template.port)
             except XuiError as exc:
                 logs.append(f'inbound {template.name}:{template.port}: {exc}')
     try:
@@ -766,11 +762,9 @@ def provision_templates(session: Session, node: Node, templates: Iterable[Inboun
         node.last_error = str(exc)
         session.add(node)
         session.commit()
-        logs.extend(sync_node_firewall(node, opened, set()))
         return logs
     session.commit()
     logs.extend(sync_template_fields(session, node, ordered))
-    logs.extend(sync_node_firewall(node, opened, set()))
     return logs
 
 
