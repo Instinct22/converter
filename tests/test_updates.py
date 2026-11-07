@@ -149,6 +149,8 @@ def test_windows_and_android_files_of_one_version_are_one_release(monkeypatch, t
     assert text.count('первая строка релиза') == 1
     assert text.count('вторая строка релиза') == 1
     assert '<li>первая строка релиза</li>' in text
+    assert 'href="/api/app/download/AegisGate-1.0.5-android-arm64.apk"' in text
+    assert 'href="/api/app/download/AegisGate-1.0.5-windows-amd64-setup.exe"' in text
     assert '- первая' not in text
     assert text.count('data-release="1.0.5"') == 1
     assert text.index('data-release="1.0.5"') < text.index(names[0]) < text.index('data-release="1.0.4"')

@@ -252,6 +252,7 @@ input:focus, textarea:focus, select:focus {
 .table-releases col.r-size { width: 12%; }
 .table-releases col.r-when { width: 16%; }
 .table-releases col.r-act { width: 12%; }
+.table-releases a { font-weight: 600; }
 .table-releases th:nth-child(3),
 .table-releases td:nth-child(3),
 .table-releases th:nth-child(5),

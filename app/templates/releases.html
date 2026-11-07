@@ -70,7 +70,11 @@
           <tr>
             <td>{{ row.kind }}</td>
             <td>
+              {% if row.on_disk %}
+              <a href="/api/app/download/{{ row.filename | urlencode }}" download>{{ row.filename }}</a>
+              {% else %}
               <strong>{{ row.filename }}</strong>
+              {% endif %}
               {{ notes_block(row.blocks, true) }}
             </td>
             <td>{{ row.size_label }}</td>
