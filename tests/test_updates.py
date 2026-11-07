@@ -90,8 +90,10 @@ def test_release_page_lists_files_and_delete_unpublishes_the_current_one(monkeyp
     assert current in page.text
     assert old in page.text
     assert 'notes.txt' not in page.text
-    assert 'заметки релиза' in page.text
-    assert 'текущий 1.0.4' in page.text
+    assert page.text.count('заметки релиза') == 1
+    assert 'data-release="1.0.4"' in page.text
+    assert 'data-release="1.0.0"' in page.text
+    assert 'текущий' in page.text
 
     removed = client.delete(f'/api/releases/{old}')
     assert removed.status_code == 200
@@ -107,6 +109,49 @@ def test_release_page_lists_files_and_delete_unpublishes_the_current_one(monkeyp
     latest = client.get('/api/app/latest', params={'platform': 'windows', 'arch': 'amd64'})
     assert latest.json() == {'update': False}
     assert client.get(f'/api/app/download/{current}').status_code == 404
+
+
+def test_windows_and_android_files_of_one_version_are_one_release(monkeypatch, tmp_path):
+    files = tmp_path / 'files'
+    files.mkdir()
+    names = [
+        'AegisGate-1.0.5-windows-amd64-setup.exe',
+        'AegisGate-1.0.5-android-arm64.apk',
+        'AegisGate-1.0.5-android-arm.apk',
+        'AegisGate-1.0.5-android-x64.apk',
+        'AegisGate-1.0.4-windows-amd64-setup.exe',
+    ]
+    for name in names:
+        (files / name).write_bytes(b'x')
+    notes = 'общие заметки 1.0.5'
+    catalog = {'stable': {'windows': {}, 'android': {}}}
+    slots = {
+        ('windows', 'amd64'): names[0],
+        ('android', 'arm64'): names[1],
+        ('android', 'arm'): names[2],
+        ('android', 'x64'): names[3],
+    }
+    for (platform, arch), filename in slots.items():
+        catalog['stable'][platform][arch] = {
+            'version': '1.0.5',
+            'notes': notes,
+            'filename': filename,
+            'sha256': 'cd' * 32,
+        }
+    (tmp_path / 'catalog.json').write_text(json.dumps(catalog), encoding='utf-8')
+    monkeypatch.setattr(updates, 'catalog_path', lambda: tmp_path / 'catalog.json')
+    monkeypatch.setattr(updates, 'files_dir', lambda: files)
+    client = TestClient(app)
+    _login(client)
+    page = client.get('/releases')
+    text = page.text
+    assert page.status_code == 200
+    assert text.count(notes) == 1
+    assert text.count('data-release="1.0.5"') == 1
+    assert text.index('data-release="1.0.5"') < text.index(names[0]) < text.index('data-release="1.0.4"')
+    assert 'Android arm64' in text
+    assert 'Android arm' in text
+    assert 'Android x64' in text
 
 
 def test_download_rejects_a_path_outside_the_files_dir(monkeypatch, tmp_path):

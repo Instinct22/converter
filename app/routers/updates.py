@@ -23,6 +23,9 @@ router = APIRouter()
 
 _NAME = re.compile(r'^AegisGate-[A-Za-z0-9._-]+$')
 _SHA = re.compile(r'^[0-9a-fA-F]{64}$')
+_WINDOWS = re.compile(r'^AegisGate-(.+)-windows-amd64-setup\.exe$')
+_ANDROID = re.compile(r'^AegisGate-(.+)-android-(arm64|arm|x64)\.apk$')
+_KIND_ORDER = {'Windows': 0, 'Android arm64': 1, 'Android arm': 2, 'Android x64': 3}
 
 
 def catalog_path() -> Path:
@@ -184,6 +187,56 @@ def forget_filename(filename: str) -> bool:
     if changed:
         _save_catalog(catalog)
     return changed
+
+
+def file_release(filename: str) -> tuple[str, str]:
+    windows = _WINDOWS.match(filename)
+    if windows:
+        return windows.group(1), 'Windows'
+    android = _ANDROID.match(filename)
+    if android:
+        kind = {'arm64': 'Android arm64', 'arm': 'Android arm', 'x64': 'Android x64'}[android.group(2)]
+        return android.group(1), kind
+    return '', ''
+
+
+def _version_key(version: str) -> tuple:
+    pieces = re.findall(r'\d+|[A-Za-z]+', version)
+    has_name = any(not piece.isdigit() for piece in pieces)
+    chunks = tuple((0, int(piece)) if piece.isdigit() else (1, piece) for piece in pieces)
+    return (0 if has_name else 1, chunks)
+
+
+def release_groups() -> list[dict]:
+    groups: dict[str, dict] = {}
+    for row in installer_rows():
+        version, kind = file_release(row['filename'])
+        key = version or row['filename']
+        group = groups.get(key)
+        if group is None:
+            group = {
+                'version': key,
+                'known': bool(version),
+                'notes': '',
+                'current': False,
+                'files': [],
+            }
+            groups[key] = group
+        notes = row['notes']
+        if notes and not group['notes']:
+            group['notes'] = notes
+        group['current'] = group['current'] or bool(row['current'])
+        group['files'].append({**row, 'kind': kind or 'Файл', 'own_notes': notes})
+    ordered = sorted(groups.values(), key=lambda group: (group['known'], _version_key(group['version'])), reverse=True)
+    for group in ordered:
+        shared = group['notes']
+        same = all(not item['own_notes'] or item['own_notes'] == shared for item in group['files'])
+        if not same:
+            group['notes'] = ''
+        for item in group['files']:
+            item['show_notes'] = bool(item['own_notes']) and item['own_notes'] != group['notes']
+        group['files'].sort(key=lambda item: (_KIND_ORDER.get(item['kind'], 9), item['filename']))
+    return ordered
 
 
 def delete_installer(filename: str) -> dict:

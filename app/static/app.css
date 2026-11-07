@@ -223,17 +223,20 @@ input:focus, textarea:focus, select:focus {
   line-height: 1.45;
 }
 #ban-actions[hidden] { display: none; }
-.table-releases { table-layout: fixed; width: 100%; min-width: 760px; }
+.release-list { display: grid; gap: 16px; }
+.release-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.release-head h2 { margin: 0; }
+.release-notes { white-space: pre-wrap; margin: 12px 0 0; }
+.table-releases { table-layout: fixed; width: 100%; min-width: 680px; }
+.table-releases col.r-kind { width: 18%; }
 .table-releases col.r-file { width: 42%; }
 .table-releases col.r-size { width: 12%; }
-.table-releases col.r-when { width: 18%; }
-.table-releases col.r-role { width: 16%; }
+.table-releases col.r-when { width: 16%; }
 .table-releases col.r-act { width: 12%; }
-.table-releases th:nth-child(2),
-.table-releases td:nth-child(2),
+.table-releases th:nth-child(3),
+.table-releases td:nth-child(3),
 .table-releases th:nth-child(5),
 .table-releases td:nth-child(5) { text-align: right; }
-.table-releases .release-notes { white-space: pre-wrap; max-width: 52ch; }
 .table-guard { table-layout: fixed; width: 100%; }
 .table-guard col.g-name { width: 24%; }
 .table-guard col.g-state { width: 18%; }

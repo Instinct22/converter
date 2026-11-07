@@ -11,7 +11,7 @@ from app.mihomo import days_left, is_expired
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
 from app.provision import node_template_ids, split_csv
-from app.routers.updates import installer_rows
+from app.routers.updates import release_groups
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
 
@@ -209,15 +209,15 @@ def protection_page(request: Request, session: SessionDep):
 def releases_page(request: Request):
     if (redir := _need_admin(request)):
         return redir
-    rows = installer_rows()
+    groups = release_groups()
     return templates.TemplateResponse(
         'releases.html',
         _ctx(
             request,
             page='releases',
-            rows=rows,
-            on_disk=sum(1 for row in rows if row['on_disk']),
-            current=sum(1 for row in rows if row['current']),
+            groups=groups,
+            on_disk=sum(1 for group in groups for row in group['files'] if row['on_disk']),
+            current=next((group['version'] for group in groups if group['current']), '—'),
         ),
     )
 
