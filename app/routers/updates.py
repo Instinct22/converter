@@ -189,6 +189,29 @@ def forget_filename(filename: str) -> bool:
     return changed
 
 
+def note_blocks(text: str) -> list[dict]:
+    blocks: list[dict] = []
+    items: list[str] = []
+
+    def flush() -> None:
+        if items:
+            blocks.append({'type': 'list', 'items': items.copy()})
+            items.clear()
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            flush()
+            continue
+        if line.startswith(('- ', '* ', '• ')):
+            items.append(line[2:].strip())
+            continue
+        flush()
+        blocks.append({'type': 'text', 'text': line})
+    flush()
+    return blocks
+
+
 def file_release(filename: str) -> tuple[str, str]:
     windows = _WINDOWS.match(filename)
     if windows:
@@ -233,8 +256,10 @@ def release_groups() -> list[dict]:
         same = all(not item['own_notes'] or item['own_notes'] == shared for item in group['files'])
         if not same:
             group['notes'] = ''
+        group['blocks'] = note_blocks(group['notes'])
         for item in group['files']:
             item['show_notes'] = bool(item['own_notes']) and item['own_notes'] != group['notes']
+            item['blocks'] = note_blocks(item['own_notes']) if item['show_notes'] else []
         group['files'].sort(key=lambda item: (_KIND_ORDER.get(item['kind'], 9), item['filename']))
     return ordered
 

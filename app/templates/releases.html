@@ -1,5 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Релизы — Master{% endblock %}
+{% macro notes_block(blocks, compact=false) %}
+{% if blocks %}
+<div class="release-notes{% if compact %} compact{% endif %}">
+  {% for block in blocks %}
+    {% if block.type == 'list' %}
+    <ul>
+      {% for item in block['items'] %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>{{ block.text }}</p>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
 {% block content %}
 <div class="page-head">
   <div>
@@ -29,7 +46,7 @@
       </div>
       <button class="btn danger small" type="button" data-delete-group>Удалить релиз</button>
     </div>
-    {% if group.notes %}<p class="hint release-notes">{{ group.notes }}</p>{% endif %}
+    {{ notes_block(group.blocks) }}
     <div class="table-scroll">
       <table class="table-releases">
         <colgroup>
@@ -51,13 +68,10 @@
         <tbody>
         {% for row in group.files %}
           <tr>
-            <td>
-              {{ row.kind }}
-              {% if row.current %}<span class="fw-tag on">отдаётся</span>{% endif %}
-            </td>
+            <td>{{ row.kind }}</td>
             <td>
               <strong>{{ row.filename }}</strong>
-              {% if row.show_notes %}<span class="hint release-notes">{{ row.own_notes }}</span>{% endif %}
+              {{ notes_block(row.blocks, true) }}
             </td>
             <td>{{ row.size_label }}</td>
             <td>{{ row.modified }}</td>

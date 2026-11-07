@@ -123,7 +123,7 @@ def test_windows_and_android_files_of_one_version_are_one_release(monkeypatch, t
     ]
     for name in names:
         (files / name).write_bytes(b'x')
-    notes = 'общие заметки 1.0.5'
+    notes = '- первая строка релиза\n- вторая строка релиза'
     catalog = {'stable': {'windows': {}, 'android': {}}}
     slots = {
         ('windows', 'amd64'): names[0],
@@ -146,7 +146,10 @@ def test_windows_and_android_files_of_one_version_are_one_release(monkeypatch, t
     page = client.get('/releases')
     text = page.text
     assert page.status_code == 200
-    assert text.count(notes) == 1
+    assert text.count('первая строка релиза') == 1
+    assert text.count('вторая строка релиза') == 1
+    assert '<li>первая строка релиза</li>' in text
+    assert '- первая' not in text
     assert text.count('data-release="1.0.5"') == 1
     assert text.index('data-release="1.0.5"') < text.index(names[0]) < text.index('data-release="1.0.4"')
     assert 'Android arm64' in text
