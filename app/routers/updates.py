@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from app.settings import DATA_DIR, settings
+from app.settings import DATA_DIR, ROOT, settings
 from app.util import format_bytes
 
 router = APIRouter()
@@ -34,6 +34,64 @@ def catalog_path() -> Path:
 
 def files_dir() -> Path:
     return DATA_DIR / 'updates' / 'files'
+
+
+def notes_path() -> Path:
+    return catalog_path().parent / 'release-notes.json'
+
+
+def seed_notes() -> dict[str, str]:
+    path = ROOT / 'app' / 'release_notes_seed.json'
+    if not path.is_file():
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    return {str(key): str(value).strip() for key, value in loaded.items() if str(value).strip()}
+
+
+def load_version_notes() -> dict[str, str]:
+    path = notes_path()
+    saved: dict[str, str] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            saved = {str(key): str(value).strip() for key, value in loaded.items() if str(value).strip()}
+    for version, notes in seed_notes().items():
+        saved.setdefault(version, notes)
+    return saved
+
+
+def remember_version_notes(found: dict[str, str]) -> None:
+    if not found:
+        return
+    path = notes_path()
+    current: dict[str, str] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            current = {str(key): str(value) for key, value in loaded.items()}
+    changed = False
+    for version, notes in found.items():
+        text = notes.strip()
+        if version and text and current.get(version) != text:
+            current[version] = text
+            changed = True
+    if not changed:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(current, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    temporary.replace(path)
 
 
 def _release(channel: str, platform: str, arch: str) -> dict | None:
@@ -231,6 +289,8 @@ def _version_key(version: str) -> tuple:
 
 
 def release_groups() -> list[dict]:
+    saved = load_version_notes()
+    fresh: dict[str, str] = {}
     groups: dict[str, dict] = {}
     for row in installer_rows():
         version, kind = file_release(row['filename'])
@@ -245,11 +305,17 @@ def release_groups() -> list[dict]:
                 'files': [],
             }
             groups[key] = group
-        notes = row['notes']
+        notes = row['notes'] or saved.get(version, '')
+        if row['notes'] and version:
+            fresh[version] = row['notes']
         if notes and not group['notes']:
             group['notes'] = notes
         group['current'] = group['current'] or bool(row['current'])
         group['files'].append({**row, 'kind': kind or 'Файл', 'own_notes': notes})
+    for version, notes in saved.items():
+        if version not in fresh:
+            fresh.setdefault(version, notes)
+    remember_version_notes(fresh)
     ordered = sorted(groups.values(), key=lambda group: (group['known'], _version_key(group['version'])), reverse=True)
     for group in ordered:
         shared = group['notes']

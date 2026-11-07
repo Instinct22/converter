@@ -159,6 +159,45 @@ def test_windows_and_android_files_of_one_version_are_one_release(monkeypatch, t
     assert 'Android x64' in text
 
 
+def test_old_release_keeps_its_notes_after_a_newer_one_is_current(monkeypatch, tmp_path):
+    monkeypatch.setattr(updates, 'seed_notes', lambda: {})
+    files = tmp_path / 'files'
+    files.mkdir()
+    current = 'AegisGate-1.0.6-windows-amd64-setup.exe'
+    old = 'AegisGate-1.0.5-windows-amd64-setup.exe'
+    (files / current).write_bytes(b'new')
+    (files / old).write_bytes(b'old')
+    catalog = {
+        'stable': {
+            'windows': {
+                'amd64': {
+                    'version': '1.0.6',
+                    'notes': '- свежие',
+                    'filename': current,
+                    'sha256': 'ab' * 32,
+                },
+            },
+        },
+    }
+    (tmp_path / 'catalog.json').write_text(json.dumps(catalog), encoding='utf-8')
+    (tmp_path / 'release-notes.json').write_text(
+        json.dumps({'1.0.5': '- прошлые'}, ensure_ascii=False),
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(updates, 'catalog_path', lambda: tmp_path / 'catalog.json')
+    monkeypatch.setattr(updates, 'files_dir', lambda: files)
+    client = TestClient(app)
+    _login(client)
+    page = client.get('/releases')
+    text = page.text
+    assert 'свежие' in text
+    assert 'прошлые' in text
+    assert text.index('data-release="1.0.6"') < text.index('data-release="1.0.5"')
+    saved = json.loads((tmp_path / 'release-notes.json').read_text(encoding='utf-8'))
+    assert saved['1.0.5'] == '- прошлые'
+    assert saved['1.0.6'] == '- свежие'
+
+
 def test_download_rejects_a_path_outside_the_files_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(updates, 'files_dir', lambda: tmp_path)
     client = TestClient(app)
