@@ -42,9 +42,14 @@
           <span class="name-flag">
             {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
             <strong>{{ n.name }}</strong>
+            {% if n.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
+            {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>
+            {% elif n.install_state == 'done' %}<span class="fw-tag on">установлен</span>{% endif %}
           </span>
           {% if n.clash_name %}<div class="hint" style="margin:0">Clash: {{ n.clash_prefix() }}</div>{% endif %}
-          {% if n.last_error %}<div class="hint" style="margin:4px 0 0" title="{{ n.last_error }}">Нет связи с панелью</div>{% endif %}
+          {% if n.install_state == 'installing' %}<div class="hint" style="margin:4px 0 0">Ставится 3x-ui, журнал на карточке</div>
+          {% elif n.install_state == 'failed' %}<div class="hint" style="margin:4px 0 0" title="{{ n.last_error }}">{{ n.last_error or 'Установка не закончилась' }}</div>
+          {% elif n.last_error %}<div class="hint" style="margin:4px 0 0" title="{{ n.last_error }}">Нет связи с панелью</div>{% endif %}
         </td>
         <td class="mono" data-label="IP для клиента">{{ n.public_host }}</td>
         <td data-label="Входы">
@@ -86,8 +91,8 @@
               </div>
               <div class="tpl-dropdown__foot">
                 <button type="button" class="btn ghost small" data-tpl-none>Очистить</button>
-                <button type="button" class="btn small secondary" data-refresh-templates="{{ n.id }}">Сверить</button>
-                <button type="button" class="btn small" data-save-templates="{{ n.id }}">Применить</button>
+                <button type="button" class="btn small secondary" data-refresh-templates="{{ n.id }}" {% if n.install_state == 'installing' %}disabled{% endif %}>Сверить</button>
+                <button type="button" class="btn small" data-save-templates="{{ n.id }}" {% if n.install_state == 'installing' %}disabled{% endif %}>Применить</button>
               </div>
             </div>
             {% set live = live_ports.get(n.id, []) if live_ports is defined else [] %}
@@ -105,7 +110,7 @@
         </td>
         <td class="col-actions" data-label="">
           <div class="row">
-            <button class="btn small secondary" data-sync="{{ n.id }}">Связь с панелью</button>
+            <button class="btn small secondary" data-sync="{{ n.id }}" {% if n.install_state == 'installing' %}disabled{% endif %}>Связь с панелью</button>
             <button class="btn small danger" data-del="{{ n.id }}">Убрать</button>
             <a class="btn small" href="/nodes/{{ n.id }}">Настройки</a>
           </div>
@@ -120,7 +125,7 @@
 <div class="card">
   <div class="empty">
     <h3>Ни одного сервера</h3>
-    <p>Нужны URL панели и API Token. Логин 3x-ui не используем.</p>
+    <p>Панель уже стоит — нужны её URL и API Token. Чистый VPS — Master сам поставит 3x-ui по SSH.</p>
     <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить первый сервер</button>
   </div>
 </div>
@@ -151,29 +156,54 @@
         </div>
       </div>
 
-      <div class="step-label">2 · URL 3x-ui</div>
-      <div class="field">
-        <label>Адрес панели</label>
-        <input name="panel_url" required placeholder="https://82.40.58.78:28879/l156n0rG5HBRse0B01">
-        <span class="hint">Пример: <span class="mono">https://82.40.58.78:28879/l156n0rG5HBRse0B01</span> — без логина, с секретным путём. Хвост /panel можно оставить, его срежем. IP для клиентов возьмём из этого URL.</span>
+      <div class="step-label">2 · Откуда панель</div>
+      <div class="chips" id="node-source">
+        <label class="chip"><input type="radio" name="source" value="existing" checked> Панель уже стоит</label>
+        <label class="chip"><input type="radio" name="source" value="install"> Чистый VPS</label>
       </div>
 
-      <div class="step-label">3 · API Token</div>
-      <div class="field">
-        <label>
-          Токен
-          <span class="tip" tabindex="0">?
-            <span class="tip-box">
-              В 3x-ui откройте панель → шестерёнка <strong>Panel Settings</strong> (настройки панели) → поле <strong>API Token</strong>. Если пусто — сгенерируйте, сохраните настройки, скопируйте сюда. Master ходит только с заголовком Authorization: Bearer, логин и пароль не нужны.
+      <div id="source-existing">
+        <div class="step-label">3 · URL 3x-ui</div>
+        <div class="field">
+          <label>Адрес панели</label>
+          <input name="panel_url" required placeholder="https://82.40.58.78:28879/l156n0rG5HBRse0B01">
+          <span class="hint">Пример: <span class="mono">https://82.40.58.78:28879/l156n0rG5HBRse0B01</span> — без логина, с секретным путём. Хвост /panel можно оставить, его срежем. IP для клиентов возьмём из этого URL.</span>
+        </div>
+        <div class="step-label">4 · API Token</div>
+        <div class="field">
+          <label>
+            Токен
+            <span class="tip" tabindex="0">?
+              <span class="tip-box">
+                В 3x-ui откройте панель → шестерёнка <strong>Panel Settings</strong> (настройки панели) → поле <strong>API Token</strong>. Если пусто — сгенерируйте, сохраните настройки, скопируйте сюда. Master ходит только с заголовком Authorization: Bearer, логин и пароль не нужны.
+              </span>
             </span>
-          </span>
-        </label>
-        <input name="api_token" required autocomplete="off" placeholder="вставьте токен из Panel Settings">
-        <span class="hint">Наведите на «?», если не помните, где лежит токен.</span>
+          </label>
+          <input name="api_token" required autocomplete="off" placeholder="вставьте токен из Panel Settings">
+          <span class="hint">Наведите на «?», если не помните, где лежит токен.</span>
+        </div>
+      </div>
+
+      <div id="source-install" hidden>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="field">
+            <label>IP сервера</label>
+            <input name="host" inputmode="decimal" placeholder="95.85.120.14" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>SSH-пользователь</label>
+            <input name="ssh_user" value="root" autocomplete="off">
+          </div>
+          <div class="field span-2">
+            <label>SSH-пароль</label>
+            <input name="ssh_password" type="password" autocomplete="new-password">
+            <span class="hint">Сохранится на карточке и пойдёт в файрвол и защиту. Сертификат выпускается на IP, порт 80 открыт. Если на машине уже стоит x-ui, установка остановится и пароль панели не сменит.</span>
+          </div>
+        </div>
       </div>
 
       <div class="row" style="margin-top:16px">
-        <button class="btn" type="submit">Подключить</button>
+        <button class="btn" type="submit" id="node-submit">Подключить</button>
         <button class="btn secondary" type="button" data-close="add-node">Отмена</button>
       </div>
     </form>
@@ -183,27 +213,50 @@
 {% endblock %}
 {% block scripts %}
 <script>
-document.getElementById('node-form').addEventListener('submit', async (e) => {
+const nodeForm = document.getElementById('node-form');
+function applyNodeSource() {
+  const install = nodeForm.source.value === 'install';
+  document.getElementById('source-existing').hidden = install;
+  document.getElementById('source-install').hidden = !install;
+  nodeForm.panel_url.required = !install;
+  nodeForm.api_token.required = !install;
+  nodeForm.host.required = install;
+  nodeForm.ssh_password.required = install;
+  document.getElementById('node-submit').textContent = install ? 'Поставить 3x-ui' : 'Подключить';
+}
+nodeForm.querySelectorAll('input[name=source]').forEach((input) => {
+  input.addEventListener('change', applyNodeSource);
+});
+nodeForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   if (!f.flag.value) {
     XUI.toast('Выберите флаг', 'err');
     return;
   }
+  const install = f.source.value === 'install';
   const btn = f.querySelector('button[type=submit]');
+  const payload = {
+    flag: f.flag.value,
+    name: f.name.value,
+    clash_name: f.clash_name.value,
+  };
+  if (install) {
+    payload.install = true;
+    payload.host = f.host.value.trim();
+    payload.ssh_user = f.ssh_user.value.trim();
+    payload.ssh_password = f.ssh_password.value;
+  } else {
+    payload.panel_url = f.panel_url.value;
+    payload.api_token = f.api_token.value;
+  }
   try {
     await XUI.withBusy(btn, async () => {
-      const data = await XUI.api('/api/nodes', 'POST', {
-        flag: f.flag.value,
-        name: f.name.value,
-        clash_name: f.clash_name.value,
-        panel_url: f.panel_url.value,
-        api_token: f.api_token.value,
-      });
+      const data = await XUI.api('/api/nodes', 'POST', payload);
       if (data.logs && data.logs.length) XUI.showLog(document.getElementById('node-log'), data.logs);
-      XUI.toast('Сервер добавлен');
+      XUI.toast(install ? 'Сервер в списке, 3x-ui ставится' : 'Сервер добавлен');
     });
-    setTimeout(() => location.reload(), 400);
+    setTimeout(() => location.reload(), install ? 700 : 400);
   } catch (err) {}
 });
 document.querySelectorAll('[data-sync]').forEach((btn) => btn.addEventListener('click', async () => {

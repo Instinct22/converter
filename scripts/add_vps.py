@@ -20,10 +20,6 @@ import argparse
 import json
 import os
 import re
-import secrets
-import shlex
-import string
-import subprocess
 import sys
 from pathlib import Path
 import urllib.error
@@ -31,10 +27,19 @@ import urllib.parse
 import urllib.request
 from http.cookiejar import CookieJar
 
-INSTALL_URL = 'https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh'
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.xui_install import (  # noqa: E402
+    choose_panel_port as panel_port,
+    parse_master_lines,
+    rand,
+    remote_script,
+    run_ssh,
+)
+
 ENV_FILE = Path(__file__).with_name('add_vps.env')
-# Порты Reality, которые клиенты открывают снаружи, если шаблоны ещё не прочитаны.
-DEFAULT_PUBLIC_PORTS = (443, 8443)
 
 
 def load_env(path: Path) -> None:
@@ -55,203 +60,6 @@ def load_env(path: Path) -> None:
             value = value[1:-1]
         if key and key not in os.environ:
             os.environ[key] = value
-
-
-def rand(length: int) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
-
-
-def panel_port() -> int:
-    banned = {22, 80, 443, 8443, 2096}
-    while True:
-        port = secrets.randbelow(50000) + 10000
-        if port not in banned:
-            return port
-
-
-def remote_script(
-    *,
-    username: str,
-    password: str,
-    web_base: str,
-    port: int,
-    public_ports: list[int],
-    master_ip: str,
-    server_ip: str,
-    ssl_mode: str,
-) -> str:
-    exports = '\n'.join(
-        [
-            f'export XUI_NONINTERACTIVE=1',
-            f'export XUI_USERNAME={shlex.quote(username)}',
-            f'export XUI_PASSWORD={shlex.quote(password)}',
-            f'export XUI_WEB_BASE_PATH={shlex.quote(web_base)}',
-            f'export XUI_PANEL_PORT={port}',
-            f'export XUI_DB_TYPE=sqlite',
-            f'export XUI_SSL_MODE={shlex.quote(ssl_mode)}',
-            f'export XUI_SERVER_IP={shlex.quote(server_ip)}',
-        ]
-    )
-    ports = ' '.join(str(item) for item in public_ports)
-    return f'''set -u
-{exports}
-if command -v x-ui >/dev/null 2>&1 || [[ -x /usr/local/x-ui/x-ui ]]; then
-  echo "MASTER_ERROR=на сервере уже стоит x-ui, повторная установка сменит пароль. Остановился."
-  exit 2
-fi
-if [[ ! -r /etc/os-release ]] || ! grep -Eq 'debian|ubuntu' /etc/os-release; then
-  echo "MASTER_ERROR=нужен Debian или Ubuntu"
-  exit 2
-fi
-export DEBIAN_FRONTEND=noninteractive
-if ! apt-get update -qq || ! apt-get install -y -qq curl ca-certificates; then
-  echo "MASTER_ERROR=не удалось поставить curl"
-  exit 1
-fi
-installer=$(mktemp)
-if ! curl -fsSL {shlex.quote(INSTALL_URL)} -o "$installer"; then
-  echo "MASTER_ERROR=не скачался установщик 3x-ui"
-  exit 1
-fi
-if ! bash "$installer"; then
-  echo "MASTER_ERROR=установщик 3x-ui завершился с ошибкой"
-  exit 1
-fi
-rm -f "$installer"
-if [[ ! -x /usr/local/x-ui/x-ui ]]; then
-  echo "MASTER_ERROR=x-ui не появился после установки"
-  exit 1
-fi
-install -d -m 700 /etc/x-ui
-if [[ -r /etc/x-ui/install-result.env ]]; then
-  # shellcheck disable=SC1091
-  source /etc/x-ui/install-result.env
-fi
-token="${{XUI_API_TOKEN:-}}"
-if [[ -z "$token" && -x /usr/local/x-ui/x-ui ]]; then
-  token=$(/usr/local/x-ui/x-ui setting -getApiToken | awk '/apiToken:/ {{print $2; exit}}')
-fi
-access="${{XUI_ACCESS_URL:-}}"
-scheme="${{access%%://*}}"
-host="${{XUI_SERVER_IP:-}}"
-if [[ -z "$host" ]]; then
-  host=$(curl -4 -fsS --max-time 5 https://api4.ipify.org || true)
-fi
-panel_port="${{XUI_PANEL_PORT}}"
-base_path="${{XUI_WEB_BASE_PATH}}"
-base_path="${{base_path#/}}"
-probe() {{
-  curl -ksS -o /dev/null -w "%{{http_code}}" --max-time 8 "$1" || true
-}}
-https_code=$(probe "https://127.0.0.1:${{panel_port}}/${{base_path}}/")
-http_code=$(probe "http://127.0.0.1:${{panel_port}}/${{base_path}}/")
-if [[ "$https_code" != "000" && -n "$https_code" ]]; then
-  scheme=https
-elif [[ "$http_code" != "000" && -n "$http_code" ]]; then
-  scheme=http
-fi
-access="${{scheme}}://${{host}}:${{panel_port}}/${{base_path}}"
-apt-get update -qq
-apt-get install -y -qq ufw fail2ban >/dev/null
-ssh_port=22
-if [[ -n "${{SSH_CONNECTION:-}}" ]]; then
-  ssh_port="${{SSH_CONNECTION##* }}"
-fi
-operator_ip=""
-if [[ -n "${{SSH_CONNECTION:-}}" ]]; then
-  operator_ip="${{SSH_CONNECTION%% *}}"
-fi
-ufw --force reset >/dev/null
-ufw default deny incoming
-ufw default allow outgoing
-ufw limit "${{ssh_port}}/tcp"
-for public_port in {ports}; do
-  ufw allow "${{public_port}}/tcp"
-done
-if [[ "{ssl_mode}" == "ip" ]]; then
-  ufw allow 80/tcp
-fi
-ufw allow "${{panel_port}}/tcp"
-ufw --force enable
-cat >/etc/fail2ban/jail.d/sshd-master.local <<EOF
-[sshd]
-enabled = true
-port = $ssh_port
-maxretry = 4
-findtime = 10m
-bantime = 1h
-ignoreip = 127.0.0.1/8 ::1 {master_ip} $operator_ip
-EOF
-systemctl enable --now fail2ban >/dev/null 2>&1 || true
-systemctl restart fail2ban >/dev/null 2>&1 || true
-if [[ -z "$token" || -z "$host" || "$access" == *"://:"* ]]; then
-  echo "MASTER_ERROR=установщик не вернул адрес или API Token"
-  exit 1
-fi
-echo "MASTER_URL=$access"
-echo "MASTER_USER=${{XUI_USERNAME}}"
-echo "MASTER_PASS=${{XUI_PASSWORD}}"
-echo "MASTER_TOKEN=$token"
-echo "MASTER_PORT=$panel_port"
-echo "MASTER_SSH_PORT=$ssh_port"
-echo "MASTER_OPERATOR=$operator_ip"
-'''
-
-
-def run_ssh(host: str, user: str, script: str, key: str, password: str) -> tuple[int, str]:
-    target = f'{user}@{host}'
-    if password:
-        try:
-            import paramiko
-        except ImportError as exc:
-            raise SystemExit(
-                'Для входа по паролю нужен paramiko: python3 -m pip install paramiko. '
-                'Либо зайдите ключом: VPS_SSH_KEY в scripts/add_vps.env'
-            ) from exc
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(
-            host,
-            username=user,
-            password=password,
-            timeout=25,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-        stdin, stdout, stderr = client.exec_command('bash -s', timeout=900)
-        stdin.write(script)
-        stdin.channel.shutdown_write()
-        out = stdout.read().decode('utf-8', 'replace')
-        err = stderr.read().decode('utf-8', 'replace')
-        code = stdout.channel.recv_exit_status()
-        client.close()
-        return code, out + err
-    cmd = [
-        'ssh',
-        '-o', 'StrictHostKeyChecking=accept-new',
-        '-o', 'ConnectTimeout=25',
-    ]
-    if key:
-        cmd.extend(['-i', key])
-    cmd.extend([target, 'bash -s'])
-    proc = subprocess.run(
-        cmd,
-        input=script.encode(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    return proc.returncode, proc.stdout.decode('utf-8', 'replace')
-
-
-def parse_master_lines(text: str) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for line in text.splitlines():
-        if line.startswith('MASTER_') and '=' in line:
-            key, value = line.split('=', 1)
-            found[key] = value.strip()
-    return found
 
 
 class Master:
@@ -285,11 +93,6 @@ class Master:
         if not raw:
             return {}
         return json.loads(raw)
-
-
-def host_of(url: str) -> str:
-    parsed = urllib.parse.urlparse(url)
-    return parsed.hostname or ''
 
 
 def main() -> None:
@@ -339,21 +142,19 @@ def main() -> None:
         raise SystemExit('Master не отдал список шаблонов')
     enabled = [row for row in templates if row.get('enabled')]
     template_ids = [int(row['id']) for row in enabled if row.get('id') is not None]
-    public_ports = sorted({int(row.get('port') or 0) for row in enabled} | set(DEFAULT_PUBLIC_PORTS))
-    public_ports = [item for item in public_ports if item > 0]
-    master_ip = host_of(args.master)
     script = remote_script(
         username=username,
         password=password,
         web_base=web_base,
         port=port,
-        public_ports=public_ports,
-        master_ip=master_ip,
         server_ip=args.host,
         ssl_mode=args.ssl,
     )
     print(f'Ставлю 3x-ui на {args.host}. Это несколько минут.', flush=True)
-    code, output = run_ssh(args.host, args.ssh_user, script, args.ssh_key, args.ssh_password)
+    try:
+        code, output = run_ssh(args.host, args.ssh_user, script, args.ssh_key, args.ssh_password)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
     sys.stdout.write(output)
     if code != 0:
         raise SystemExit(code)
@@ -406,12 +207,7 @@ def main() -> None:
     print('  Пароль:   ', creds.get('MASTER_PASS') or password)
     print('  API Token:', token)
     print('Панель открыта из интернета по этому URL.')
-    opened = ['SSH', 'панель ' + str(port)]
-    if args.ssl == 'ip':
-        opened.append('80 для продления сертификата')
-    opened.append('порты Reality ' + ', '.join(str(item) for item in public_ports))
-    print('Снаружи открыты:', ', '.join(opened) + '.')
-    print('SSH режет fail2ban: 4 ошибки за 10 минут, бан на час.')
+    print('Файрвол и fail2ban этот скрипт не трогает: их ставит Master.')
 
 
 if __name__ == '__main__':

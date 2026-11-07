@@ -33,6 +33,9 @@ NODE_COLUMNS = {
     'fail2ban_banned': 'INTEGER DEFAULT 0',
     'fail2ban_day': 'INTEGER DEFAULT 0',
     'fail2ban_note': "TEXT DEFAULT ''",
+    'install_state': "TEXT DEFAULT ''",
+    'install_log': "TEXT DEFAULT ''",
+    'install_ssl': "TEXT DEFAULT ''",
 }
 
 TEMPLATE_COLUMNS = {

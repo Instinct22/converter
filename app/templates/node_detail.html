@@ -8,11 +8,32 @@
     <p class="lede">URL панели, токен и подписка 3x-ui. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке «Серверы».</p>
   </div>
   <div class="row">
-    <button class="btn secondary" id="test" type="button">Проверить связь</button>
-    <button class="btn secondary" id="sync-inbounds" type="button">Связь с панелью</button>
+    <button class="btn secondary" id="test" type="button" {% if node.install_state == 'installing' %}disabled{% endif %}>Проверить связь</button>
+    <button class="btn secondary" id="sync-inbounds" type="button" {% if node.install_state == 'installing' %}disabled{% endif %}>Связь с панелью</button>
   </div>
 </div>
 <pre class="log" id="log"></pre>
+
+{% if node.install_state == 'installing' or node.install_state == 'failed' or node.install_log %}
+<div class="card" id="install-card">
+  <h2>Установка 3x-ui
+    {% if node.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
+    {% elif node.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>
+    {% else %}<span class="fw-tag on">готово</span>{% endif %}
+  </h2>
+  <p class="sub">
+    {% if node.install_state == 'installing' %}
+    Панели ещё нет. SSH уже сохранён ниже, в блоке «Файрвол». Повторная установка на стоящий x-ui не запускается.
+    {% else %}
+    Логин и пароль панели показаны в журнале один раз. API Token уже записан в поле ниже, повторно его копировать не нужно.
+    {% endif %}
+  </p>
+  <pre class="log show" id="install-log">{{ node.install_log }}</pre>
+  {% if node.install_state != 'installing' %}
+  <button class="btn secondary" type="button" id="hide-install-log">Скрыть журнал</button>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="card">
   <h2>Панель и имя сервера</h2>
@@ -32,8 +53,8 @@
       </div>
       <div class="field span-2">
         <label>URL 3x-ui</label>
-        <input name="panel_url" value="{{ node.panel_url }}">
-        <span class="hint">Пример: https://82.40.58.78:28879/l156n0rG5HBRse0B01</span>
+        <input name="panel_url" value="{{ node.panel_url }}" placeholder="{{ 'появится после установки' if not node.panel_url else '' }}" {% if node.install_state == 'installing' %}readonly{% endif %}>
+        <span class="hint">{% if node.install_state == 'installing' %}Адрес и токен появятся здесь, когда установщик закончит.{% else %}Пример: https://82.40.58.78:28879/l156n0rG5HBRse0B01{% endif %}</span>
       </div>
       <div class="field">
         <label>Порт подписки 3x-ui</label>
@@ -58,7 +79,7 @@
             <span class="tip-box">3x-ui → Panel Settings → API Token. Пустое поле не затирает текущий токен.</span>
           </span>
         </label>
-        <input name="api_token" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else 'вставьте токен' }}">
+        <input name="api_token" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else ('появится после установки' if node.install_state == 'installing' else 'вставьте токен') }}" {% if node.install_state == 'installing' %}readonly{% endif %}>
       </div>
     </div>
     <button class="btn" type="submit">Сохранить</button>
@@ -84,7 +105,7 @@
         <span class="hint">Сохранение сверяет ufw с входами, которые уже навешаны на сервер. Если ufw нет, Master ставит его. Пустое поле пароль не стирает. SSH, 80, порт панели и порт подписки остаются открытыми.</span>
       </div>
     </div>
-    <button class="btn" type="submit">Сохранить и проверить</button>
+    <button class="btn" type="submit" {% if node.install_state == 'installing' %}disabled{% endif %}>Сохранить и проверить</button>
   </form>
 </div>
 {% endblock %}
@@ -128,6 +149,31 @@ document.getElementById('edit').onsubmit = async (e) => {
     XUI.toast('Сохранено');
   } catch (err) { XUI.toast(err.message, 'err'); }
 };
+
+const hideInstall = document.getElementById('hide-install-log');
+if (hideInstall) {
+  hideInstall.onclick = async () => {
+    try {
+      await XUI.api('/api/nodes/' + id + '/install-log/clear', 'POST', {});
+      location.reload();
+    } catch (err) { XUI.toast(err.message, 'err'); }
+  };
+}
+{% if node.install_state == 'installing' %}
+async function pollInstall() {
+  try {
+    const row = await XUI.api('/api/nodes/' + id);
+    const pre = document.getElementById('install-log');
+    if (pre && row.install_log) pre.textContent = row.install_log;
+    if (row.install_state && row.install_state !== 'installing') {
+      location.reload();
+      return;
+    }
+  } catch (err) {}
+  setTimeout(pollInstall, 3000);
+}
+pollInstall();
+{% endif %}
 
 document.getElementById('firewall').onsubmit = async (e) => {
   e.preventDefault();

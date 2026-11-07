@@ -35,6 +35,9 @@ class Node(SQLModel, table=True):
     fail2ban_banned: int = 0
     fail2ban_day: int = 0
     fail2ban_note: str = ''
+    install_state: str = ''
+    install_log: str = ''
+    install_ssl: str = ''
     created_at: datetime = Field(default_factory=utcnow)
 
     def clash_prefix(self) -> str:

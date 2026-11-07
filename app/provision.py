@@ -243,8 +243,18 @@ def port_clash_logs(session: Session, template_ids: list[int]) -> list[str]:
     return logs
 
 
+def panel_not_ready(node: Node) -> str:
+    if (getattr(node, 'install_state', '') or '') == 'installing':
+        return f'{node.name}: панель ещё ставится'
+    if not (node.panel_url or '').strip() or not (node.api_token or '').strip():
+        return f'{node.name}: панель ещё не подключена'
+    return ''
+
+
 def apply_node_templates(session: Session, node: Node, template_ids: list[int]) -> list[str]:
     """Галочка стоит — inbound создан на ноде. Галочку сняли — inbound удалён."""
+    if waiting := panel_not_ready(node):
+        return [waiting]
     clash = port_clash_logs(session, template_ids)
     if clash:
         return clash
@@ -320,6 +330,8 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
     Порт уже есть — не трогаем (ключи Reality остаются). Порта нет — создаём.
     Порт без отмеченного шаблона — удаляем.
     """
+    if waiting := panel_not_ready(node):
+        return [waiting]
     clash = port_clash_logs(session, template_ids)
     if clash:
         return clash

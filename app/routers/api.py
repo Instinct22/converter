@@ -35,6 +35,7 @@ from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
 from app.flags import to_iso
 from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url
+from app.xui_install import prepare_install, start_install
 
 router = APIRouter(prefix='/api', dependencies=[Depends(require_admin)])
 
@@ -43,8 +44,13 @@ class NodeIn(BaseModel):
     flag: str = ''
     name: str
     clash_name: str = ''
-    panel_url: str
-    api_token: str
+    panel_url: str = ''
+    api_token: str = ''
+    install: bool = False
+    host: str = ''
+    ssh_user: str = 'root'
+    ssh_port: int = 22
+    ssh_password: str = ''
 
 
 class NodePatch(BaseModel):
@@ -135,7 +141,7 @@ class ConfigIn(BaseModel):
     global_extra_snis: str | None = None
 
 
-def _node_out(node: Node, session: Session | None = None) -> dict:
+def _node_out(node: Node, session: Session | None = None, *, include_install: bool = False) -> dict:
     out = {
         'id': node.id,
         'flag': node.flag,
@@ -158,8 +164,11 @@ def _node_out(node: Node, session: Session | None = None) -> dict:
         'has_ssh_password': bool((node.ssh_password or '').strip()),
         'firewall_on': bool(node.firewall_on),
         'firewall_note': node.firewall_note or '',
+        'install_state': node.install_state or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
+    if include_install:
+        out['install_log'] = node.install_log or ''
     if session is not None and node.id is not None:
         out['template_ids'] = node_template_ids(session, node.id)
     return out
@@ -171,12 +180,58 @@ def list_nodes(session: SessionDep) -> list[dict]:
     return [_node_out(n, session) for n in rows]
 
 
+@router.get('/nodes/{node_id}')
+def get_node(node_id: int, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    return _node_out(node, session, include_install=True)
+
+
+@router.post('/nodes/{node_id}/install-log/clear')
+def clear_install_log(node_id: int, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    if (node.install_state or '') == 'installing':
+        raise HTTPException(400, 'Установка ещё идёт')
+    node.install_log = ''
+    if node.install_state in {'done', 'failed'}:
+        node.install_state = ''
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+    return _node_out(node, session, include_install=True)
+
+
 @router.post('/nodes')
 def create_node(body: NodeIn, session: SessionDep) -> dict:
+    if body.install:
+        try:
+            node = prepare_install(
+                session,
+                flag=body.flag,
+                name=body.name,
+                clash_name=body.clash_name,
+                host=body.host,
+                ssh_user=body.ssh_user,
+                ssh_password=body.ssh_password,
+                ssh_port=body.ssh_port,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if node.id is not None:
+            start_install(node.id)
+        return {
+            'node': _node_out(node, session),
+            'logs': ['Сервер в списке. 3x-ui ставится, журнал — на карточке сервера.'],
+        }
     token = body.api_token.strip()
     if not token:
         raise HTTPException(400, 'Нужен API Token')
     panel_url = normalize_panel_url(body.panel_url)
+    if not panel_url:
+        raise HTTPException(400, 'Нужен адрес панели')
     node = Node(
         flag=to_iso(body.flag) or body.flag.strip(),
         name=body.name.strip(),
@@ -325,9 +380,14 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     if data.get('flag'):
         data['flag'] = to_iso(data['flag']) or data['flag']
     if 'panel_url' in data and data['panel_url'] is not None:
-        data['panel_url'] = normalize_panel_url(data['panel_url'])
-        if not data.get('public_host'):
-            data['public_host'] = public_host_from_url(data['panel_url'])
+        if not str(data['panel_url']).strip() or (node.install_state or '') == 'installing':
+            data.pop('panel_url')
+        else:
+            data['panel_url'] = normalize_panel_url(data['panel_url'])
+            if not data.get('public_host'):
+                data['public_host'] = public_host_from_url(data['panel_url'])
+    if (node.install_state or '') == 'installing':
+        data.pop('api_token', None)
     template_ids = data.pop('template_ids', None)
     for key, value in data.items():
         setattr(node, key, value)
@@ -336,9 +396,12 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     session.refresh(node)
     logs: list[str] = []
     if {'ssh_user', 'ssh_port', 'ssh_password'} & set(data):
-        ports = {row.port for row in templates_for_node(session, node)}
-        logs = sync_node_firewall(node, ports, session)
-        session.refresh(node)
+        if (node.install_state or '') == 'installing':
+            logs = [f'{node.name}: файрвол подождёт, пока ставится 3x-ui']
+        else:
+            ports = {row.port for row in templates_for_node(session, node)}
+            logs = sync_node_firewall(node, ports, session)
+            session.refresh(node)
     if template_ids is not None and node.id is not None:
         set_node_template_ids(session, node.id, template_ids)
     out = _node_out(node, session)
