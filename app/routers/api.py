@@ -527,6 +527,10 @@ class DestScanIn(BaseModel):
     node_ids: list[int] = Field(default_factory=list)
 
 
+class NeighborScanIn(BaseModel):
+    node_id: int
+
+
 @router.post('/dest-scan')
 def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
     from concurrent.futures import ThreadPoolExecutor
@@ -550,6 +554,21 @@ def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
         with ThreadPoolExecutor(max_workers=min(8, len(nodes))) as pool:
             results = list(pool.map(lambda node: scan_target_on_node(node, target, sni), nodes))
     return {'target': target, 'results': sort_scans(results)}
+
+
+@router.post('/neighbor-scan')
+def neighbor_scan(body: NeighborScanIn, session: SessionDep) -> dict:
+    from app.neighbor_scan import scan_node_neighborhood
+
+    node = session.get(Node, body.node_id)
+    if node is None:
+        raise HTTPException(404, 'сервер не найден')
+    try:
+        return scan_node_neighborhood(node)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post('/dest-sni')

@@ -184,12 +184,15 @@
             </div>
             <div class="field span-2">
               <label>Задержка с сервера</label>
-              <div class="field-split">
+              <div class="scan-actions">
                 <select id="scan-node">
                   <option value="">Все серверы</option>
                 </select>
                 <button class="btn secondary" type="button" id="scan-dest">Проверить</button>
+                <button class="btn" type="button" id="scan-neighbors">Найти цель рядом</button>
               </div>
+              <span class="hint">«Проверить» меряет вписанную цель с выбранного сервера. «Найти цель рядом» обходит сеть /24 этого сервера с Master и оставляет сайты, чей сертификат указывает на тот же адрес.</span>
+              <div class="neighbor-results" id="neighbor-results"></div>
               <div class="scan-results" id="scan-results"></div>
             </div>
             <div class="field span-2">
@@ -351,6 +354,8 @@ function fillTpl(data) {
   lastPulledDest = '';
   const scanBox = document.getElementById('scan-results');
   if (scanBox) scanBox.replaceChildren();
+  const neighborBox = document.getElementById('neighbor-results');
+  if (neighborBox) neighborBox.replaceChildren();
   const scanNode = document.getElementById('scan-node');
   if (scanNode) scanNode.value = '';
   document.getElementById('sni-meta').textContent = 'Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.';
@@ -412,24 +417,99 @@ function scanRow(row) {
   return `<div class="scan-row ${row.feasible ? 'ok' : 'bad'}">${name} · ${delay} · ${escapeScan(note)}</div>`;
 }
 
-document.getElementById('scan-dest')?.addEventListener('click', async (event) => {
+async function runDestScan(button, nodeIds) {
   const dest = (f.dest.value || '').trim();
   const box = document.getElementById('scan-results');
   if (!dest) {
     XUI.toast('Укажите цель', 'err');
     return;
   }
-  const picked = scanSelect?.value || '';
   const sni = (f.server_names.value || '').split(',')[0].trim();
+  const run = () => XUI.api('/api/dest-scan', 'POST', { dest, sni, node_ids: nodeIds });
   try {
-    const data = await XUI.withBusy(event.currentTarget, () => XUI.api('/api/dest-scan', 'POST', {
-      dest,
-      sni,
-      node_ids: picked ? [Number(picked)] : [],
-    }));
+    const data = button ? await XUI.withBusy(button, run) : await run();
     if (box) box.innerHTML = (data.results || []).map(scanRow).join('');
   } catch (err) {
     if (box) box.textContent = err.message || 'Проверка не удалась';
+    if (!button) XUI.toast(err.message || 'Проверка не удалась', 'err');
+  }
+}
+
+document.getElementById('scan-dest')?.addEventListener('click', (event) => {
+  const picked = scanSelect?.value || '';
+  runDestScan(event.currentTarget, picked ? [Number(picked)] : []);
+});
+
+let neighborShowAll = false;
+let neighborPayload = null;
+
+function neighborRows() {
+  const rows = neighborPayload?.rows || [];
+  return neighborShowAll ? rows : rows.filter((row) => row.keep);
+}
+
+function renderNeighbors() {
+  const box = document.getElementById('neighbor-results');
+  if (!box || !neighborPayload) return;
+  const data = neighborPayload;
+  const rows = neighborRows();
+  const summary = `${escapeScan(data.cidr)} · проверено ${data.scanned} · можно подставить ${data.kept} · чужой сертификат ${data.foreign_cert} · слабый TLS ${data.weak_tls}`;
+  const list = rows.map((row) => {
+    const title = `${escapeScan(row.domain || '—')} · ${escapeScan(row.issuer || '—')} · ${escapeScan(row.dns || '')}`;
+    const action = row.keep
+      ? `<button class="btn small" type="button" data-use-dest="${escapeScan(row.domain)}">Подставить</button>`
+      : `<span class="hint">${escapeScan(row.why || '')}</span>`;
+    return `<div class="scan-row neighbor-row ${row.keep ? 'ok' : 'bad'}"><div><div class="mono">${escapeScan(row.ip)}</div><div class="hint" style="margin:0">${title}</div></div>${action}</div>`;
+  }).join('');
+  const empty = rows.length ? '' : '<div class="hint">Подходящих сайтов в этой сети нет. Откройте «Все ответы», чтобы увидеть, что отсеялось.</div>';
+  box.innerHTML = `<div class="hint">${summary}</div><div class="row neighbor-tools"><button class="btn small secondary" type="button" data-neighbor-filter="kept">Можно подставить</button><button class="btn small secondary" type="button" data-neighbor-filter="all">Все ответы</button></div>${list}${empty}`;
+}
+
+document.getElementById('neighbor-results')?.addEventListener('click', (event) => {
+  const filter = event.target.closest('[data-neighbor-filter]');
+  if (filter) {
+    neighborShowAll = filter.dataset.neighborFilter === 'all';
+    renderNeighbors();
+    return;
+  }
+  const use = event.target.closest('[data-use-dest]');
+  if (!use) return;
+  const domain = use.dataset.useDest || '';
+  if (!domain) return;
+  f.dest.value = `${domain}:443`;
+  f.server_names.value = domain;
+  lastPulledDest = '';
+  document.getElementById('sni-meta').textContent = 'Имя взято из сертификата соседнего сайта. Проверяем его со всех серверов.';
+  pullFromTarget(true);
+  const box = document.getElementById('scan-results');
+  if (box) box.textContent = 'Проверяем цель со всех серверов…';
+  runDestScan(null, []);
+});
+
+document.getElementById('scan-neighbors')?.addEventListener('click', async (event) => {
+  const picked = scanSelect?.value || '';
+  const box = document.getElementById('neighbor-results');
+  if (!picked) {
+    XUI.toast('Выберите сервер, рядом с которым искать цель', 'err');
+    return;
+  }
+  const node = scanNodes.find((item) => String(item.id) === picked);
+  const button = event.currentTarget;
+  const prev = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Ищем соседей…';
+  if (box) box.textContent = `Обходим сеть сервера ${node ? node.name : ''} с Master. Это занимает около минуты.`;
+  try {
+    neighborPayload = await XUI.api('/api/neighbor-scan', 'POST', { node_id: Number(picked) });
+    neighborShowAll = false;
+    renderNeighbors();
+  } catch (err) {
+    neighborPayload = null;
+    if (box) box.textContent = err.message || 'Поиск не удался';
+    XUI.toast(err.message || 'Поиск не удался', 'err');
+  } finally {
+    button.disabled = false;
+    button.textContent = prev;
   }
 });
 
