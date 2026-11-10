@@ -12,6 +12,7 @@ from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence
+from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
 from app.provision import (
     apply_sub_settings,
@@ -38,6 +39,10 @@ from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_u
 from app.xui_install import prepare_install, start_install
 
 router = APIRouter(prefix='/api', dependencies=[Depends(require_admin)])
+
+# Как долго лампочке «доступен из РФ» не нужна свежая проба (минуты).
+# Планировщик перепроверяет каждые 10 минут, поэтому 15 — с запасом.
+RF_TTL_MINUTES = 15
 
 
 class NodeIn(BaseModel):
@@ -164,6 +169,9 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'has_ssh_password': bool((node.ssh_password or '').strip()),
         'firewall_on': bool(node.firewall_on),
         'firewall_note': node.firewall_note or '',
+        'rf_ok': bool(node.rf_ok),
+        'rf_note': node.rf_note or '',
+        'rf_checked_at': _as_utc(node.rf_checked_at).isoformat() if node.rf_checked_at else None,
         'install_state': node.install_state or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
@@ -794,9 +802,11 @@ def overview(session: SessionDep) -> dict:
         for node in nodes
     }
     probes = probe_nodes(nodes)
+    rf_views = _probe_rf(session, nodes)
     node_out = []
     for node in nodes:
         probe = probes.get(node.id or 0) or {}
+        rf = rf_views.get(node.id or 0) or {}
         online = bool(probe.get('online'))
         if online:
             node.last_error = ''
@@ -817,6 +827,7 @@ def overview(session: SessionDep) -> dict:
                 'udp': st.get('udp'),
                 'inbound_count': probe.get('inbound_count') or inbound_counts.get(node.id, 0),
                 'probe_error': probe.get('error') or '',
+                'rf_ports': rf.get('ports') or [],
             }
         )
     session.commit()
@@ -839,6 +850,65 @@ def overview(session: SessionDep) -> dict:
             }
         )
     return {'nodes': node_out, 'clients': client_out}
+
+
+@router.post('/reachability')
+def reachability(session: SessionDep) -> dict:
+    """TCP-пробы портов нод прямо с мастера: доходит ли сервер до клиентов из РФ."""
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    rf_views = _probe_rf(session, nodes, force=True)
+    return {
+        'nodes': [
+            {
+                'id': node.id,
+                'rf_ok': bool(node.rf_ok),
+                'rf_note': node.rf_note or '',
+                'rf_checked_at': _as_utc(node.rf_checked_at).isoformat() if node.rf_checked_at else None,
+                'rf_ports': (rf_views.get(node.id or 0) or {}).get('ports') or [],
+            }
+            for node in nodes
+        ]
+    }
+
+
+def _probe_rf(session: SessionDep, nodes: list[Node], force: bool = False) -> dict[int, dict]:
+    """Проверить порты входов нод из России и сохранить результат в ноде.
+
+    Освежаются только устаревшие записи: TCP-проба с таймаутом 4 с на каждый
+    порт, гонять её на каждой загрузке дашборда незачем — планировщик обновляет
+    каждые 10 минут, а кнопка «Проверить из РФ» зовёт с force=True.
+    """
+    fresh_after = datetime.now(timezone.utc) - timedelta(minutes=RF_TTL_MINUTES)
+    targets = [
+        node
+        for node in nodes
+        if node.id
+        and (
+            force
+            or node.rf_checked_at is None
+            or _as_utc(node.rf_checked_at) < fresh_after
+        )
+    ]
+    if not targets:
+        return {}
+    ports_by_node = {
+        int(node.id): inbound_ports(session, int(node.id)) for node in targets
+    }
+    views = probe_nodes_rf(targets, ports_by_node)
+    for node in targets:
+        view = views.get(node.id or 0)
+        if view:
+            store_rf_view(node, view)
+            session.add(node)
+    session.commit()
+    return views
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite отдаёт дату без часового пояса — считаем её UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @router.get('/presence')

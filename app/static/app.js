@@ -237,6 +237,36 @@ function applyClientPresence(clients) {
   });
 }
 
+function sinceLabel(iso) {
+  if (!iso) return '';
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return '';
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return 'только что';
+  if (mins < 60) return mins + ' мин назад';
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return hours + ' ч назад';
+  return Math.round(hours / 24) + ' дн назад';
+}
+
+function applyNodeRf(row, node) {
+  if (!row || !node) return;
+  const checked = Boolean(node.rf_checked_at);
+  const ok = Boolean(node.rf_ok);
+  // -1 = ещё не проверяли, 0 = из России не достучаться, 1 = достучаться.
+  row.dataset.rf = checked ? (ok ? '1' : '0') : '-1';
+  const label = row.querySelector('[data-rf-label]');
+  if (!label) return;
+  label.textContent = ok ? 'есть' : (checked ? 'нет' : '—');
+  label.classList.toggle('rf-tag', true);
+  label.classList.toggle('on', ok);
+  label.classList.toggle('bad', checked && !ok);
+  const parts = [];
+  if (node.rf_note) parts.push(node.rf_note);
+  if (checked) parts.push('проверено ' + sinceLabel(node.rf_checked_at));
+  label.setAttribute('title', parts.join(' · ') || 'Проверки из России ещё не было');
+}
+
 function watchPresence(after) {
   const everyMs = 10000;
   let timer = 0;
@@ -275,5 +305,5 @@ function bindFolds(root) {
 
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
-  pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, watchPresence,
+  pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyNodeRf, watchPresence,
 };

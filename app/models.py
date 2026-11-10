@@ -35,6 +35,10 @@ class Node(SQLModel, table=True):
     fail2ban_banned: int = 0
     fail2ban_day: int = 0
     fail2ban_note: str = ''
+    # Доступен ли сервер клиентам из России (TCP-пробы с мастера, он стоит в РФ)
+    rf_ok: bool = False
+    rf_note: str = ''
+    rf_checked_at: Optional[datetime] = None
     install_state: str = ''
     install_log: str = ''
     install_ssl: str = ''
