@@ -193,12 +193,14 @@
               </div>
               <span class="hint">«Проверить» меряет вписанную цель с выбранного сервера. «Найти цель рядом» обходит сеть /24 этого сервера с Master и оставляет сайты, чей сертификат указывает на тот же адрес.</span>
               <div class="neighbor-results" id="neighbor-results"></div>
-              <div class="scan-results" id="scan-results"></div>
             </div>
             <div class="field span-2">
               <label>Имена сервера (SNI)</label>
               <input name="server_names" placeholder="подтянутся с цели">
               <span class="hint" id="sni-meta">Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.</span>
+            </div>
+            <div class="field span-2">
+              <div class="scan-results" id="scan-results"></div>
             </div>
             <div class="field">
               <label>uTLS Fingerprint</label>
@@ -409,12 +411,30 @@ function escapeScan(value) {
   return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 }
 
-function scanRow(row) {
-  const name = escapeScan(row.name || 'сервер');
-  if (!row.ok) return `<div class="scan-row bad">${name} · ${escapeScan(row.error || 'ошибка')}</div>`;
-  const delay = row.latency_ms ? `${row.latency_ms} мс` : 'нет ответа';
-  const note = row.feasible ? 'подходит' : (row.note || 'не подходит');
-  return `<div class="scan-row ${row.feasible ? 'ok' : 'bad'}">${name} · ${delay} · ${escapeScan(note)}</div>`;
+function scanTone(row) {
+  if (!row.ok) return 'bad';
+  if (row.feasible && row.latency_ms >= 200) return 'warn';
+  if (row.feasible) return 'ok';
+  return row.latency_ms ? 'warn' : 'bad';
+}
+
+function scanCert(row) {
+  if (!row.ok) return row.error || 'ошибка';
+  if (row.feasible && row.latency_ms >= 200) return 'открывается, задержка высокая';
+  if (row.feasible) return row.cert_valid ? 'сертификат верный' : 'сертификат не подошёл';
+  return row.note || 'не подходит';
+}
+
+function renderDestScan(rows) {
+  const body = rows.map((row) => {
+    const name = escapeScan(row.name || 'сервер');
+    const delay = !row.ok ? 'таймаут' : (row.latency_ms ? `${row.latency_ms} мс` : 'нет ответа');
+    const tls = row.ok && row.tls13 ? 'TLS 1.3' : '—';
+    const h2 = row.ok && row.h2 ? 'h2' : '—';
+    const curve = row.ok && row.x25519 ? 'X25519' : '—';
+    return `<tr class="tone-${scanTone(row)}"><td>${name}</td><td class="num">${escapeScan(delay)}</td><td>${tls}</td><td>${h2}</td><td>${curve}</td><td>${escapeScan(scanCert(row))}</td></tr>`;
+  }).join('');
+  return `<div class="scan-head">Проверка с серверов</div><div class="table-scroll"><table class="scan-table"><thead><tr><th>Сервер</th><th>Задержка</th><th>TLS</th><th>HTTP/2</th><th>Кривая</th><th>Сертификат</th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 async function runDestScan(button, nodeIds) {
@@ -428,7 +448,7 @@ async function runDestScan(button, nodeIds) {
   const run = () => XUI.api('/api/dest-scan', 'POST', { dest, sni, node_ids: nodeIds });
   try {
     const data = button ? await XUI.withBusy(button, run) : await run();
-    if (box) box.innerHTML = (data.results || []).map(scanRow).join('');
+    if (box) box.innerHTML = renderDestScan(data.results || []);
   } catch (err) {
     if (box) box.textContent = err.message || 'Проверка не удалась';
     if (!button) XUI.toast(err.message || 'Проверка не удалась', 'err');
@@ -448,21 +468,34 @@ function neighborRows() {
   return neighborShowAll ? rows : rows.filter((row) => row.keep);
 }
 
+function dnsBadge(dns) {
+  const text = dns || '—';
+  const tone = text === 'совпал' ? 'ok' : (text === 'чужой IP' ? 'bad' : (text === 'слабый TLS' || text === 'маска' ? 'warn' : 'neutral'));
+  return `<span class="badge ${tone}">${escapeScan(text)}</span>`;
+}
+
 function renderNeighbors() {
   const box = document.getElementById('neighbor-results');
   if (!box || !neighborPayload) return;
   const data = neighborPayload;
   const rows = neighborRows();
-  const summary = `${escapeScan(data.cidr)} · проверено ${data.scanned} · можно подставить ${data.kept} · чужой сертификат ${data.foreign_cert} · слабый TLS ${data.weak_tls}`;
+  const applied = (f.dest.value || '').trim();
+  const stats = [
+    ['', data.scanned, 'Адресов в сети'],
+    ['ok', data.kept, 'Можно подставить'],
+    ['bad', data.foreign_cert, 'Чужой сертификат'],
+    ['warn', data.weak_tls, 'Слабый TLS'],
+  ].map(([tone, value, label]) => `<div class="neighbor-stat ${tone}"><div class="v">${escapeScan(value)}</div><div class="k">${label}</div></div>`).join('');
   const list = rows.map((row) => {
-    const title = `${escapeScan(row.domain || '—')} · ${escapeScan(row.issuer || '—')} · ${escapeScan(row.dns || '')}`;
+    const domain = row.domain || '—';
+    const used = row.keep && applied === `${row.domain}:443`;
     const action = row.keep
-      ? `<button class="btn small" type="button" data-use-dest="${escapeScan(row.domain)}">Подставить</button>`
-      : `<span class="hint">${escapeScan(row.why || '')}</span>`;
-    return `<div class="scan-row neighbor-row ${row.keep ? 'ok' : 'bad'}"><div><div class="mono">${escapeScan(row.ip)}</div><div class="hint" style="margin:0">${title}</div></div>${action}</div>`;
+      ? `<button class="btn small ${used ? '' : 'secondary'}" type="button" data-use-dest="${escapeScan(row.domain)}">${used ? 'Подставлено' : 'Подставить'}</button>`
+      : '<span class="muted">скрыто</span>';
+    return `<tr class="tone-${row.keep ? 'ok' : 'bad'}"><td class="mono">${escapeScan(row.ip)}</td><td>${escapeScan(domain)}</td><td>${escapeScan(row.issuer || '—')}</td><td>${dnsBadge(row.dns)}</td><td class="act">${action}</td></tr>`;
   }).join('');
-  const empty = rows.length ? '' : '<div class="hint">Подходящих сайтов в этой сети нет. Откройте «Все ответы», чтобы увидеть, что отсеялось.</div>';
-  box.innerHTML = `<div class="hint">${summary}</div><div class="row neighbor-tools"><button class="btn small secondary" type="button" data-neighbor-filter="kept">Можно подставить</button><button class="btn small secondary" type="button" data-neighbor-filter="all">Все ответы</button></div>${list}${empty}`;
+  const empty = rows.length ? '' : '<p class="hint">Подходящих сайтов в этой сети нет. Откройте «Все ответы», чтобы увидеть, что отсеялось.</p>';
+  box.innerHTML = `<div class="neighbor-stats">${stats}</div><div class="pills"><button class="pill ${neighborShowAll ? '' : 'on'}" type="button" data-neighbor-filter="kept">Можно подставить</button><button class="pill ${neighborShowAll ? 'on' : ''}" type="button" data-neighbor-filter="all">Все ответы</button></div><div class="table-scroll"><table class="neighbor-table"><thead><tr><th>Адрес</th><th>Домен сертификата</th><th>Издатель</th><th>DNS</th><th></th></tr></thead><tbody>${list}</tbody></table></div>${empty}<span class="hint scan-caption">${escapeScan(data.cidr)} · строка остаётся, только если адрес есть в DNS домена сертификата.</span>`;
 }
 
 document.getElementById('neighbor-results')?.addEventListener('click', (event) => {
@@ -479,6 +512,7 @@ document.getElementById('neighbor-results')?.addEventListener('click', (event) =
   f.dest.value = `${domain}:443`;
   f.server_names.value = domain;
   lastPulledDest = '';
+  renderNeighbors();
   document.getElementById('sni-meta').textContent = 'Имя взято из сертификата соседнего сайта. Проверяем его со всех серверов.';
   pullFromTarget(true);
   const box = document.getElementById('scan-results');
@@ -498,7 +532,7 @@ document.getElementById('scan-neighbors')?.addEventListener('click', async (even
   const prev = button.textContent;
   button.disabled = true;
   button.textContent = 'Ищем соседей…';
-  if (box) box.textContent = `Обходим сеть сервера ${node ? node.name : ''} с Master. Это занимает около минуты.`;
+  if (box) box.innerHTML = `<div class="callout"><strong>Обход сети ${node ? escapeScan(node.name) : ''}</strong><br>Master проверяет соседние адреса, порт 443. В список попадут TLS 1.3, HTTP/2 и совпадение DNS. Чужие сертификаты отсеиваются.</div>`;
   try {
     neighborPayload = await XUI.api('/api/neighbor-scan', 'POST', { node_id: Number(picked) });
     neighborShowAll = false;
