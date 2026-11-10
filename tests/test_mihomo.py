@@ -46,6 +46,23 @@ def test_fallback_group_has_no_direct():
     assert 'DIRECT' not in fixed.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
 
 
+def test_custom_overrides_stay_under_the_marker_and_are_not_duplicated():
+    from app.bootstrap import ensure_custom_overrides
+
+    raw = SAMPLE.read_text(encoding='utf-8')
+    head, tail = raw.split('  # Custom overrides\n', 1)
+    assert tail.startswith('  - PROCESS-NAME,ru.oneme.app,Custom local\n')
+    assert '  - DOMAIN-SUFFIX,max.ru,Custom local\n' in tail[:240]
+    assert '  - DOMAIN-SUFFIX,oneme.ru,Custom local\n' in tail[:240]
+    old = head + '  # Custom overrides\n' + tail.split('\n', 3)[3]
+    fixed = ensure_custom_overrides(old)
+    block = fixed.split('  # Custom overrides\n', 1)[1].split('\n', 3)
+    assert block[0] == '  - PROCESS-NAME,ru.oneme.app,Custom local'
+    assert block[1] == '  - DOMAIN-SUFFIX,max.ru,Custom local'
+    assert block[2] == '  - DOMAIN-SUFFIX,oneme.ru,Custom local'
+    assert ensure_custom_overrides(fixed) == fixed
+
+
 def test_replace_pool_and_providers():
     raw = SAMPLE.read_text(encoding='utf-8')
     assert 'geox-url:' in raw

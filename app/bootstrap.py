@@ -8,6 +8,32 @@ from app.models import ConfigDoc, InboundTemplate, utcnow
 DEFAULT_YAML = Path(__file__).parent / 'default_mihomo.yaml'
 
 _FALLBACK_DIRECT = re.compile(r'\n[ \t]*proxies:\n[ \t]*- DIRECT(?=\n)')
+_CUSTOM_MARKER = '# Custom overrides'
+_CUSTOM_RULES = (
+    '  - PROCESS-NAME,ru.oneme.app,Custom local',
+    '  - DOMAIN-SUFFIX,max.ru,Custom local',
+    '  - DOMAIN-SUFFIX,oneme.ru,Custom local',
+)
+
+
+def ensure_custom_overrides(text: str) -> str:
+    """Правила MAX сразу под комментарием, не затирая остальной шаблон."""
+    if not text or _CUSTOM_MARKER not in text:
+        return text
+    missing = [rule for rule in _CUSTOM_RULES if rule not in text]
+    if not missing:
+        return text
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    inserted = False
+    for line in lines:
+        out.append(line)
+        if inserted or _CUSTOM_MARKER not in line:
+            continue
+        newline = '\r\n' if line.endswith('\r\n') else '\n'
+        out.extend(rule + newline for rule in missing)
+        inserted = True
+    return ''.join(out)
 
 
 def strip_fallback_direct(text: str) -> str:
@@ -38,6 +64,12 @@ def seed_if_empty(session: Session) -> None:
         doc.yaml_text = strip_fallback_direct(doc.yaml_text)
         doc.updated_at = utcnow()
         session.add(doc)
+    if doc is not None and doc.yaml_text:
+        updated = ensure_custom_overrides(doc.yaml_text)
+        if updated != doc.yaml_text:
+            doc.yaml_text = updated
+            doc.updated_at = utcnow()
+            session.add(doc)
     if session.exec(select(InboundTemplate)).first() is None:
         session.add(
             InboundTemplate(

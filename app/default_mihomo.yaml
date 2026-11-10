@@ -419,6 +419,9 @@ rules:
   - OR,((RULE-SET,telegram@domain),(RULE-SET,telegram@ipcidr,no-resolve)),Telegram
 
   # Custom overrides
+  - PROCESS-NAME,ru.oneme.app,Custom local
+  - DOMAIN-SUFFIX,max.ru,Custom local
+  - DOMAIN-SUFFIX,oneme.ru,Custom local
   - RULE-SET,custom-apps-local@classical,Custom local
   - RULE-SET,custom-apps-proxy@classical,Custom proxy
   - RULE-SET,custom-local-domains,Custom local
