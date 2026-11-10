@@ -111,7 +111,15 @@ function closeModal(id) {
   document.getElementById(id)?.classList.remove('open');
 }
 
+let overlayPressId = '';
+document.addEventListener('pointerdown', (e) => {
+  const node = e.target;
+  overlayPressId = node && node.classList && node.classList.contains('overlay') && node.id ? node.id : '';
+}, true);
+
 document.addEventListener('click', (e) => {
+  const pressed = overlayPressId;
+  overlayPressId = '';
   const copyBtn = e.target.closest && e.target.closest('[data-copy]');
   if (copyBtn) {
     e.preventDefault();
@@ -123,7 +131,9 @@ document.addEventListener('click', (e) => {
     closeModal(closeBtn.dataset.close);
     return;
   }
-  if (e.target.classList.contains('overlay') && e.target.id) closeModal(e.target.id);
+  if (pressed && e.target.classList && e.target.classList.contains('overlay') && e.target.id === pressed) {
+    closeModal(pressed);
+  }
 }, true);
 
 const FLAG_NAMES = JSON.parse(document.getElementById('flag-names')?.textContent || '{}');
