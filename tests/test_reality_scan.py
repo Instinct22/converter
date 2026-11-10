@@ -31,6 +31,24 @@ def test_scan_view_explains_unsuitable_target():
     assert 'сертификат не подошёл' in row['note']
 
 
+def test_panel_network_error_stays_on_that_server(monkeypatch):
+    from app.models import Node
+    from app.reality_scan import scan_target_on_node
+
+    class Boom:
+        def __enter__(self):
+            raise OSError('timed out')
+
+        def __exit__(self, *args):
+            return None
+
+    monkeypatch.setattr('app.reality_scan.XuiClient', lambda *args, **kwargs: Boom())
+    row = scan_target_on_node(Node(name='Italy-01', panel_url='https://panel.example'), 'site.example:443', '')
+    assert row['ok'] is False
+    assert row['name'] == 'Italy-01'
+    assert row['error'] == 'нет связи с панелью'
+
+
 def test_sort_scans_puts_fastest_first():
     rows = sort_scans([
         {'ok': False, 'latency_ms': 0, 'name': 'Italy-01'},
