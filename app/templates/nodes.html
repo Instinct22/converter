@@ -84,6 +84,14 @@
                     <span class="tpl-option__name">{{ t.name }}</span>
                     <span class="tpl-option__meta mono">{{ t.port }} · {{ t.network or 'grpc' }}</span>
                   </span>
+                  {% set owners = template_nodes.get(t.id, []) if template_nodes is defined else [] %}
+                  {% if owners %}
+                  <span class="tpl-option__flags">
+                    {% for owner in owners %}
+                    {% if owner.flag_image() %}<img class="flag-img" src="{{ owner.flag_image() }}" alt="{{ owner.flag_title() }}" title="{{ owner.flag_title() }} · {{ owner.name }}">{% endif %}
+                    {% endfor %}
+                  </span>
+                  {% endif %}
                   <span class="tpl-option__mark" aria-hidden="true"></span>
                 </label>
                 {% endif %}
