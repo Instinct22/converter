@@ -367,16 +367,20 @@ def api_provision_node(node_id: int, session: SessionDep, body: ProvisionIn | No
     return {'ok': True, 'logs': logs}
 
 
+def drop_blank_secrets(data: dict) -> None:
+    """Пустой токен, пароль и пользователь не затирают уже сохранённые."""
+    for key in ('api_token', 'ssh_password', 'ssh_user'):
+        if key in data and not str(data.get(key) or '').strip():
+            data.pop(key)
+
+
 @router.patch('/nodes/{node_id}')
 def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
     data = body.model_dump(exclude_unset=True)
-    if data.get('api_token') == '':
-        data.pop('api_token')
-    if data.get('ssh_password') == '':
-        data.pop('ssh_password')
+    drop_blank_secrets(data)
     if data.get('flag'):
         data['flag'] = to_iso(data['flag']) or data['flag']
     if 'panel_url' in data and data['panel_url'] is not None:

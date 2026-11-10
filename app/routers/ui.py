@@ -7,6 +7,7 @@ from markupsafe import Markup
 from sqlmodel import select
 
 from app.deps import SessionDep, credentials_ok, request_authorized
+from app.flags import COUNTRY_NAMES
 from app.mihomo import days_left, is_expired
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
@@ -82,6 +83,7 @@ def _ctx(request: Request, **extra):
         'client_edit_payload': client_edit_payload,
         'split_csv': split_csv,
         'unique_snis': unique_snis,
+        'flag_names': COUNTRY_NAMES,
     }
     data.update(extra)
     return data

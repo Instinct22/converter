@@ -126,11 +126,8 @@ document.addEventListener('click', (e) => {
   if (e.target.classList.contains('overlay') && e.target.id) closeModal(e.target.id);
 }, true);
 
-const FLAGS = [
-  'FI', 'IT', 'DE', 'NL', 'FR', 'GB', 'US', 'ES', 'PL', 'CZ',
-  'AT', 'CH', 'SE', 'NO', 'DK', 'EE', 'LV', 'LT', 'RU', 'UA',
-  'TR', 'AE', 'SG', 'JP', 'KR', 'HK', 'TW', 'KZ', 'GE', 'CA',
-];
+const FLAG_NAMES = JSON.parse(document.getElementById('flag-names')?.textContent || '{}');
+const FLAGS = Object.keys(FLAG_NAMES);
 
 function bindFlagPicker(root) {
   root.querySelectorAll('[data-flags]').forEach((box) => {
@@ -140,7 +137,8 @@ function bindFlagPicker(root) {
     box.innerHTML = FLAGS.map((code) => {
       const on = current === code ? ' on' : '';
       const src = '/static/flags/' + code.toLowerCase() + '.png';
-      return `<button type="button" class="flag${on}" data-flag="${code}" title="${code}"><img src="${src}" alt="${code}"></button>`;
+      const title = FLAG_NAMES[code] || code;
+      return `<button type="button" class="flag${on}" data-flag="${code}" title="${title}"><img src="${src}" alt="${title}"></button>`;
     }).join('');
     box.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-flag]');

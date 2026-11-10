@@ -3,7 +3,7 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
-from app.flags import flag_src, to_emoji, to_iso
+from app.flags import country_name, flag_src, to_emoji, to_iso
 
 
 def utcnow() -> datetime:
@@ -52,6 +52,9 @@ class Node(SQLModel, table=True):
 
     def flag_image(self) -> str:
         return flag_src(self.flag)
+
+    def flag_title(self) -> str:
+        return country_name(self.flag)
 
 
 class InboundTemplate(SQLModel, table=True):

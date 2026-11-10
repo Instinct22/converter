@@ -49,7 +49,7 @@
           <tr data-bans="{{ n.id }}" data-name="{{ n.name }}">
             <td>
               <span class="name-flag">
-                {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+                {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
                 <strong>{{ n.name }}</strong>
               </span>
             </td>

@@ -43,7 +43,7 @@
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
             <span class="name-flag">
-              {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+              {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
               <strong>{{ n.name }}</strong>
             </span>
           </div>

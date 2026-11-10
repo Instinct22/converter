@@ -1,38 +1,39 @@
-FLAGS: list[tuple[str, str]] = [
-    ('FI', '🇫🇮'),
-    ('IT', '🇮🇹'),
-    ('DE', '🇩🇪'),
-    ('NL', '🇳🇱'),
-    ('FR', '🇫🇷'),
-    ('GB', '🇬🇧'),
-    ('US', '🇺🇸'),
-    ('ES', '🇪🇸'),
-    ('PL', '🇵🇱'),
-    ('CZ', '🇨🇿'),
-    ('AT', '🇦🇹'),
-    ('CH', '🇨🇭'),
-    ('SE', '🇸🇪'),
-    ('NO', '🇳🇴'),
-    ('DK', '🇩🇰'),
-    ('EE', '🇪🇪'),
-    ('LV', '🇱🇻'),
-    ('LT', '🇱🇹'),
-    ('RU', '🇷🇺'),
-    ('UA', '🇺🇦'),
-    ('TR', '🇹🇷'),
-    ('AE', '🇦🇪'),
-    ('SG', '🇸🇬'),
-    ('JP', '🇯🇵'),
-    ('KR', '🇰🇷'),
-    ('HK', '🇭🇰'),
-    ('TW', '🇹🇼'),
-    ('KZ', '🇰🇿'),
-    ('GE', '🇬🇪'),
-    ('CA', '🇨🇦'),
+FLAGS: list[tuple[str, str, str]] = [
+    ('FI', '🇫🇮', 'Финляндия'),
+    ('IT', '🇮🇹', 'Италия'),
+    ('DE', '🇩🇪', 'Германия'),
+    ('NL', '🇳🇱', 'Нидерланды'),
+    ('FR', '🇫🇷', 'Франция'),
+    ('GB', '🇬🇧', 'Великобритания'),
+    ('US', '🇺🇸', 'США'),
+    ('ES', '🇪🇸', 'Испания'),
+    ('PL', '🇵🇱', 'Польша'),
+    ('CZ', '🇨🇿', 'Чехия'),
+    ('AT', '🇦🇹', 'Австрия'),
+    ('CH', '🇨🇭', 'Швейцария'),
+    ('SE', '🇸🇪', 'Швеция'),
+    ('NO', '🇳🇴', 'Норвегия'),
+    ('DK', '🇩🇰', 'Дания'),
+    ('EE', '🇪🇪', 'Эстония'),
+    ('LV', '🇱🇻', 'Латвия'),
+    ('LT', '🇱🇹', 'Литва'),
+    ('RU', '🇷🇺', 'Россия'),
+    ('UA', '🇺🇦', 'Украина'),
+    ('TR', '🇹🇷', 'Турция'),
+    ('AE', '🇦🇪', 'ОАЭ'),
+    ('SG', '🇸🇬', 'Сингапур'),
+    ('JP', '🇯🇵', 'Япония'),
+    ('KR', '🇰🇷', 'Корея'),
+    ('HK', '🇭🇰', 'Гонконг'),
+    ('TW', '🇹🇼', 'Тайвань'),
+    ('KZ', '🇰🇿', 'Казахстан'),
+    ('GE', '🇬🇪', 'Грузия'),
+    ('CA', '🇨🇦', 'Канада'),
 ]
 
-ISO_TO_EMOJI = {code: emoji for code, emoji in FLAGS}
-EMOJI_TO_ISO = {emoji: code for code, emoji in FLAGS}
+ISO_TO_EMOJI = {code: emoji for code, emoji, _name in FLAGS}
+EMOJI_TO_ISO = {emoji: code for code, emoji, _name in FLAGS}
+COUNTRY_NAMES = {code: name for code, _emoji, name in FLAGS}
 
 
 def to_iso(value: str) -> str:
@@ -47,6 +48,13 @@ def to_emoji(value: str) -> str:
     if iso:
         return ISO_TO_EMOJI.get(iso, '')
     return (value or '').strip()
+
+
+def country_name(value: str) -> str:
+    iso = to_iso(value)
+    if iso:
+        return COUNTRY_NAMES.get(iso, iso)
+    return ''
 
 
 def flag_src(value: str) -> str:
