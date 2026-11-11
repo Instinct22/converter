@@ -578,10 +578,15 @@ document.getElementById('provision-all')?.addEventListener('click', async (e) =>
   const logs = [];
   try {
     await XUI.withBusy(e.currentTarget, async () => {
-      for (const id of ids) {
-        const r = await XUI.api('/api/nodes/' + id + '/provision', 'POST', {});
-        logs.push('сервер ' + id, ...(r.logs || []));
-      }
+      const results = await Promise.all(ids.map(async (id) => {
+        try {
+          const r = await XUI.api('/api/nodes/' + id + '/provision', 'POST', {});
+          return ['сервер ' + id, ...(r.logs || [])];
+        } catch (err) {
+          return ['сервер ' + id + ': ' + (err.message || 'нет ответа')];
+        }
+      }));
+      results.forEach((lines) => logs.push(...lines));
     });
     XUI.showLog(document.getElementById('tpl-log'), logs);
     XUI.toast('Готово');

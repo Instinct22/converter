@@ -821,9 +821,26 @@ def overview(session: SessionDep) -> dict:
         node.id: len(session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all())
         for node in nodes
     }
-    probes = probe_nodes(nodes)
+    probes = probe_nodes([node for node in nodes if node.enabled])
     node_out = []
     for node in nodes:
+        if not node.enabled:
+            node_out.append(
+                {
+                    **_node_out(node, session),
+                    'online': False,
+                    'cpu': None,
+                    'mem_used': None,
+                    'mem_total': None,
+                    'uptime': None,
+                    'xray': '',
+                    'tcp': None,
+                    'udp': None,
+                    'inbound_count': inbound_counts.get(node.id, 0),
+                    'probe_error': '',
+                }
+            )
+            continue
         probe = probes.get(node.id or 0) or {}
         online = bool(probe.get('online'))
         if online:
@@ -873,7 +890,7 @@ def overview(session: SessionDep) -> dict:
 def presence(session: SessionDep) -> dict:
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     clients = session.exec(select(Client).order_by(Client.id.desc())).all()
-    probes = probe_nodes_presence(nodes)
+    probes = probe_nodes_presence([node for node in nodes if node.enabled])
     client_out = []
     for client in clients:
         usage = aggregate_client_usage(client, nodes, probes)
@@ -891,11 +908,20 @@ def presence(session: SessionDep) -> dict:
 
 
 def _guard_nodes(session: SessionDep, install: bool) -> dict:
-    logs: list[str] = []
+    from app.database import engine
+    from app.util import flatten_logs, run_parallel
+
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-    for node in nodes:
-        logs.extend(sync_node_guard(node, session, install=install))
-    return {'ok': True, 'logs': logs}
+    node_ids = [node.id for node in nodes if node.id is not None]
+
+    def run(node_id: int) -> list[str]:
+        with Session(engine) as local:
+            node = local.get(Node, node_id)
+            if node is None:
+                return []
+            return sync_node_guard(node, local, install=install)
+
+    return {'ok': True, 'logs': flatten_logs(run_parallel(node_ids, run))}
 
 
 @router.post('/protection/refresh')

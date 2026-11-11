@@ -59,10 +59,12 @@ def probe_node(node: Node) -> dict[str, Any]:
         'online_emails': [],
     }
     try:
-        with XuiClient(node, timeout=7.0) as xui:
+        with XuiClient(node, timeout=5.0) as xui:
             try:
                 out['status'] = _status_bits(xui.server_status())
             except XuiError:
+                if xui.unreachable:
+                    raise
                 out['status'] = {}
             remote = xui.inbounds()
             out['inbound_count'] = len(remote)
@@ -70,6 +72,8 @@ def probe_node(node: Node) -> dict[str, Any]:
             try:
                 out['online_emails'] = xui.onlines()
             except XuiError:
+                if xui.unreachable:
+                    raise
                 out['online_emails'] = []
         out['online'] = True
     except Exception as exc:
@@ -87,7 +91,7 @@ def probe_presence(node: Node) -> dict[str, Any]:
         'client_rows': [],
     }
     try:
-        with XuiClient(node, timeout=7.0) as xui:
+        with XuiClient(node, timeout=5.0) as xui:
             out['client_rows'] = client_rows_from_inbounds(xui.inbounds())
             out['online_emails'] = xui.onlines()
         out['online'] = True

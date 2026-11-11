@@ -54,6 +54,41 @@ def format_bytes(n: int | float | None) -> str:
     return f'{value:.1f} {units[idx]}'
 
 
+def run_parallel(items, fn, workers: int = 8):
+    """Один порядок результатов. Ошибка одного элемента не отменяет остальные."""
+    if not items:
+        return []
+    if len(items) == 1:
+        try:
+            return [fn(items[0])]
+        except Exception as exc:
+            return [exc]
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results: list = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=min(workers, len(items))) as pool:
+        futures = {pool.submit(fn, item): index for index, item in enumerate(items)}
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:
+                results[index] = exc
+    return results
+
+
+def flatten_logs(parts) -> list[str]:
+    logs: list[str] = []
+    for part in parts:
+        if isinstance(part, Exception):
+            logs.append(str(part))
+        elif isinstance(part, list):
+            logs.extend(str(line) for line in part)
+        elif part:
+            logs.append(str(part))
+    return logs
+
+
 def cpu_percent(value: object) -> int | None:
     if value is None or value == '':
         return None
