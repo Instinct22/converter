@@ -428,7 +428,7 @@ tr.is-online:hover td { background: transparent; }
 .tpl-dropdown.open .tpl-dropdown__chev { transform: rotate(180deg); color: var(--accent-2); }
 
 .tpl-dropdown__panel {
-  position: absolute; z-index: 30; left: 0; top: calc(100% + 6px);
+  position: fixed; z-index: 80;
   width: min(380px, 92vw);
   background: var(--bg-elev); border: 1px solid var(--line-strong);
   border-radius: 14px; box-shadow: var(--shadow);
