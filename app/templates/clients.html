@@ -10,7 +10,7 @@
     {% if clients %}
     <button class="btn secondary" type="button" id="reconcile">Сверить с серверами</button>
     {% endif %}
-    <button class="btn" type="button" onclick="openClientForm()">Выдать доступ</button>
+    <button class="btn" type="button" data-new-client>Выдать доступ</button>
   </div>
 </div>
 
@@ -69,153 +69,19 @@
   <div class="empty">
     <h3>Доступ ещё никому не выдавали</h3>
     <p>Сначала нужен хотя бы один сервер. Потом создайте человека — ему копируете ссылку подписки в DHQ.</p>
-    <button class="btn" type="button" onclick="openClientForm()">Выдать доступ</button>
+    <button class="btn" type="button" data-new-client>Выдать доступ</button>
   </div>
 </div>
 {% endif %}
 <pre class="log" id="log"></pre>
 
-<div class="overlay" id="add-client">
-  <div class="modal" onclick="event.stopPropagation()">
-    <div class="page-head" style="margin-bottom:8px">
-      <div>
-        <h2 id="client-title">Новый доступ</h2>
-        <p class="sub" id="client-sub">Срок 0 — без ограничения по дате. Трафик 0 — без лимита гигабайт.</p>
-      </div>
-      <button class="btn ghost small" type="button" data-close="add-client">Закрыть</button>
-    </div>
-    <form id="client-form">
-      <input type="hidden" name="id" value="">
-      <div class="form-grid">
-        <div class="field">
-          <label>Имя</label>
-          <input name="name" required placeholder="Игорь">
-        </div>
-        <div class="field">
-          <label>На сколько дней</label>
-          <input name="days" type="number" min="0" value="30">
-          <span class="hint">При правке срок считается заново от сегодня. 0 — без ограничения.</span>
-        </div>
-        <div class="field">
-          <label>Лимит трафика, ГБ</label>
-          <input name="traffic_gb" type="number" min="0" value="0">
-        </div>
-        <div class="field">
-          <label>Лимит одновременных IP</label>
-          <input name="limit_ip" type="number" min="0" value="0">
-          <span class="hint">0 — не ограничивать</span>
-        </div>
-        <div class="field span-2">
-          <label>Заметка</label>
-          <input name="note" placeholder="необязательно">
-        </div>
-        <label class="check span-2" id="enable-wrap" hidden>
-          <input name="enable" type="checkbox" checked>
-          Доступ включён. Если снять — человека уберём с серверов, ссылка перестанет пускать.
-        </label>
-      </div>
-      <div class="row">
-        <button class="btn" type="submit" id="client-submit">Создать и завести на серверах</button>
-        <button class="btn secondary" type="button" data-close="add-client">Отмена</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="overlay drawer-wrap" id="yaml-drawer">
-  <div class="drawer" onclick="event.stopPropagation()">
-    <div class="page-head">
-      <h2>YAML, который отдаёт ссылка</h2>
-      <button class="btn ghost small" type="button" data-close="yaml-drawer">Закрыть</button>
-    </div>
-    <pre class="log show" id="yaml-view" style="max-height:none; min-height:70vh"></pre>
-  </div>
-</div>
+{% include "_client_controls.html" %}
 {% endblock %}
 {% block scripts %}
 <script>
-const log = document.getElementById('log');
-const form = document.getElementById('client-form');
-const enableWrap = document.getElementById('enable-wrap');
-
-function openClientForm(data) {
-  form.reset();
-  form.id.value = '';
-  form.days.value = 30;
-  form.traffic_gb.value = 0;
-  form.limit_ip.value = 0;
-  form.enable.checked = true;
-  enableWrap.hidden = true;
-  document.getElementById('client-title').textContent = 'Новый доступ';
-  document.getElementById('client-sub').textContent = 'Срок 0 — без ограничения по дате. Трафик 0 — без лимита гигабайт.';
-  document.getElementById('client-submit').textContent = 'Создать и завести на серверах';
-  if (data) {
-    form.id.value = data.id;
-    form.name.value = data.name || '';
-    form.days.value = data.days ?? 0;
-    form.traffic_gb.value = data.traffic_gb ?? 0;
-    form.limit_ip.value = data.limit_ip ?? 0;
-    form.note.value = data.note || '';
-    form.enable.checked = data.enable !== false;
-    enableWrap.hidden = false;
-    document.getElementById('client-title').textContent = 'Изменить доступ';
-    document.getElementById('client-sub').textContent = 'UUID и ссылка не меняются. После сохранения Master обновит панели.';
-    document.getElementById('client-submit').textContent = 'Сохранить';
-  }
-  XUI.openModal('add-client');
-}
-
-form.onsubmit = async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  const btn = f.querySelector('button[type=submit]');
-  const id = f.id.value;
-  const payload = {
-    name: f.name.value,
-    days: Number(f.days.value),
-    traffic_gb: Number(f.traffic_gb.value),
-    limit_ip: Number(f.limit_ip.value),
-    note: f.note.value,
-  };
-  if (id) payload.enable = f.enable.checked;
-  try {
-    const data = await XUI.withBusy(btn, () => id
-      ? XUI.api('/api/clients/' + id, 'PATCH', payload)
-      : XUI.api('/api/clients', 'POST', payload));
-    if (!id && data.client && data.client.sub_url) {
-      await XUI.copyText(data.client.sub_url);
-    } else {
-      XUI.toast(id ? 'Клиент сохранён' : 'Клиент создан');
-    }
-    if (data.logs) XUI.showLog(log, data.logs);
-    setTimeout(() => location.reload(), 450);
-  } catch (err) {}
-};
-document.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
-  try { openClientForm(JSON.parse(b.dataset.edit)); }
-  catch (err) { XUI.toast('Не удалось открыть форму', 'err'); }
-});
-document.querySelectorAll('[data-add]').forEach((b) => b.onclick = async () => {
-  try {
-    await XUI.api('/api/clients/' + b.dataset.add, 'PATCH', {add_days: 30});
-    location.reload();
-  } catch (e) { XUI.toast(e.message, 'err'); }
-});
-document.getElementById('reconcile')?.addEventListener('click', async (e) => {
-  const btn = e.currentTarget;
-  try {
-    const r = await XUI.withBusy(btn, () => XUI.api('/api/clients/reconcile', 'POST', {}));
-    XUI.toast('Сверка закончилась');
-    if (r.logs) XUI.showLog(log, r.logs);
-  } catch (err) {}
-});
-document.querySelectorAll('[data-prev]').forEach((b) => b.onclick = async () => {
-  try {
-    const r = await XUI.api('/api/clients/' + b.dataset.prev + '/preview');
-    document.getElementById('yaml-view').textContent = r.yaml;
-    XUI.openModal('yaml-drawer');
-  } catch (e) { XUI.toast(e.message, 'err'); }
-});
+// Форма доступа, «+30 дней», YAML, удалить и «Сверить с серверами» — общая реализация
+// в app.js (initClientControls), та же, что на обзоре. Разметка модалок в _client_controls.html.
+XUI.initClientControls(document, 'log');
 async function fillUsage() {
   const data = await XUI.api('/api/overview');
   (data.clients || []).forEach((c) => {
@@ -239,13 +105,6 @@ const clientSort = document.getElementById('client-table')
   : { resort() {} };
 fillUsage().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());
-});
-document.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
-  if (!confirm('Удалить человека с серверов и из Master? Ссылка сразу перестанет открываться.')) return;
-  try {
-    await XUI.api('/api/clients/' + b.dataset.del, 'DELETE');
-    location.reload();
-  } catch (e) { XUI.toast(e.message, 'err'); }
 });
 </script>
 {% endblock %}

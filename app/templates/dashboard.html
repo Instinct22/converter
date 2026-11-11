@@ -51,7 +51,70 @@
           </div>
           <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           <span class="mono">{{ n.public_host or '—' }}</span>
-          <span class="hint" data-ports-label>{{ inbound_counts.get(n.id, 0) }} вх.</span>
+          <div class="node-tpl">
+            {% set picked = node_templates.get(n.id, []) if node_templates is defined else [] %}
+            <div class="tpl-dropdown" data-node-id="{{ n.id }}">
+              <button type="button" class="tpl-dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
+                <span class="tpl-dropdown__trigger-inner">
+                  {% if picked|length %}
+                  <span class="tpl-dropdown__count">{{ picked|length }}</span>
+                  <span class="tpl-dropdown__preview">
+                    {% for t in inbound_templates if t.enabled and t.id in picked %}
+                    <span class="tpl-pill">
+                      {% set badges = t.flag_badges() %}
+                      {% if badges %}
+                      <span class="tpl-pill__flags">
+                        {% for iso, src, title in badges %}
+                        <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
+                        {% endfor %}
+                      </span>
+                      {% endif %}
+                      <span class="tpl-pill__name" title="{{ t.name }}">{{ t.name }}</span>
+                      <span class="tpl-pill__port">{{ t.port }}</span>
+                    </span>
+                    {% endfor %}
+                  </span>
+                  {% else %}
+                  <span class="tpl-dropdown__empty">Выберите входы</span>
+                  {% endif %}
+                </span>
+                <svg class="tpl-dropdown__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>
+              <div class="tpl-dropdown__panel" role="listbox" data-node-id="{{ n.id }}" hidden>
+                <div class="tpl-dropdown__head">
+                  <span>Шаблоны входов</span>
+                  <button type="button" class="btn ghost small tpl-dropdown__all" data-tpl-all>Все</button>
+                </div>
+                <div class="tpl-dropdown__list">
+                  {% for t in inbound_templates %}
+                  {% if t.enabled %}
+                  <label class="tpl-option">
+                    <input type="checkbox" value="{{ t.id }}" data-port="{{ t.port }}" {% if t.id in picked %}checked{% endif %}>
+                    <span class="tpl-option__body">
+                      <span class="tpl-option__name">{{ t.name }}</span>
+                      <span class="tpl-option__meta mono">{{ t.port }} · {{ t.network or 'grpc' }}</span>
+                    </span>
+                    {% set badges = t.flag_badges() %}
+                    {% if badges %}
+                    <span class="tpl-option__flags">
+                      {% for iso, src, title in badges %}
+                      <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
+                      {% endfor %}
+                    </span>
+                    {% endif %}
+                    <span class="tpl-option__mark" aria-hidden="true"></span>
+                  </label>
+                  {% endif %}
+                  {% endfor %}
+                </div>
+                <div class="tpl-dropdown__foot">
+                  <button type="button" class="btn ghost small" data-tpl-none>Очистить</button>
+                  <button type="button" class="btn small secondary" data-refresh-templates="{{ n.id }}" {% if n.install_state == 'installing' %}disabled{% endif %}>Сверить</button>
+                  <button type="button" class="btn small" data-save-templates="{{ n.id }}" {% if n.install_state == 'installing' %}disabled{% endif %}>Применить</button>
+                </div>
+              </div>
+            </div>
+          </div>
           <span class="hint" data-live>—</span>
           <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
           <div class="node-clash">
@@ -66,6 +129,7 @@
         </article>
         {% endfor %}
       </div>
+      <pre class="log" id="node-action-log"></pre>
     </div>
     {% else %}
     <div class="fold-body">
@@ -85,6 +149,7 @@
         <p class="sub">Трафик с панелей, сколько дней до отключения, кто сейчас в сети.</p>
       </div>
       <div class="fold-tools" onclick="event.stopPropagation()">
+        <button class="btn secondary" type="button" id="reconcile">Сверить с серверами</button>
         <a class="btn" href="/clients">Выдать доступ</a>
         <span class="fold-chev" aria-hidden="true"></span>
       </div>
@@ -108,13 +173,17 @@
           <span data-traffic>трафик…</span>
           <span class="hint" data-expire>{{ expire_label(c) }}</span>
           <span class="hint" data-online>—</span>
-          <div class="monitor-actions">
+          <div class="monitor-actions client-actions">
+            <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Подписка</button>
+            <button class="btn small secondary" type="button" data-edit='{{ client_edit_payload(c) | tojson }}'>Изменить</button>
             <button class="btn small secondary" type="button" data-add="{{ c.id }}">+30 дней</button>
-            <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Ссылка</button>
+            <button class="btn small secondary" type="button" data-prev="{{ c.id }}">YAML подписки</button>
+            <button class="btn small danger" type="button" data-del="{{ c.id }}">Удалить</button>
           </div>
         </article>
         {% endfor %}
       </div>
+      <pre class="log" id="client-action-log"></pre>
     </div>
     {% else %}
     <div class="fold-body">
@@ -126,6 +195,8 @@
     </div>
     {% endif %}
   </details>
+
+  {% include "_client_controls.html" %}
 </div>
 {% endblock %}
 {% block scripts %}
@@ -154,11 +225,8 @@ async function loadOverview() {
         live.textContent = bits.join(' · ') || 'онлайн';
       }
     }
-    const ports = row.querySelector('[data-ports-label]');
-    if (ports && n.inbound_count != null) {
-      ports.textContent = n.inbound_count + ' вх.';
-      row.dataset.ports = String(n.inbound_count);
-    }
+    // Столбец «Входы» теперь виджет шаблонов: текст не трогем, только ключ сортировки.
+    if (n.inbound_count != null) row.dataset.ports = String(n.inbound_count);
     row.dataset.cpu = n.online && n.cpu != null ? String(n.cpu) : '-1';
     XUI.applyNodeRf(row, n);
   });
@@ -202,13 +270,6 @@ document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('
     XUI.toast(e.message, 'err');
   }
 }));
-document.querySelectorAll('[data-add]').forEach((b) => b.onclick = async () => {
-  try {
-    await XUI.api('/api/clients/' + b.dataset.add, 'PATCH', {add_days: 30});
-    XUI.toast('Продлено на 30 дней');
-    location.reload();
-  } catch (e) { XUI.toast(e.message, 'err'); }
-});
 const nodeSort = document.getElementById('node-monitor')
   ? XUI.bindSort(document.getElementById('node-monitor'))
   : { resort() {} };
@@ -216,6 +277,10 @@ const clientSort = document.getElementById('client-monitor')
   ? XUI.bindSort(document.getElementById('client-monitor'))
   : { resort() {} };
 XUI.bindFolds(document);
+XUI.initTemplatePicker(document);
+// Кнопки клиентов (подписка/изменить/+30/YAML/удалить) и «Сверить с серверами» —
+// та же реализация, что на вкладке «Клиенты»; логи сверки идут в #client-action-log.
+XUI.initClientControls(document, 'client-action-log');
 loadOverview().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());
 });
