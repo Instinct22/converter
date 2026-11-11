@@ -246,8 +246,27 @@ input:focus, textarea:focus, select:focus {
 }
 .monitor-cols > * { min-width: 0; }
 .nodes-cols {
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.95fr) 76px minmax(0, 1.2fr) 64px 168px;
+  grid-template-columns: minmax(0, 1.1fr) 92px minmax(0, 0.85fr) 68px minmax(0, 1fr) 56px 88px 128px;
 }
+/* Заголовок «Из РФ» вместе со стрелкой сортировки не должен ломать сетку */
+.nodes-cols .sort-rf {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nodes-cols [data-rf-label] { justify-self: start; white-space: nowrap; }
+/* Столбец переключателя «В Clash»: заголовок как у сортировки, свитч по центру */
+.nodes-cols .col-cap {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.nodes-cols .col-cap .th-hint { text-align: center; white-space: nowrap; }
+.node-clash { display: flex; justify-content: center; }
 .nodes-cols [data-live] {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -267,6 +286,30 @@ input:focus, textarea:focus, select:focus {
 .fw-tag.on { color: var(--ok); }
 .fw-tag.bad { color: var(--danger); }
 .fw-tag.warn { color: var(--warn); }
+/* Лампочка «доходит ли нода до клиентов из России» */
+.rf-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  cursor: help;
+}
+.rf-tag::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex: none;
+}
+.rf-tag.on { color: var(--ok); }
+.rf-tag.on::before { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.18); }
+.rf-tag.bad { color: var(--danger); }
+.rf-tag.bad::before { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.18); }
 .note-warn {
   background: var(--warn-soft);
   border: 1px solid rgba(240, 180, 41, 0.35);
@@ -717,6 +760,16 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .stats, .form-grid, .split, .overview-grid, .field-split { grid-template-columns: 1fr; }
   .monitor-head { display: none; }
   .monitor-cols, .monitor-row { grid-template-columns: 1fr; }
+  /* Шапка скрыта, поэтому подпись переключателя показываем прямо в строке */
+  .node-clash { justify-content: flex-start; gap: 10px; align-items: center; }
+  .node-clash::before {
+    content: "В Clash";
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
   .span-2 { grid-column: auto; }
   .page-head { flex-direction: column; align-items: stretch; }
   .page-head .row, .page-head > .btn, .page-head > a.btn { width: 100%; justify-content: center; }

@@ -8,6 +8,7 @@
   </div>
   <div class="row">
     <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
+    <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
     <a class="btn" href="/clients">Выдать доступ</a>
   </div>
 </div>
@@ -31,15 +32,17 @@
     <div class="fold-body">
       <div class="monitor-head monitor-cols nodes-cols">
         <button class="sort-btn" type="button" data-sort="name">Сервер</button>
+        <button class="sort-btn sort-rf" type="button" data-sort="rf" title="Проверка TCP по портам входов прямо с мастера. Мастер стоит в России — это и есть доступность для клиентов из РФ.">Из РФ</button>
         <button class="sort-btn" type="button" data-sort="host">Адрес</button>
         <button class="sort-btn" type="button" data-sort="ports">Входы</button>
         <button class="sort-btn" type="button" data-sort="cpu">Состояние</button>
         <button class="sort-btn" type="button" data-sort="fw">Файрвол</button>
+        <span class="col-cap">В Clash<span class="th-hint">в подписке</span></span>
         <span></span>
       </div>
       <div class="monitor" id="node-monitor">
         {% for n in nodes %}
-        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}">
+        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
             <span class="name-flag">
@@ -47,15 +50,18 @@
               <strong>{{ n.name }}</strong>
             </span>
           </div>
+          <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           <span class="mono">{{ n.public_host or '—' }}</span>
           <span class="hint" data-ports-label>{{ inbound_counts.get(n.id, 0) }} вх.</span>
           <span class="hint" data-live>—</span>
           <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
-          <div class="monitor-actions">
-            <label class="switch" title="В подписке">
+          <div class="node-clash">
+            <label class="switch" title="Нода участвует в подписке: выключите — сервер исчезнет из выдачи">
               <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
               <span></span>
             </label>
+          </div>
+          <div class="monitor-actions">
             <a class="btn small secondary" href="/nodes/{{ n.id }}">Настройки</a>
           </div>
         </article>
@@ -152,6 +158,7 @@ async function loadOverview() {
       row.dataset.ports = String(n.inbound_count);
     }
     row.dataset.cpu = n.online && n.cpu != null ? String(n.cpu) : '-1';
+    XUI.applyNodeRf(row, n);
   });
   (data.clients || []).forEach((c) => {
     const row = document.querySelector('[data-client="' + c.id + '"]');
@@ -173,6 +180,15 @@ async function loadOverview() {
 document.getElementById('refresh-overview')?.addEventListener('click', async (e) => {
   try {
     await XUI.withBusy(e.currentTarget, loadOverview);
+  } catch (err) {}
+});
+document.getElementById('check-rf')?.addEventListener('click', async (e) => {
+  try {
+    await XUI.withBusy(e.currentTarget, async () => {
+      await XUI.api('/api/reachability', 'POST', {});
+      await loadOverview();
+    });
+    XUI.toast('Проверка из России выполнена');
   } catch (err) {}
 });
 document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('change', async () => {
