@@ -11,6 +11,8 @@ def scan_target_on_node(node: Node, target: str, sni: str) -> dict:
             payload = xui.scan_reality_target(target, sni)
     except XuiError as exc:
         return _row(node, error=str(exc))
+    except Exception:
+        return _row(node, error='нет связи с панелью')
     return _row(node, payload=payload)
 
 

@@ -13,7 +13,7 @@ scheduler = BackgroundScheduler()
 def _job() -> None:
     with Session(engine) as session:
         disable_expired(session)
-        nodes = session.exec(select(Node)).all()
+        nodes = session.exec(select(Node).where(Node.enabled.is_(True))).all()
         probes = probe_nodes(nodes)
         for node in nodes:
             probe = probes.get(node.id or 0) or {}

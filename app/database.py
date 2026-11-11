@@ -16,6 +16,8 @@ engine = create_engine(
 def _sqlite_pragma(dbapi_connection, _connection_record) -> None:
     cursor = dbapi_connection.cursor()
     cursor.execute('PRAGMA foreign_keys=ON')
+    cursor.execute('PRAGMA journal_mode=WAL')
+    cursor.execute('PRAGMA busy_timeout=8000')
     cursor.close()
 
 
@@ -44,6 +46,7 @@ NODE_COLUMNS = {
 TEMPLATE_COLUMNS = {
     'use_in_sub': 'INTEGER DEFAULT 1',
     'provider_label': "TEXT DEFAULT ''",
+    'flags': "TEXT DEFAULT ''",
 }
 
 

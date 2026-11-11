@@ -25,16 +25,23 @@ def public_host_from_url(url: str) -> str:
     return parsed.hostname or ''
 
 
+def panel_timeout(read: float) -> httpx.Timeout:
+    """Соединение короткое: молчащий адрес не держит общий опрос десятки секунд."""
+    limit = max(float(read), 1.0)
+    return httpx.Timeout(connect=3.0, read=limit, write=min(limit, 10.0), pool=3.0)
+
+
 class XuiClient:
-    def __init__(self, node: Node, timeout: float = 25.0) -> None:
+    def __init__(self, node: Node, timeout: float = 12.0) -> None:
         self.node = node
         self.base = normalize_panel_url(node.panel_url)
+        self.unreachable = False
         headers = {'Accept': 'application/json'}
         token = (node.api_token or '').strip()
         if token:
             headers['Authorization'] = f'Bearer {token}'
         self.client = httpx.Client(
-            timeout=timeout,
+            timeout=panel_timeout(timeout),
             verify=False,
             follow_redirects=True,
             headers=headers,
@@ -66,16 +73,22 @@ class XuiClient:
         method: str | None = None,
         form: bool = False,
     ) -> dict[str, Any]:
+        if self.unreachable:
+            raise XuiError('нет связи с панелью')
         self.login()
         url = f'{self.base}{path}'
         verb = method or ('POST' if data is not None else 'GET')
-        if verb == 'GET':
-            r = self.client.get(url)
-        elif form:
-            fields = data if isinstance(data, dict) else {}
-            r = self.client.post(url, data={key: '' if value is None else str(value) for key, value in fields.items()})
-        else:
-            r = self.client.post(url, json=data if data is not None else {})
+        try:
+            if verb == 'GET':
+                r = self.client.get(url)
+            elif form:
+                fields = data if isinstance(data, dict) else {}
+                r = self.client.post(url, data={key: '' if value is None else str(value) for key, value in fields.items()})
+            else:
+                r = self.client.post(url, json=data if data is not None else {})
+        except httpx.TransportError as exc:
+            self.unreachable = True
+            raise XuiError('нет связи с панелью') from exc
         body = _as_json(r)
         if r.status_code == 404 and not body and path.startswith('/panel/api/'):
             if path.endswith('/scanRealityTarget'):

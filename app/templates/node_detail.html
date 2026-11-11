@@ -4,7 +4,7 @@
 <div class="crumbs"><a href="/nodes">Серверы</a> / {{ node.name }}</div>
 <div class="page-head">
   <div>
-    <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
+    <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
     <p class="lede">URL панели, токен и подписка 3x-ui. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке «Серверы».</p>
   </div>
   <div class="row">
@@ -25,9 +25,19 @@
     {% if node.install_state == 'installing' %}
     Панели ещё нет. SSH уже сохранён ниже, в блоке «Файрвол». Повторная установка на стоящий x-ui не запускается.
     {% else %}
-    Логин и пароль панели показаны в журнале один раз. API Token уже записан в поле ниже, повторно его копировать не нужно.
+    Логин и пароль панели показаны в журнале один раз. API Token лежит здесь же: его можно показать и скопировать. Пустое поле в карточке ниже его не затирает.
     {% endif %}
   </p>
+  {% if node.api_token and node.install_state != 'installing' %}
+  <div class="field">
+    <label>API Token</label>
+    <div class="secret-line">
+      <input id="install-token" type="password" readonly value="{{ node.api_token }}" autocomplete="off">
+      <button class="btn secondary small" type="button" id="show-install-token">Показать</button>
+      <button class="btn secondary small" type="button" id="copy-install-token">Копировать</button>
+    </div>
+  </div>
+  {% endif %}
   <pre class="log show" id="install-log">{{ node.install_log }}</pre>
   {% if node.install_state != 'installing' %}
   <button class="btn secondary" type="button" id="hide-install-log">Скрыть журнал</button>
@@ -79,7 +89,15 @@
             <span class="tip-box">3x-ui → Panel Settings → API Token. Пустое поле не затирает текущий токен.</span>
           </span>
         </label>
-        <input name="api_token" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else ('появится после установки' if node.install_state == 'installing' else 'вставьте токен') }}" {% if node.install_state == 'installing' %}readonly{% endif %}>
+        <input name="api_token" type="password" autocomplete="off" readonly placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.api_token else ('появится после установки' if node.install_state == 'installing' else 'вставьте токен') }}" {% if node.install_state == 'installing' %}data-locked="1"{% endif %}>
+        <span class="hint">{% if node.api_token %}Токен уже сохранён. Это поле пустое, пока не введёте новый.{% endif %}</span>
+        {% if node.api_token %}
+        <div class="secret-line" style="margin-top:8px">
+          <input id="saved-api-token" type="password" readonly value="{{ node.api_token }}" autocomplete="off">
+          <button class="btn secondary small" type="button" id="show-saved-token">Показать</button>
+          <button class="btn secondary small" type="button" id="copy-saved-token">Копировать</button>
+        </div>
+        {% endif %}
       </div>
     </div>
     <button class="btn" type="submit">Сохранить</button>
@@ -101,8 +119,8 @@
       </div>
       <div class="field span-2">
         <label>SSH-пароль</label>
-        <input name="ssh_password" type="password" placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.ssh_password else 'нужен, чтобы проверять ufw' }}">
-        <span class="hint">Сохранение сверяет ufw с входами, которые уже навешаны на сервер. Если ufw нет, Master ставит его. Пустое поле пароль не стирает. SSH, 80, порт панели и порт подписки остаются открытыми.</span>
+        <input name="ssh_password" type="password" autocomplete="off" readonly placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.ssh_password else 'нужен, чтобы проверять ufw' }}">
+        <span class="hint">{% if node.ssh_password %}Пароль SSH сохранён. Поле остаётся пустым, пока не введёте новый: пустое сохранение и автозаполнение браузера его не затирают.{% else %}Пароля SSH нет. Введите его, чтобы сверять ufw.{% endif %} Сохранение сверяет ufw с входами сервера. SSH, 80, порт панели и порт подписки остаются открытыми.</span>
       </div>
     </div>
     <button class="btn" type="submit" {% if node.install_state == 'installing' %}disabled{% endif %}>Сохранить и проверить</button>
@@ -131,6 +149,36 @@ document.getElementById('sync-inbounds').onclick = async (e) => {
   }
 };
 
+function armSecret(input) {
+  if (!input || input.dataset.locked) return;
+  input.readOnly = true;
+  input.dataset.userEdit = '';
+  input.addEventListener('focus', () => { input.readOnly = false; });
+  input.addEventListener('keydown', () => { input.dataset.userEdit = '1'; });
+  input.addEventListener('paste', () => { input.dataset.userEdit = '1'; });
+}
+function typedSecret(input) {
+  if (!input || input.dataset.userEdit !== '1') return '';
+  return input.value.trim();
+}
+armSecret(document.querySelector('#edit [name="api_token"]'));
+armSecret(document.querySelector('#firewall [name="ssh_password"]'));
+
+function bindToken(inputId, showId, copyId) {
+  const input = document.getElementById(inputId);
+  document.getElementById(showId)?.addEventListener('click', (event) => {
+    if (!input) return;
+    const open = input.type === 'password';
+    input.type = open ? 'text' : 'password';
+    event.currentTarget.textContent = open ? 'Скрыть' : 'Показать';
+  });
+  document.getElementById(copyId)?.addEventListener('click', () => {
+    if (input) XUI.copyText(input.value);
+  });
+}
+bindToken('install-token', 'show-install-token', 'copy-install-token');
+bindToken('saved-api-token', 'show-saved-token', 'copy-saved-token');
+
 document.getElementById('edit').onsubmit = async (e) => {
   e.preventDefault();
   const f = e.target;
@@ -143,7 +191,8 @@ document.getElementById('edit').onsubmit = async (e) => {
     sub_scheme: f.sub_scheme.value,
     sub_clash_path: f.sub_clash_path.value,
   };
-  if (f.api_token.value) body.api_token = f.api_token.value;
+  const token = typedSecret(f.api_token);
+  if (token) body.api_token = token;
   try {
     await XUI.api('/api/nodes/' + id, 'PATCH', body);
     XUI.toast('Сохранено');
@@ -182,7 +231,8 @@ document.getElementById('firewall').onsubmit = async (e) => {
     ssh_user: f.ssh_user.value,
     ssh_port: Number(f.ssh_port.value),
   };
-  if (f.ssh_password.value) body.ssh_password = f.ssh_password.value;
+  const password = typedSecret(f.ssh_password);
+  if (password) body.ssh_password = password;
   try {
     const r = await XUI.withBusy(e.submitter, () => XUI.api('/api/nodes/' + id, 'PATCH', body));
     const text = (r.logs && r.logs[0]) || (r.firewall_on ? 'Файрвол вкл' : 'Файрвол выкл');

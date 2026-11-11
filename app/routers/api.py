@@ -34,7 +34,7 @@ from app.provision import (
 from app.routers.updates import delete_installer
 from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
-from app.flags import to_iso
+from app.flags import normalize_flags, to_iso
 from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url
 from app.xui_install import prepare_install, start_install
 
@@ -120,6 +120,7 @@ class TemplateIn(BaseModel):
     enabled: bool = True
     use_in_sub: bool = True
     provider_label: str = ''
+    flags: str = ''
 
 
 class ClientIn(BaseModel):
@@ -375,16 +376,20 @@ def api_provision_node(node_id: int, session: SessionDep, body: ProvisionIn | No
     return {'ok': True, 'logs': logs}
 
 
+def drop_blank_secrets(data: dict) -> None:
+    """Пустой токен, пароль и пользователь не затирают уже сохранённые."""
+    for key in ('api_token', 'ssh_password', 'ssh_user'):
+        if key in data and not str(data.get(key) or '').strip():
+            data.pop(key)
+
+
 @router.patch('/nodes/{node_id}')
 def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
     data = body.model_dump(exclude_unset=True)
-    if data.get('api_token') == '':
-        data.pop('api_token')
-    if data.get('ssh_password') == '':
-        data.pop('ssh_password')
+    drop_blank_secrets(data)
     if data.get('flag'):
         data['flag'] = to_iso(data['flag']) or data['flag']
     if 'panel_url' in data and data['panel_url'] is not None:
@@ -535,6 +540,10 @@ class DestScanIn(BaseModel):
     node_ids: list[int] = Field(default_factory=list)
 
 
+class NeighborScanIn(BaseModel):
+    node_id: int
+
+
 @router.post('/dest-scan')
 def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
     from concurrent.futures import ThreadPoolExecutor
@@ -560,6 +569,21 @@ def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
     return {'target': target, 'results': sort_scans(results)}
 
 
+@router.post('/neighbor-scan')
+def neighbor_scan(body: NeighborScanIn, session: SessionDep) -> dict:
+    from app.neighbor_scan import scan_node_neighborhood
+
+    node = session.get(Node, body.node_id)
+    if node is None:
+        raise HTTPException(404, 'сервер не найден')
+    try:
+        return scan_node_neighborhood(node)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post('/dest-sni')
 def dest_sni(body: DestSniIn) -> dict:
     try:
@@ -578,7 +602,9 @@ def list_templates(session: SessionDep) -> list[dict]:
 
 @router.post('/templates')
 def create_template(body: TemplateIn, session: SessionDep) -> dict:
-    row = InboundTemplate(**body.model_dump())
+    data = body.model_dump()
+    data['flags'] = normalize_flags(data.get('flags', ''))
+    row = InboundTemplate(**data)
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -590,7 +616,9 @@ def update_template(template_id: int, body: TemplateIn, session: SessionDep) -> 
     row = session.get(InboundTemplate, template_id)
     if not row:
         raise HTTPException(404, 'template not found')
-    for key, value in body.model_dump().items():
+    data = body.model_dump()
+    data['flags'] = normalize_flags(data.get('flags', ''))
+    for key, value in data.items():
         setattr(row, key, value)
     session.add(row)
     session.commit()
@@ -801,10 +829,27 @@ def overview(session: SessionDep) -> dict:
         node.id: len(session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all())
         for node in nodes
     }
-    probes = probe_nodes(nodes)
+    probes = probe_nodes([node for node in nodes if node.enabled])
     rf_views = _probe_rf(session, nodes)
     node_out = []
     for node in nodes:
+        if not node.enabled:
+            node_out.append(
+                {
+                    **_node_out(node, session),
+                    'online': False,
+                    'cpu': None,
+                    'mem_used': None,
+                    'mem_total': None,
+                    'uptime': None,
+                    'xray': '',
+                    'tcp': None,
+                    'udp': None,
+                    'inbound_count': inbound_counts.get(node.id, 0),
+                    'probe_error': '',
+                }
+            )
+            continue
         probe = probes.get(node.id or 0) or {}
         rf = rf_views.get(node.id or 0) or {}
         online = bool(probe.get('online'))
@@ -916,7 +961,7 @@ def _as_utc(value: datetime) -> datetime:
 def presence(session: SessionDep) -> dict:
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     clients = session.exec(select(Client).order_by(Client.id.desc())).all()
-    probes = probe_nodes_presence(nodes)
+    probes = probe_nodes_presence([node for node in nodes if node.enabled])
     client_out = []
     for client in clients:
         usage = aggregate_client_usage(client, nodes, probes)
@@ -934,11 +979,20 @@ def presence(session: SessionDep) -> dict:
 
 
 def _guard_nodes(session: SessionDep, install: bool) -> dict:
-    logs: list[str] = []
+    from app.database import engine
+    from app.util import flatten_logs, run_parallel
+
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-    for node in nodes:
-        logs.extend(sync_node_guard(node, session, install=install))
-    return {'ok': True, 'logs': logs}
+    node_ids = [node.id for node in nodes if node.id is not None]
+
+    def run(node_id: int) -> list[str]:
+        with Session(engine) as local:
+            node = local.get(Node, node_id)
+            if node is None:
+                return []
+            return sync_node_guard(node, local, install=install)
+
+    return {'ok': True, 'logs': flatten_logs(run_parallel(node_ids, run))}
 
 
 @router.post('/protection/refresh')

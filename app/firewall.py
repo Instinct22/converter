@@ -171,7 +171,7 @@ def _ssh(node: Node):
         port=ssh_port,
         username=user,
         password=node.ssh_password,
-        timeout=20,
+        timeout=8,
         look_for_keys=False,
         allow_agent=False,
     )

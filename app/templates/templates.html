@@ -23,21 +23,36 @@
   <table class="table-clients table-templates">
     <colgroup>
       <col class="c-name">
+      <col class="c-nodes">
       <col class="c-port">
       <col class="c-net">
       <col class="c-sec">
+      <col class="c-flow">
       <col class="c-sni">
       <col class="c-sub">
       <col class="c-act">
     </colgroup>
-    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th>Подписка</th><th></th></tr></thead>
+    <thead><tr><th>Примечание</th><th>Флаги</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Flow</th><th>Цель / SNI</th><th>Подписка</th><th></th></tr></thead>
     <tbody>
     {% for t in inbound_templates %}
       <tr>
         <td data-label="Примечание"><strong>{{ t.name }}</strong></td>
+        <td data-label="Флаги">
+          {% set badges = t.flag_badges() %}
+          {% if badges %}
+          <span class="flag-row">
+            {% for iso, src, title in badges %}
+            <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
+            {% endfor %}
+          </span>
+          {% else %}
+          <span class="hint">без флага</span>
+          {% endif %}
+        </td>
         <td class="mono" data-label="Порт">{{ t.port }}</td>
         <td data-label="Транспорт">{{ t.protocol or 'vless' }} · {{ t.network }}</td>
         <td data-label="Безопасность">{{ t.security or 'reality' }}</td>
+        <td class="mono" data-label="Flow">{% if t.flow %}{{ t.flow }}{% else %}<span class="hint">нет</span>{% endif %}</td>
         <td class="cell-sni" data-label="Цель / SNI">
           <div class="mono cell-clip">{{ t.dest }}</div>
           <div class="hint cell-clip" style="margin:0" title="{{ t.server_names }}">{{ t.server_names }}</div>
@@ -82,6 +97,12 @@
       </div>
 
       <div class="pane on" data-pane="general">
+        <div class="field" style="margin-bottom:12px">
+          <label>Флаги</label>
+          <input type="hidden" name="flags" value="">
+          <div class="flags" data-flags="flags" data-multi="1"></div>
+          <span class="hint">Как у сервера, только можно отметить несколько стран. По ним вход видно в списке и при назначении на сервер.</span>
+        </div>
         <div class="form-grid">
           <div class="field">
             <label>Примечание</label>
@@ -184,18 +205,23 @@
             </div>
             <div class="field span-2">
               <label>Задержка с сервера</label>
-              <div class="field-split">
+              <div class="scan-actions">
                 <select id="scan-node">
                   <option value="">Все серверы</option>
                 </select>
                 <button class="btn secondary" type="button" id="scan-dest">Проверить</button>
+                <button class="btn" type="button" id="scan-neighbors">Найти цель рядом</button>
               </div>
-              <div class="scan-results" id="scan-results"></div>
+              <span class="hint">«Проверить» меряет вписанную цель с выбранного сервера. «Найти цель рядом» обходит сеть /24 этого сервера с Master и оставляет сайты, чей сертификат указывает на тот же адрес.</span>
+              <div class="neighbor-results" id="neighbor-results"></div>
             </div>
             <div class="field span-2">
               <label>Имена сервера (SNI)</label>
               <input name="server_names" placeholder="подтянутся с цели">
               <span class="hint" id="sni-meta">Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.</span>
+            </div>
+            <div class="field span-2">
+              <div class="scan-results" id="scan-results"></div>
             </div>
             <div class="field">
               <label>uTLS Fingerprint</label>
@@ -348,9 +374,13 @@ function fillTpl(data) {
   f.tls_cert_file.value = val(data, 'tls_cert_file', '');
   f.tls_key_file.value = val(data, 'tls_key_file', '');
   f.reject_unknown_sni.checked = !!data.reject_unknown_sni;
+  f.flags.value = data.flags || '';
+  if (window.XUI) XUI.bindFlagPicker(document.getElementById('edit-tpl'));
   lastPulledDest = '';
   const scanBox = document.getElementById('scan-results');
   if (scanBox) scanBox.replaceChildren();
+  const neighborBox = document.getElementById('neighbor-results');
+  if (neighborBox) neighborBox.replaceChildren();
   const scanNode = document.getElementById('scan-node');
   if (scanNode) scanNode.value = '';
   document.getElementById('sni-meta').textContent = 'Появятся автоматически, когда цель ответит сертификатом. Можно дописать вручную.';
@@ -404,32 +434,139 @@ function escapeScan(value) {
   return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 }
 
-function scanRow(row) {
-  const name = escapeScan(row.name || 'сервер');
-  if (!row.ok) return `<div class="scan-row bad">${name} · ${escapeScan(row.error || 'ошибка')}</div>`;
-  const delay = row.latency_ms ? `${row.latency_ms} мс` : 'нет ответа';
-  const note = row.feasible ? 'подходит' : (row.note || 'не подходит');
-  return `<div class="scan-row ${row.feasible ? 'ok' : 'bad'}">${name} · ${delay} · ${escapeScan(note)}</div>`;
+function scanTone(row) {
+  if (!row.ok) return 'bad';
+  if (row.feasible && row.latency_ms >= 200) return 'warn';
+  if (row.feasible) return 'ok';
+  return row.latency_ms ? 'warn' : 'bad';
 }
 
-document.getElementById('scan-dest')?.addEventListener('click', async (event) => {
+function scanCert(row) {
+  if (!row.ok) return row.error || 'ошибка';
+  if (row.feasible && row.latency_ms >= 200) return 'открывается, задержка высокая';
+  if (row.feasible) return row.cert_valid ? 'сертификат верный' : 'сертификат не подошёл';
+  return row.note || 'не подходит';
+}
+
+function renderDestScan(rows) {
+  const body = rows.map((row) => {
+    const name = escapeScan(row.name || 'сервер');
+    const delay = !row.ok ? 'таймаут' : (row.latency_ms ? `${row.latency_ms} мс` : 'нет ответа');
+    const tls = row.ok && row.tls13 ? 'TLS 1.3' : '—';
+    const h2 = row.ok && row.h2 ? 'h2' : '—';
+    const curve = row.ok && row.x25519 ? 'X25519' : '—';
+    return `<tr class="tone-${scanTone(row)}"><td>${name}</td><td class="num">${escapeScan(delay)}</td><td>${tls}</td><td>${h2}</td><td>${curve}</td><td>${escapeScan(scanCert(row))}</td></tr>`;
+  }).join('');
+  return `<div class="scan-head">Проверка с серверов</div><div class="table-scroll"><table class="scan-table"><thead><tr><th>Сервер</th><th>Задержка</th><th>TLS</th><th>HTTP/2</th><th>Кривая</th><th>Сертификат</th></tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+async function runDestScan(button, nodeIds) {
   const dest = (f.dest.value || '').trim();
   const box = document.getElementById('scan-results');
   if (!dest) {
     XUI.toast('Укажите цель', 'err');
     return;
   }
-  const picked = scanSelect?.value || '';
   const sni = (f.server_names.value || '').split(',')[0].trim();
+  const run = () => XUI.api('/api/dest-scan', 'POST', { dest, sni, node_ids: nodeIds });
   try {
-    const data = await XUI.withBusy(event.currentTarget, () => XUI.api('/api/dest-scan', 'POST', {
-      dest,
-      sni,
-      node_ids: picked ? [Number(picked)] : [],
-    }));
-    if (box) box.innerHTML = (data.results || []).map(scanRow).join('');
+    const data = button ? await XUI.withBusy(button, run) : await run();
+    if (box) box.innerHTML = renderDestScan(data.results || []);
   } catch (err) {
     if (box) box.textContent = err.message || 'Проверка не удалась';
+    if (!button) XUI.toast(err.message || 'Проверка не удалась', 'err');
+  }
+}
+
+document.getElementById('scan-dest')?.addEventListener('click', (event) => {
+  const picked = scanSelect?.value || '';
+  runDestScan(event.currentTarget, picked ? [Number(picked)] : []);
+});
+
+let neighborShowAll = false;
+let neighborPayload = null;
+
+function neighborRows() {
+  const rows = neighborPayload?.rows || [];
+  return neighborShowAll ? rows : rows.filter((row) => row.keep);
+}
+
+function dnsBadge(dns) {
+  const text = dns || '—';
+  const tone = text === 'совпал' ? 'ok' : (text === 'чужой IP' ? 'bad' : (text === 'слабый TLS' || text === 'маска' ? 'warn' : 'neutral'));
+  return `<span class="badge ${tone}">${escapeScan(text)}</span>`;
+}
+
+function renderNeighbors() {
+  const box = document.getElementById('neighbor-results');
+  if (!box || !neighborPayload) return;
+  const data = neighborPayload;
+  const rows = neighborRows();
+  const applied = (f.dest.value || '').trim();
+  const stats = [
+    ['', data.scanned, 'Адресов в сети'],
+    ['ok', data.kept, 'Можно подставить'],
+    ['bad', data.foreign_cert, 'Чужой сертификат'],
+    ['warn', data.weak_tls, 'Слабый TLS'],
+  ].map(([tone, value, label]) => `<div class="neighbor-stat ${tone}"><div class="v">${escapeScan(value)}</div><div class="k">${label}</div></div>`).join('');
+  const list = rows.map((row) => {
+    const domain = row.domain || '—';
+    const used = row.keep && applied === `${row.domain}:443`;
+    const action = row.keep
+      ? `<button class="btn small ${used ? '' : 'secondary'}" type="button" data-use-dest="${escapeScan(row.domain)}">${used ? 'Подставлено' : 'Подставить'}</button>`
+      : '<span class="muted">скрыто</span>';
+    return `<tr class="tone-${row.keep ? 'ok' : 'bad'}"><td class="mono">${escapeScan(row.ip)}</td><td>${escapeScan(domain)}</td><td>${escapeScan(row.issuer || '—')}</td><td>${dnsBadge(row.dns)}</td><td class="act">${action}</td></tr>`;
+  }).join('');
+  const empty = rows.length ? '' : '<p class="hint">Подходящих сайтов в этой сети нет. Откройте «Все ответы», чтобы увидеть, что отсеялось.</p>';
+  box.innerHTML = `<div class="neighbor-stats">${stats}</div><div class="pills"><button class="pill ${neighborShowAll ? '' : 'on'}" type="button" data-neighbor-filter="kept">Можно подставить</button><button class="pill ${neighborShowAll ? 'on' : ''}" type="button" data-neighbor-filter="all">Все ответы</button></div><div class="table-scroll"><table class="neighbor-table"><thead><tr><th>Адрес</th><th>Домен сертификата</th><th>Издатель</th><th>DNS</th><th></th></tr></thead><tbody>${list}</tbody></table></div>${empty}<span class="hint scan-caption">${escapeScan(data.cidr)} · строка остаётся, только если адрес есть в DNS домена сертификата.</span>`;
+}
+
+document.getElementById('neighbor-results')?.addEventListener('click', (event) => {
+  const filter = event.target.closest('[data-neighbor-filter]');
+  if (filter) {
+    neighborShowAll = filter.dataset.neighborFilter === 'all';
+    renderNeighbors();
+    return;
+  }
+  const use = event.target.closest('[data-use-dest]');
+  if (!use) return;
+  const domain = use.dataset.useDest || '';
+  if (!domain) return;
+  f.dest.value = `${domain}:443`;
+  f.server_names.value = domain;
+  lastPulledDest = '';
+  renderNeighbors();
+  document.getElementById('sni-meta').textContent = 'Имя взято из сертификата соседнего сайта. Проверяем его со всех серверов.';
+  pullFromTarget(true);
+  const box = document.getElementById('scan-results');
+  if (box) box.textContent = 'Проверяем цель со всех серверов…';
+  runDestScan(null, []);
+});
+
+document.getElementById('scan-neighbors')?.addEventListener('click', async (event) => {
+  const picked = scanSelect?.value || '';
+  const box = document.getElementById('neighbor-results');
+  if (!picked) {
+    XUI.toast('Выберите сервер, рядом с которым искать цель', 'err');
+    return;
+  }
+  const node = scanNodes.find((item) => String(item.id) === picked);
+  const button = event.currentTarget;
+  const prev = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Ищем соседей…';
+  if (box) box.innerHTML = `<div class="callout"><strong>Обход сети ${node ? escapeScan(node.name) : ''}</strong><br>Master проверяет соседние адреса, порт 443. В список попадут TLS 1.3, HTTP/2 и совпадение DNS. Чужие сертификаты отсеиваются.</div>`;
+  try {
+    neighborPayload = await XUI.api('/api/neighbor-scan', 'POST', { node_id: Number(picked) });
+    neighborShowAll = false;
+    renderNeighbors();
+  } catch (err) {
+    neighborPayload = null;
+    if (box) box.textContent = err.message || 'Поиск не удался';
+    XUI.toast(err.message || 'Поиск не удался', 'err');
+  } finally {
+    button.disabled = false;
+    button.textContent = prev;
   }
 });
 
@@ -443,10 +580,15 @@ document.getElementById('provision-all')?.addEventListener('click', async (e) =>
   const logs = [];
   try {
     await XUI.withBusy(e.currentTarget, async () => {
-      for (const id of ids) {
-        const r = await XUI.api('/api/nodes/' + id + '/provision', 'POST', {});
-        logs.push('сервер ' + id, ...(r.logs || []));
-      }
+      const results = await Promise.all(ids.map(async (id) => {
+        try {
+          const r = await XUI.api('/api/nodes/' + id + '/provision', 'POST', {});
+          return ['сервер ' + id, ...(r.logs || [])];
+        } catch (err) {
+          return ['сервер ' + id + ': ' + (err.message || 'нет ответа')];
+        }
+      }));
+      results.forEach((lines) => logs.push(...lines));
     });
     XUI.showLog(document.getElementById('tpl-log'), logs);
     XUI.toast('Готово');
@@ -494,6 +636,7 @@ f.onsubmit = async (e) => {
     enabled: true,
     use_in_sub: f.use_in_sub.checked,
     provider_label: f.provider_label.value,
+    flags: f.flags.value,
   };
   try {
     if (f.id.value) saved = await XUI.api('/api/templates/' + f.id.value, 'PUT', body);

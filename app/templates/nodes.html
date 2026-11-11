@@ -40,7 +40,7 @@
       <tr>
         <td data-label="Сервер">
           <span class="name-flag">
-            {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="">{% endif %}
+            {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
             <strong>{{ n.name }}</strong>
             {% if n.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
             {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>
@@ -61,7 +61,18 @@
                 <span class="tpl-dropdown__count">{{ picked|length }}</span>
                 <span class="tpl-dropdown__preview">
                   {% for t in inbound_templates if t.enabled and t.id in picked %}
-                  <span class="tpl-pill">{{ t.port }}</span>
+                  <span class="tpl-pill">
+                    {% set badges = t.flag_badges() %}
+                    {% if badges %}
+                    <span class="tpl-pill__flags">
+                      {% for iso, src, title in badges %}
+                      <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
+                      {% endfor %}
+                    </span>
+                    {% endif %}
+                    <span class="tpl-pill__name" title="{{ t.name }}">{{ t.name }}</span>
+                    <span class="tpl-pill__port">{{ t.port }}</span>
+                  </span>
                   {% endfor %}
                 </span>
                 {% else %}
@@ -70,7 +81,7 @@
               </span>
               <svg class="tpl-dropdown__chev" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </button>
-            <div class="tpl-dropdown__panel" role="listbox" hidden>
+            <div class="tpl-dropdown__panel" role="listbox" data-node-id="{{ n.id }}" hidden>
               <div class="tpl-dropdown__head">
                 <span>Шаблоны входов</span>
                 <button type="button" class="btn ghost small tpl-dropdown__all" data-tpl-all>Все</button>
@@ -84,6 +95,14 @@
                     <span class="tpl-option__name">{{ t.name }}</span>
                     <span class="tpl-option__meta mono">{{ t.port }} · {{ t.network or 'grpc' }}</span>
                   </span>
+                  {% set badges = t.flag_badges() %}
+                  {% if badges %}
+                  <span class="tpl-option__flags">
+                    {% for iso, src, title in badges %}
+                    <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
+                    {% endfor %}
+                  </span>
+                  {% endif %}
                   <span class="tpl-option__mark" aria-hidden="true"></span>
                 </label>
                 {% endif %}
@@ -95,8 +114,6 @@
                 <button type="button" class="btn small" data-save-templates="{{ n.id }}" {% if n.install_state == 'installing' %}disabled{% endif %}>Применить</button>
               </div>
             </div>
-            {% set live = live_ports.get(n.id, []) if live_ports is defined else [] %}
-            <div class="hint" style="margin:6px 0 0">{% if live %}На ноде: {{ live|join(', ') }}{% else %}На ноде входов из шаблонов нет{% endif %}</div>
           </div>
         </td>
         <td data-label="В Clash">
@@ -275,10 +292,48 @@ document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('
   }
 }));
 function tplDropdownRoot(el) {
-  return el.closest('.tpl-dropdown');
+  const near = el.closest('.tpl-dropdown');
+  if (near) return near;
+  const host = el.closest('[data-node-id]');
+  const id = host && host.dataset.nodeId;
+  return id ? document.querySelector('.tpl-dropdown[data-node-id="' + id + '"]') : null;
+}
+function tplPanel(root) {
+  if (!root) return null;
+  return document.querySelector('.tpl-dropdown__panel[data-node-id="' + root.dataset.nodeId + '"]');
+}
+function placeTplPanel(root) {
+  const trigger = root.querySelector('.tpl-dropdown__trigger');
+  const panel = tplPanel(root);
+  if (!trigger || !panel) return;
+  if (panel.parentElement !== document.body) document.body.appendChild(panel);
+  panel.hidden = false;
+  const rect = trigger.getBoundingClientRect();
+  const margin = 8;
+  const gap = 6;
+  const width = Math.min(380, window.innerWidth - margin * 2);
+  let left = rect.left;
+  if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
+  if (left < margin) left = margin;
+  panel.style.left = left + 'px';
+  panel.style.width = width + 'px';
+  const height = panel.offsetHeight;
+  const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+  const spaceAbove = rect.top - gap - margin;
+  let top = rect.bottom + gap;
+  if (spaceBelow < height && spaceAbove > spaceBelow) top = rect.top - gap - height;
+  if (top < margin) top = margin;
+  if (top + height > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - margin - height);
+  panel.style.top = top + 'px';
+}
+function tplEsc(value) {
+  return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+function tplBox(root) {
+  return tplPanel(root) || root;
 }
 function tplSelectedIds(root) {
-  return [...root.querySelectorAll('.tpl-option input:checked')].map((i) => Number(i.value));
+  return [...tplBox(root).querySelectorAll('.tpl-option input:checked')].map((i) => Number(i.value));
 }
 function tplRefreshTrigger(root) {
   const trigger = root.querySelector('.tpl-dropdown__trigger');
@@ -290,17 +345,22 @@ function tplRefreshTrigger(root) {
     tplSyncClash(root);
     return;
   }
-  const pills = [...root.querySelectorAll('.tpl-option input:checked')].map((input) => {
-    const meta = input.closest('.tpl-option')?.querySelector('.tpl-option__meta')?.textContent || '';
-    const port = (meta.split('·')[0] || '').trim();
-    return '<span class="tpl-pill">' + (port || '—') + '</span>';
+  const pills = [...tplBox(root).querySelectorAll('.tpl-option input:checked')].map((input) => {
+    const option = input.closest('.tpl-option');
+    const name = option?.querySelector('.tpl-option__name')?.textContent?.trim() || '';
+    const port = input.dataset.port || '';
+    const flags = option?.querySelector('.tpl-option__flags')?.innerHTML || '';
+    const flagHtml = flags ? '<span class="tpl-pill__flags">' + flags + '</span>' : '';
+    return '<span class="tpl-pill">' + flagHtml
+      + '<span class="tpl-pill__name" title="' + tplEsc(name) + '">' + tplEsc(name) + '</span>'
+      + '<span class="tpl-pill__port">' + tplEsc(port || '—') + '</span></span>';
   }).join('');
   inner.innerHTML = '<span class="tpl-dropdown__count">' + ids.length + '</span><span class="tpl-dropdown__preview">' + pills + '</span>';
   tplSyncClash(root);
 }
 function tplClashes(root) {
   const byPort = new Map();
-  root.querySelectorAll('.tpl-option input:checked').forEach((input) => {
+  tplBox(root).querySelectorAll('.tpl-option input:checked').forEach((input) => {
     const port = input.dataset.port || '';
     const name = input.closest('.tpl-option')?.querySelector('.tpl-option__name')?.textContent?.trim() || port;
     if (!byPort.has(port)) byPort.set(port, []);
@@ -319,16 +379,18 @@ function tplSyncClash(root) {
   if (!root) return [];
   const clashes = tplClashes(root);
   const blocked = clashes.length > 0;
-  root.querySelectorAll('[data-save-templates], [data-refresh-templates]').forEach((btn) => {
+  tplBox(root).querySelectorAll('[data-save-templates], [data-refresh-templates]').forEach((btn) => {
     btn.disabled = blocked;
   });
-  let hint = root.querySelector('.tpl-clash');
-  if (!hint) {
+  const panel = tplPanel(root);
+  let hint = panel && panel.querySelector('.tpl-clash');
+  if (!hint && panel) {
     hint = document.createElement('div');
     hint.className = 'hint tpl-clash';
-    const foot = root.querySelector('.tpl-dropdown__foot');
+    const foot = panel.querySelector('.tpl-dropdown__foot');
     if (foot) foot.before(hint);
   }
+  if (!hint) return clashes;
   hint.hidden = !blocked;
   hint.textContent = clashes.join(' ');
   return clashes;
@@ -336,27 +398,39 @@ function tplSyncClash(root) {
 function tplCloseAll(except) {
   document.querySelectorAll('.tpl-dropdown').forEach((root) => {
     if (except && root === except) return;
-    const panel = root.querySelector('.tpl-dropdown__panel');
+    const panel = tplPanel(root);
     const trigger = root.querySelector('.tpl-dropdown__trigger');
     if (panel) panel.hidden = true;
     if (trigger) trigger.setAttribute('aria-expanded', 'false');
     root.classList.remove('open');
   });
 }
+function tplRepositionOpen() {
+  const root = document.querySelector('.tpl-dropdown.open');
+  if (!root) return;
+  const trigger = root.querySelector('.tpl-dropdown__trigger');
+  const rect = trigger.getBoundingClientRect();
+  if (rect.bottom < 0 || rect.top > window.innerHeight) {
+    tplCloseAll();
+    return;
+  }
+  placeTplPanel(root);
+}
 document.querySelectorAll('.tpl-dropdown__trigger').forEach((btn) => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     const root = tplDropdownRoot(btn);
-    const panel = root.querySelector('.tpl-dropdown__panel');
     const open = root.classList.contains('open');
     tplCloseAll();
     if (!open) {
       root.classList.add('open');
-      panel.hidden = false;
       btn.setAttribute('aria-expanded', 'true');
+      placeTplPanel(root);
     }
   });
 });
+window.addEventListener('resize', tplRepositionOpen);
+document.addEventListener('scroll', tplRepositionOpen, true);
 document.addEventListener('click', () => tplCloseAll());
 document.querySelectorAll('.tpl-dropdown__panel').forEach((panel) => {
   panel.addEventListener('click', (e) => e.stopPropagation());
@@ -371,7 +445,7 @@ document.querySelectorAll('.tpl-option input').forEach((input) => {
 document.querySelectorAll('[data-tpl-all]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const root = tplDropdownRoot(btn);
-    root.querySelectorAll('.tpl-option input').forEach((i) => { i.checked = true; });
+    tplBox(root).querySelectorAll('.tpl-option input').forEach((i) => { i.checked = true; });
     tplRefreshTrigger(root);
     tplSyncClash(root);
   });
@@ -379,7 +453,7 @@ document.querySelectorAll('[data-tpl-all]').forEach((btn) => {
 document.querySelectorAll('[data-tpl-none]').forEach((btn) => {
   btn.addEventListener('click', () => {
     const root = tplDropdownRoot(btn);
-    root.querySelectorAll('.tpl-option input').forEach((i) => { i.checked = false; });
+    tplBox(root).querySelectorAll('.tpl-option input').forEach((i) => { i.checked = false; });
     tplRefreshTrigger(root);
     tplSyncClash(root);
   });
