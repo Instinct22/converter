@@ -23,31 +23,19 @@
   <table class="table-clients table-templates">
     <colgroup>
       <col class="c-name">
+      <col class="c-nodes">
       <col class="c-port">
       <col class="c-net">
       <col class="c-sec">
       <col class="c-sni">
       <col class="c-sub">
-      <col class="c-nodes">
       <col class="c-act">
     </colgroup>
-    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th>Подписка</th><th>Флаги</th><th></th></tr></thead>
+    <thead><tr><th>Примечание</th><th>Флаги</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th>Подписка</th><th></th></tr></thead>
     <tbody>
     {% for t in inbound_templates %}
       <tr>
         <td data-label="Примечание"><strong>{{ t.name }}</strong></td>
-        <td class="mono" data-label="Порт">{{ t.port }}</td>
-        <td data-label="Транспорт">{{ t.protocol or 'vless' }} · {{ t.network }}</td>
-        <td data-label="Безопасность">{{ t.security or 'reality' }}</td>
-        <td class="cell-sni" data-label="Цель / SNI">
-          <div class="mono cell-clip">{{ t.dest }}</div>
-          <div class="hint cell-clip" style="margin:0" title="{{ t.server_names }}">{{ t.server_names }}</div>
-          {% if t.extra_snis %}<div class="hint cell-clip" style="margin:0" title="{{ t.extra_snis }}">+ {{ t.extra_snis }}</div>{% endif %}
-        </td>
-        <td data-label="Подписка">
-          {% if t.use_in_sub %}в подписке{% else %}<span class="hint">скрыт</span>{% endif %}
-          {% if t.provider_label %}<div class="hint mono cell-clip" style="margin:4px 0 0" title="{{ t.provider_label }}">alt: {{ t.provider_label }}</div>{% endif %}
-        </td>
         <td data-label="Флаги">
           {% set badges = t.flag_badges() %}
           {% if badges %}
@@ -59,6 +47,18 @@
           {% else %}
           <span class="hint">без флага</span>
           {% endif %}
+        </td>
+        <td class="mono" data-label="Порт">{{ t.port }}</td>
+        <td data-label="Транспорт">{{ t.protocol or 'vless' }} · {{ t.network }}</td>
+        <td data-label="Безопасность">{{ t.security or 'reality' }}</td>
+        <td class="cell-sni" data-label="Цель / SNI">
+          <div class="mono cell-clip">{{ t.dest }}</div>
+          <div class="hint cell-clip" style="margin:0" title="{{ t.server_names }}">{{ t.server_names }}</div>
+          {% if t.extra_snis %}<div class="hint cell-clip" style="margin:0" title="{{ t.extra_snis }}">+ {{ t.extra_snis }}</div>{% endif %}
+        </td>
+        <td data-label="Подписка">
+          {% if t.use_in_sub %}в подписке{% else %}<span class="hint">скрыт</span>{% endif %}
+          {% if t.provider_label %}<div class="hint mono cell-clip" style="margin:4px 0 0" title="{{ t.provider_label }}">alt: {{ t.provider_label }}</div>{% endif %}
         </td>
         <td class="cell-actions" data-label="">
           <div class="row">
