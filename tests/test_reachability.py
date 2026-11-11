@@ -6,12 +6,12 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.models import Node, NodeInbound
 from app.reachability import (
     _reason,
+    accepted_elsewhere,
     clean_ports,
     inbound_ports,
     node_host,
     probe_nodes_rf,
     probe_port,
-    sort_key,
     store,
 )
 
@@ -90,7 +90,7 @@ def test_reason_texts_are_human_readable():
     assert 'странно' in _reason(OSError(42, 'странно'))
 
 
-def test_probe_nodes_rf_any_open_port_means_visible():
+def test_probe_nodes_rf_needs_every_published_port():
     listener, open_port = _listener_port()
     dead_port = _free_port()
     try:
@@ -111,7 +111,7 @@ def test_probe_nodes_rf_any_open_port_means_visible():
                 },
                 timeout=1.0,
             )
-            assert views[good.id]['ok'] is True
+            assert views[good.id]['ok'] is False
             assert [row['port'] for row in views[good.id]['ports']] == sorted([open_port, dead_port])
             assert views[bad.id]['ok'] is False
             assert str(dead_port) in views[bad.id]['note']
@@ -122,7 +122,44 @@ def test_probe_nodes_rf_any_open_port_means_visible():
         listener.close()
 
 
-def test_store_and_sort_key():
+def test_an_instant_accept_is_not_the_server(monkeypatch):
+    def fake(host, port, timeout=4.0):
+        if port == 2053:
+            return {'port': port, 'ok': True, 'ms': 15, 'error': ''}
+        return {'port': port, 'ok': True, 'ms': 0, 'error': ''}
+
+    monkeypatch.setattr('app.reachability.probe_port', fake)
+    node = Node(
+        id=1,
+        name='LV',
+        panel_url='https://203.0.113.8:2053/xui',
+        public_host='203.0.113.8',
+        ssh_port=22,
+    )
+    view = probe_nodes_rf([node], {1: [443]})[1]
+    assert view['ok'] is False
+    assert 'принят не сервером' in view['note']
+    assert accepted_elsewhere(0, 15) is True
+    assert accepted_elsewhere(14, 15) is False
+    assert accepted_elsewhere(0, 1) is False
+
+
+def test_a_disabled_node_is_not_probed(monkeypatch):
+    def fail(host, port, timeout=4.0):
+        raise AssertionError('disabled node must not be dialed')
+
+    monkeypatch.setattr('app.reachability.probe_port', fail)
+    node = Node(
+        id=2,
+        name='IT',
+        panel_url='https://203.0.113.9:2053/xui',
+        public_host='203.0.113.9',
+        enabled=False,
+    )
+    assert probe_nodes_rf([node], {2: [443]}) == {}
+
+
+def test_store_remembers_the_probe():
     listener, port = _listener_port()
     try:
         engine = _engine()
@@ -130,12 +167,10 @@ def test_store_and_sort_key():
             node = Node(name='DE', panel_url='https://127.0.0.1:2053/xui', public_host='127.0.0.1')
             session.add(node)
             session.commit()
-            assert sort_key(node) == -1
             view = probe_nodes_rf([node], {node.id: [port]}, timeout=2.0)[node.id]
             store(node, view)
             assert node.rf_ok is True
             assert node.rf_checked_at is not None
             assert str(port) in node.rf_note
-            assert sort_key(node) == 1
     finally:
         listener.close()

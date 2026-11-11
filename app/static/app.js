@@ -251,11 +251,21 @@ function sinceLabel(iso) {
 
 function applyNodeRf(row, node) {
   if (!row || !node) return;
+  const label = row.querySelector('[data-rf-label]');
+  if (node.enabled === false) {
+    row.dataset.rf = '-1';
+    if (!label) return;
+    label.textContent = '—';
+    label.classList.toggle('rf-tag', true);
+    label.classList.toggle('on', false);
+    label.classList.toggle('bad', false);
+    label.setAttribute('title', 'Нода выключена, в подписку не входит');
+    return;
+  }
   const checked = Boolean(node.rf_checked_at);
   const ok = Boolean(node.rf_ok);
   // -1 = ещё не проверяли, 0 = из России не достучаться, 1 = достучаться.
   row.dataset.rf = checked ? (ok ? '1' : '0') : '-1';
-  const label = row.querySelector('[data-rf-label]');
   if (!label) return;
   label.textContent = ok ? 'есть' : (checked ? 'нет' : '—');
   label.classList.toggle('rf-tag', true);

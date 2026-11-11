@@ -28,10 +28,11 @@ def _job() -> None:
 
 def _refresh_rf(session: Session, nodes: list[Node]) -> None:
     """Лампочка «доступен из РФ» обновляется вместе с остальным обзором."""
+    enabled = [node for node in nodes if node.id and node.enabled]
     ports_by_node = {
-        int(node.id): inbound_ports(session, int(node.id)) for node in nodes if node.id
+        int(node.id): inbound_ports(session, int(node.id)) for node in enabled
     }
-    views = probe_nodes_rf(nodes, ports_by_node)
+    views = probe_nodes_rf(enabled, ports_by_node)
     for node in nodes:
         view = views.get(node.id or 0)
         if view:

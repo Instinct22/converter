@@ -42,7 +42,7 @@
       </div>
       <div class="monitor" id="node-monitor">
         {% for n in nodes %}
-        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if n.rf_checked_at is none else (1 if n.rf_ok else 0) }}">
+        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
             <span class="name-flag">
@@ -50,7 +50,7 @@
               <strong>{{ n.name }}</strong>
             </span>
           </div>
-          <span class="rf-tag {{ 'on' if n.rf_ok else ('bad' if n.rf_checked_at else '') }}" data-rf-label title="{{ n.rf_note or 'Проверки из России ещё не было' }}">{{ 'есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—') }}</span>
+          <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           <span class="mono">{{ n.public_host or '—' }}</span>
           <span class="hint" data-ports-label>{{ inbound_counts.get(n.id, 0) }} вх.</span>
           <span class="hint" data-live>—</span>

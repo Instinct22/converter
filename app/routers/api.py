@@ -883,6 +883,7 @@ def _probe_rf(session: SessionDep, nodes: list[Node], force: bool = False) -> di
         node
         for node in nodes
         if node.id
+        and node.enabled
         and (
             force
             or node.rf_checked_at is None
