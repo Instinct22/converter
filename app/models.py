@@ -3,7 +3,7 @@ from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
-from app.flags import country_name, flag_src, to_emoji, to_iso
+from app.flags import country_name, flag_src, normalize_flags, to_emoji, to_iso
 
 
 def utcnow() -> datetime:
@@ -91,6 +91,15 @@ class InboundTemplate(SQLModel, table=True):
     # Подписка Mihomo / Clash для этого порта
     use_in_sub: bool = True
     provider_label: str = ''
+    flags: str = ''
+
+    def flag_badges(self) -> list[tuple[str, str, str]]:
+        badges: list[tuple[str, str, str]] = []
+        for iso in normalize_flags(self.flags).split(','):
+            if not iso:
+                continue
+            badges.append((iso, flag_src(iso), country_name(iso)))
+        return badges
 
 
 class NodeTemplateAssignment(SQLModel, table=True):

@@ -57,6 +57,15 @@ def country_name(value: str) -> str:
     return ''
 
 
+def normalize_flags(value: str) -> str:
+    seen: list[str] = []
+    for part in (value or '').replace(';', ',').split(','):
+        iso = to_iso(part.strip())
+        if iso and iso not in seen:
+            seen.append(iso)
+    return ','.join(seen)
+
+
 def flag_src(value: str) -> str:
     iso = to_iso(value)
     if not iso:

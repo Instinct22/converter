@@ -33,7 +33,7 @@ from app.provision import (
 from app.routers.updates import delete_installer
 from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
-from app.flags import to_iso
+from app.flags import normalize_flags, to_iso
 from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url
 from app.xui_install import prepare_install, start_install
 
@@ -115,6 +115,7 @@ class TemplateIn(BaseModel):
     enabled: bool = True
     use_in_sub: bool = True
     provider_label: str = ''
+    flags: str = ''
 
 
 class ClientIn(BaseModel):
@@ -593,7 +594,9 @@ def list_templates(session: SessionDep) -> list[dict]:
 
 @router.post('/templates')
 def create_template(body: TemplateIn, session: SessionDep) -> dict:
-    row = InboundTemplate(**body.model_dump())
+    data = body.model_dump()
+    data['flags'] = normalize_flags(data.get('flags', ''))
+    row = InboundTemplate(**data)
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -605,7 +608,9 @@ def update_template(template_id: int, body: TemplateIn, session: SessionDep) -> 
     row = session.get(InboundTemplate, template_id)
     if not row:
         raise HTTPException(404, 'template not found')
-    for key, value in body.model_dump().items():
+    data = body.model_dump()
+    data['flags'] = normalize_flags(data.get('flags', ''))
+    for key, value in data.items():
         setattr(row, key, value)
     session.add(row)
     session.commit()

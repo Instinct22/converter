@@ -31,7 +31,7 @@
       <col class="c-nodes">
       <col class="c-act">
     </colgroup>
-    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th>Подписка</th><th>Серверы</th><th></th></tr></thead>
+    <thead><tr><th>Примечание</th><th>Порт</th><th>Транспорт</th><th>Безопасность</th><th>Цель / SNI</th><th>Подписка</th><th>Флаги</th><th></th></tr></thead>
     <tbody>
     {% for t in inbound_templates %}
       <tr>
@@ -48,16 +48,16 @@
           {% if t.use_in_sub %}в подписке{% else %}<span class="hint">скрыт</span>{% endif %}
           {% if t.provider_label %}<div class="hint mono cell-clip" style="margin:4px 0 0" title="{{ t.provider_label }}">alt: {{ t.provider_label }}</div>{% endif %}
         </td>
-        <td data-label="Серверы">
-          {% set owners = template_nodes.get(t.id, []) if template_nodes is defined else [] %}
-          {% if owners %}
+        <td data-label="Флаги">
+          {% set badges = t.flag_badges() %}
+          {% if badges %}
           <span class="flag-row">
-            {% for n in owners %}
-            {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }} · {{ n.name }}">{% else %}<span class="hint" title="{{ n.name }}">{{ n.name }}</span>{% endif %}
+            {% for iso, src, title in badges %}
+            <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
             {% endfor %}
           </span>
           {% else %}
-          <span class="hint">нигде</span>
+          <span class="hint">без флага</span>
           {% endif %}
         </td>
         <td class="cell-actions" data-label="">
@@ -95,6 +95,12 @@
       </div>
 
       <div class="pane on" data-pane="general">
+        <div class="field" style="margin-bottom:12px">
+          <label>Флаги</label>
+          <input type="hidden" name="flags" value="">
+          <div class="flags" data-flags="flags" data-multi="1"></div>
+          <span class="hint">Как у сервера, только можно отметить несколько стран. По ним вход видно в списке и при назначении на сервер.</span>
+        </div>
         <div class="form-grid">
           <div class="field">
             <label>Примечание</label>
@@ -366,6 +372,8 @@ function fillTpl(data) {
   f.tls_cert_file.value = val(data, 'tls_cert_file', '');
   f.tls_key_file.value = val(data, 'tls_key_file', '');
   f.reject_unknown_sni.checked = !!data.reject_unknown_sni;
+  f.flags.value = data.flags || '';
+  if (window.XUI) XUI.bindFlagPicker(document.getElementById('edit-tpl'));
   lastPulledDest = '';
   const scanBox = document.getElementById('scan-results');
   if (scanBox) scanBox.replaceChildren();
@@ -621,6 +629,7 @@ f.onsubmit = async (e) => {
     enabled: true,
     use_in_sub: f.use_in_sub.checked,
     provider_label: f.provider_label.value,
+    flags: f.flags.value,
   };
   try {
     if (f.id.value) saved = await XUI.api('/api/templates/' + f.id.value, 'PUT', body);

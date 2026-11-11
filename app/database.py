@@ -41,6 +41,7 @@ NODE_COLUMNS = {
 TEMPLATE_COLUMNS = {
     'use_in_sub': 'INTEGER DEFAULT 1',
     'provider_label': "TEXT DEFAULT ''",
+    'flags': "TEXT DEFAULT ''",
 }
 
 

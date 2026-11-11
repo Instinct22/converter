@@ -9,23 +9,12 @@ from sqlmodel import select
 from app.deps import SessionDep, credentials_ok, request_authorized
 from app.flags import COUNTRY_NAMES
 from app.mihomo import days_left, is_expired
-from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound, NodeTemplateAssignment
+from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
 from app.provision import node_template_ids, split_csv
 from app.routers.updates import release_groups
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
-
-
-def assigned_nodes(session, nodes: list[Node]) -> dict[int, list[Node]]:
-    rows = session.exec(select(NodeTemplateAssignment)).all()
-    grouped: dict[int, set[int]] = {}
-    for row in rows:
-        grouped.setdefault(row.template_id, set()).add(row.node_id)
-    return {
-        template_id: [node for node in nodes if node.id in ids]
-        for template_id, ids in grouped.items()
-    }
 
 
 def unique_snis(*parts: str) -> list[str]:
@@ -182,7 +171,6 @@ def nodes_page(request: Request, session: SessionDep):
             inbound_counts=counts,
             node_templates=node_templates,
             live_ports=live_ports,
-            template_nodes=assigned_nodes(session, list(nodes)),
         ),
     )
 
@@ -271,7 +259,6 @@ def templates_page(request: Request, session: SessionDep):
             inbound_templates=rows,
             nodes=nodes,
             scan_nodes=scan_nodes,
-            template_nodes=assigned_nodes(session, list(nodes)),
         ),
     )
 

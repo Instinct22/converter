@@ -139,22 +139,48 @@ document.addEventListener('click', (e) => {
 const FLAG_NAMES = JSON.parse(document.getElementById('flag-names')?.textContent || '{}');
 const FLAGS = Object.keys(FLAG_NAMES);
 
+function flagCodes(value) {
+  const seen = [];
+  String(value || '').split(',').forEach((part) => {
+    const code = part.trim().toUpperCase();
+    if (code && seen.indexOf(code) === -1) seen.push(code);
+  });
+  return seen;
+}
+
+function paintFlagBox(box) {
+  const input = box.parentElement && box.parentElement.querySelector(`[name="${box.dataset.flags}"]`);
+  if (!input) return;
+  const selected = flagCodes(input.value);
+  box.innerHTML = FLAGS.map((code) => {
+    const on = selected.indexOf(code) !== -1 ? ' on' : '';
+    const src = '/static/flags/' + code.toLowerCase() + '.png';
+    const title = FLAG_NAMES[code] || code;
+    return `<button type="button" class="flag${on}" data-flag="${code}" title="${title}"><img src="${src}" alt="${title}"></button>`;
+  }).join('');
+}
+
 function bindFlagPicker(root) {
   root.querySelectorAll('[data-flags]').forEach((box) => {
-    const input = root.querySelector(`[name="${box.dataset.flags}"]`);
+    const input = box.parentElement && box.parentElement.querySelector(`[name="${box.dataset.flags}"]`);
     if (!input) return;
-    const current = (input.value || '').toUpperCase();
-    box.innerHTML = FLAGS.map((code) => {
-      const on = current === code ? ' on' : '';
-      const src = '/static/flags/' + code.toLowerCase() + '.png';
-      const title = FLAG_NAMES[code] || code;
-      return `<button type="button" class="flag${on}" data-flag="${code}" title="${title}"><img src="${src}" alt="${title}"></button>`;
-    }).join('');
+    paintFlagBox(box);
+    if (box.dataset.bound) return;
+    box.dataset.bound = '1';
     box.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-flag]');
-      if (!btn) return;
-      input.value = btn.dataset.flag;
-      box.querySelectorAll('.flag').forEach((el) => el.classList.toggle('on', el === btn));
+      if (!btn || !box.contains(btn)) return;
+      const code = btn.dataset.flag;
+      if (box.dataset.multi === '1') {
+        const selected = flagCodes(input.value);
+        const next = selected.indexOf(code) === -1
+          ? selected.concat(code)
+          : selected.filter((item) => item !== code);
+        input.value = next.join(',');
+      } else {
+        input.value = code;
+      }
+      paintFlagBox(box);
     });
   });
 }
