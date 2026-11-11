@@ -190,6 +190,7 @@ input:focus, textarea:focus, select:focus {
 .table-templates .c-port { width: 72px; }
 .table-templates .c-net { width: 132px; }
 .table-templates .c-sec { width: 118px; }
+.table-templates .c-flow { width: 148px; }
 .table-templates .c-sub { width: 128px; }
 .table-templates .c-nodes { width: 148px; }
 .table-templates .c-act { width: 196px; }
