@@ -223,6 +223,7 @@ input:focus, textarea:focus, select:focus {
   gap: 16px;
 }
 .fold > summary::-webkit-details-marker { display: none; }
+.fold-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; flex-wrap: wrap; }
 .fold > summary .sub { margin-bottom: 0; }
 .fold-chev {
   width: 28px; height: 28px; margin-top: 2px; border-radius: 8px; flex: none;

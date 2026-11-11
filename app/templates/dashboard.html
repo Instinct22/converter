@@ -6,11 +6,6 @@
     <h1>Обзор флота</h1>
     <p class="lede">Сначала ноды, ниже клиенты. Списки можно свернуть. Заголовки колонок сортируют строки. Данные подтягиваются с панелей по API.</p>
   </div>
-  <div class="row">
-    <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
-    <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
-    <a class="btn" href="/clients">Выдать доступ</a>
-  </div>
 </div>
 
 <div class="stats" id="overview-stats">
@@ -26,7 +21,11 @@
         <h2>Ноды</h2>
         <p class="sub">Доступность панели, Xray, порты. Выключите свитч — сервер исчезнет из подписки.</p>
       </div>
-      <span class="fold-chev" aria-hidden="true"></span>
+      <div class="fold-tools" onclick="event.stopPropagation()">
+        <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
+        <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
+        <span class="fold-chev" aria-hidden="true"></span>
+      </div>
     </summary>
     {% if nodes %}
     <div class="fold-body">
@@ -85,7 +84,10 @@
         <h2>Клиенты</h2>
         <p class="sub">Трафик с панелей, сколько дней до отключения, кто сейчас в сети.</p>
       </div>
-      <span class="fold-chev" aria-hidden="true"></span>
+      <div class="fold-tools" onclick="event.stopPropagation()">
+        <a class="btn" href="/clients">Выдать доступ</a>
+        <span class="fold-chev" aria-hidden="true"></span>
+      </div>
     </summary>
     {% if clients %}
     <div class="fold-body">
