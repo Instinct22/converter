@@ -347,7 +347,359 @@ function bindFolds(root) {
   });
 }
 
+// Пикер шаблонов входов: та же логика, что на «Серверах», но внутри замыкания —
+// глобальные функции tpl* из nodes.html остаются нетронутыми. Вызывается только
+// со страницы «Обзор», поэтому общие обработчики вешаются один раз.
+let tplGlobalsBound = false;
+
+function initTemplatePicker(scope) {
+  const root = scope || document;
+  const logTarget = () => document.getElementById('node-action-log');
+
+  const esc = (value) => String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+  function dropdownRoot(el) {
+    const near = el.closest('.tpl-dropdown');
+    if (near) return near;
+    const host = el.closest('[data-node-id]');
+    const id = host && host.dataset.nodeId;
+    return id ? document.querySelector('.tpl-dropdown[data-node-id="' + id + '"]') : null;
+  }
+  function panelOf(nodeRoot) {
+    if (!nodeRoot) return null;
+    // Панель при открытии переезжает в body, поэтому ищем по всему документу.
+    return document.querySelector('.tpl-dropdown__panel[data-node-id="' + nodeRoot.dataset.nodeId + '"]');
+  }
+  function boxOf(nodeRoot) {
+    return panelOf(nodeRoot) || nodeRoot;
+  }
+  function placePanel(nodeRoot) {
+    const trigger = nodeRoot.querySelector('.tpl-dropdown__trigger');
+    const panel = panelOf(nodeRoot);
+    if (!trigger || !panel) return;
+    if (panel.parentElement !== document.body) document.body.appendChild(panel);
+    panel.hidden = false;
+    const rect = trigger.getBoundingClientRect();
+    const margin = 8;
+    const gap = 6;
+    const width = Math.min(380, window.innerWidth - margin * 2);
+    let left = rect.left;
+    if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
+    if (left < margin) left = margin;
+    panel.style.left = left + 'px';
+    panel.style.width = width + 'px';
+    const height = panel.offsetHeight;
+    const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+    const spaceAbove = rect.top - gap - margin;
+    let top = rect.bottom + gap;
+    if (spaceBelow < height && spaceAbove > spaceBelow) top = rect.top - gap - height;
+    if (top < margin) top = margin;
+    if (top + height > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - margin - height);
+    panel.style.top = top + 'px';
+  }
+  function selectedIds(nodeRoot) {
+    return [...boxOf(nodeRoot).querySelectorAll('.tpl-option input:checked')].map((i) => Number(i.value));
+  }
+  function refreshTrigger(nodeRoot) {
+    const inner = nodeRoot.querySelector('.tpl-dropdown__trigger-inner');
+    if (!inner) return;
+    const checked = [...boxOf(nodeRoot).querySelectorAll('.tpl-option input:checked')];
+    if (!checked.length) {
+      inner.innerHTML = '<span class="tpl-dropdown__empty">Выберите входы</span>';
+      syncClash(nodeRoot);
+      return;
+    }
+    const pills = checked.map((input) => {
+      const option = input.closest('.tpl-option');
+      const name = option && option.querySelector('.tpl-option__name') ? option.querySelector('.tpl-option__name').textContent.trim() : '';
+      const port = input.dataset.port || '';
+      const flagsHost = option ? option.querySelector('.tpl-option__flags') : null;
+      const flags = flagsHost ? flagsHost.innerHTML : '';
+      const flagHtml = flags ? '<span class="tpl-pill__flags">' + flags + '</span>' : '';
+      return '<span class="tpl-pill">' + flagHtml
+        + '<span class="tpl-pill__name" title="' + esc(name) + '">' + esc(name) + '</span>'
+        + '<span class="tpl-pill__port">' + esc(port || '—') + '</span></span>';
+    }).join('');
+    inner.innerHTML = '<span class="tpl-dropdown__count">' + checked.length + '</span><span class="tpl-dropdown__preview">' + pills + '</span>';
+    syncClash(nodeRoot);
+  }
+  function clashesOf(nodeRoot) {
+    const byPort = new Map();
+    boxOf(nodeRoot).querySelectorAll('.tpl-option input:checked').forEach((input) => {
+      const port = input.dataset.port || '';
+      const option = input.closest('.tpl-option');
+      const nameHost = option ? option.querySelector('.tpl-option__name') : null;
+      const name = nameHost ? nameHost.textContent.trim() : port;
+      if (!byPort.has(port)) byPort.set(port, []);
+      byPort.get(port).push(name);
+    });
+    const clashes = [];
+    byPort.forEach((names, port) => {
+      if (names.length > 1) {
+        const titled = names.map((item) => '«' + item + '»').join(' и ');
+        clashes.push('Порт ' + port + ' уже занят входами ' + titled + '. Можно оставить только один.');
+      }
+    });
+    return clashes;
+  }
+  function syncClash(nodeRoot) {
+    if (!nodeRoot) return [];
+    const clashes = clashesOf(nodeRoot);
+    const blocked = clashes.length > 0;
+    boxOf(nodeRoot).querySelectorAll('[data-save-templates], [data-refresh-templates]').forEach((btn) => {
+      btn.disabled = blocked;
+    });
+    const panel = panelOf(nodeRoot);
+    let hint = panel && panel.querySelector('.tpl-clash');
+    if (!hint && panel) {
+      hint = document.createElement('div');
+      hint.className = 'hint tpl-clash';
+      const foot = panel.querySelector('.tpl-dropdown__foot');
+      if (foot) foot.before(hint);
+    }
+    if (!hint) return clashes;
+    hint.hidden = !blocked;
+    hint.textContent = clashes.join(' ');
+    return clashes;
+  }
+  function closeAll(except) {
+    document.querySelectorAll('.tpl-dropdown').forEach((nodeRoot) => {
+      if (except && nodeRoot === except) return;
+      const panel = panelOf(nodeRoot);
+      const trigger = nodeRoot.querySelector('.tpl-dropdown__trigger');
+      if (panel) panel.hidden = true;
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+      nodeRoot.classList.remove('open');
+    });
+  }
+  function repositionOpen() {
+    const nodeRoot = document.querySelector('.tpl-dropdown.open');
+    if (!nodeRoot) return;
+    const trigger = nodeRoot.querySelector('.tpl-dropdown__trigger');
+    const rect = trigger.getBoundingClientRect();
+    if (rect.bottom < 0 || rect.top > window.innerHeight) {
+      closeAll();
+      return;
+    }
+    placePanel(nodeRoot);
+  }
+  async function saveTemplates(btn, nodeId, path) {
+    const nodeRoot = document.querySelector('.tpl-dropdown[data-node-id="' + nodeId + '"]');
+    if (!nodeRoot) return;
+    const clashes = syncClash(nodeRoot);
+    if (clashes.length) {
+      const text = clashes.join('\n');
+      showLog(logTarget(), text);
+      toast(text, 'err');
+      return;
+    }
+    const ids = selectedIds(nodeRoot);
+    try {
+      const res = await withBusy(btn, () => api(path, 'POST', { template_ids: ids }));
+      const text = (res.logs || []).join('\n') || 'Готово';
+      showLog(logTarget(), text);
+      toast(text, res.ok ? undefined : 'err');
+      closeAll();
+      if (res.ok) setTimeout(() => location.reload(), 1200);
+    } catch (e) { showLog(logTarget(), e.message); }
+  }
+
+  root.querySelectorAll('.tpl-dropdown__trigger').forEach((btn) => {
+    if (btn.dataset.tplBound) return;
+    btn.dataset.tplBound = '1';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nodeRoot = dropdownRoot(btn);
+      const open = nodeRoot.classList.contains('open');
+      closeAll();
+      if (!open) {
+        nodeRoot.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+        placePanel(nodeRoot);
+      }
+    });
+  });
+  root.querySelectorAll('.tpl-dropdown__panel').forEach((panel) => {
+    if (panel.dataset.tplBound) return;
+    panel.dataset.tplBound = '1';
+    panel.addEventListener('click', (e) => e.stopPropagation());
+  });
+  root.querySelectorAll('.tpl-option input').forEach((input) => {
+    if (input.dataset.tplBound) return;
+    input.dataset.tplBound = '1';
+    input.addEventListener('change', () => {
+      const nodeRoot = dropdownRoot(input);
+      refreshTrigger(nodeRoot);
+      syncClash(nodeRoot);
+    });
+  });
+  root.querySelectorAll('[data-tpl-all], [data-tpl-none]').forEach((btn) => {
+    if (btn.dataset.tplBound) return;
+    btn.dataset.tplBound = '1';
+    btn.addEventListener('click', () => {
+      const nodeRoot = dropdownRoot(btn);
+      boxOf(nodeRoot).querySelectorAll('.tpl-option input').forEach((i) => { i.checked = btn.hasAttribute('data-tpl-all'); });
+      refreshTrigger(nodeRoot);
+      syncClash(nodeRoot);
+    });
+  });
+  root.querySelectorAll('[data-save-templates]').forEach((btn) => {
+    if (btn.dataset.tplBound) return;
+    btn.dataset.tplBound = '1';
+    btn.addEventListener('click', () => saveTemplates(btn, btn.dataset.saveTemplates, '/api/nodes/' + btn.dataset.saveTemplates + '/templates'));
+  });
+  root.querySelectorAll('[data-refresh-templates]').forEach((btn) => {
+    if (btn.dataset.tplBound) return;
+    btn.dataset.tplBound = '1';
+    btn.addEventListener('click', () => saveTemplates(btn, btn.dataset.refreshTemplates, '/api/nodes/' + btn.dataset.refreshTemplates + '/refresh-templates'));
+  });
+  if (!tplGlobalsBound) {
+    tplGlobalsBound = true;
+    window.addEventListener('resize', repositionOpen);
+    document.addEventListener('scroll', repositionOpen, true);
+    document.addEventListener('click', () => closeAll());
+  }
+  root.querySelectorAll('.tpl-dropdown').forEach((nodeRoot) => syncClash(nodeRoot));
+}
+
+// Кнопки клиентов (форма доступа, +30 дней, YAML, удалить, «Сверить с серверами»).
+// Работает и на «Клиентах», и на «Обзоре»: разметка модальок общая (_client_controls.html),
+// logId — куда показывать логи сверки и создания (на «Клиентах» это #log).
+function initClientControls(scope, logId) {
+  const root = scope || document;
+  const form = document.getElementById('client-form');
+  if (!form) return;
+  const log = document.getElementById(logId || 'log');
+  const enableWrap = document.getElementById('enable-wrap');
+  const title = document.getElementById('client-title');
+  const subtitle = document.getElementById('client-sub');
+  const submit = document.getElementById('client-submit');
+
+  function openClientForm(data) {
+    form.reset();
+    form.id.value = '';
+    form.days.value = 30;
+    form.traffic_gb.value = 0;
+    form.limit_ip.value = 0;
+    form.enable.checked = true;
+    enableWrap.hidden = true;
+    title.textContent = 'Новый доступ';
+    subtitle.textContent = 'Срок 0 — без ограничения по дате. Трафик 0 — без лимита гигабайт.';
+    submit.textContent = 'Создать и завести на серверах';
+    if (data) {
+      form.id.value = data.id;
+      form.name.value = data.name || '';
+      form.days.value = data.days ?? 0;
+      form.traffic_gb.value = data.traffic_gb ?? 0;
+      form.limit_ip.value = data.limit_ip ?? 0;
+      form.note.value = data.note || '';
+      form.enable.checked = data.enable !== false;
+      enableWrap.hidden = false;
+      title.textContent = 'Изменить доступ';
+      subtitle.textContent = 'UUID и ссылка не меняются. После сохранения Master обновит панели.';
+      submit.textContent = 'Сохранить';
+    }
+    openModal('add-client');
+  }
+
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const fields = event.target;
+    const btn = fields.querySelector('button[type=submit]');
+    const id = fields.id.value;
+    const payload = {
+      name: fields.name.value,
+      days: Number(fields.days.value),
+      traffic_gb: Number(fields.traffic_gb.value),
+      limit_ip: Number(fields.limit_ip.value),
+      note: fields.note.value,
+    };
+    if (id) payload.enable = fields.enable.checked;
+    try {
+      const data = await withBusy(btn, () => id
+        ? api('/api/clients/' + id, 'PATCH', payload)
+        : api('/api/clients', 'POST', payload));
+      if (!id && data.client && data.client.sub_url) {
+        await copyText(data.client.sub_url);
+      } else {
+        toast(id ? 'Клиент сохранён' : 'Клиент создан');
+      }
+      showLog(log, data.logs);
+      setTimeout(() => location.reload(), 450);
+    } catch (err) {}
+  };
+
+  root.querySelectorAll('[data-new-client]').forEach((btn) => {
+    if (btn.dataset.ccBound) return;
+    btn.dataset.ccBound = '1';
+    btn.addEventListener('click', () => openClientForm());
+  });
+  root.querySelectorAll('[data-edit]').forEach((btn) => {
+    if (btn.dataset.ccBound) return;
+    btn.dataset.ccBound = '1';
+    btn.addEventListener('click', () => {
+      try {
+        openClientForm(JSON.parse(btn.dataset.edit));
+      } catch (err) {
+        toast('Не удалось открыть форму', 'err');
+      }
+    });
+  });
+  root.querySelectorAll('[data-add]').forEach((btn) => {
+    if (btn.dataset.ccBound) return;
+    btn.dataset.ccBound = '1';
+    btn.addEventListener('click', async () => {
+      try {
+        await withBusy(btn, () => api('/api/clients/' + btn.dataset.add, 'PATCH', {add_days: 30}));
+        toast('Продлено на 30 дней');
+        location.reload();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+  });
+  root.querySelectorAll('[data-prev]').forEach((btn) => {
+    if (btn.dataset.ccBound) return;
+    btn.dataset.ccBound = '1';
+    btn.addEventListener('click', async () => {
+      try {
+        const data = await withBusy(btn, () => api('/api/clients/' + btn.dataset.prev + '/preview'));
+        document.getElementById('yaml-view').textContent = data.yaml;
+        openModal('yaml-drawer');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+  });
+  root.querySelectorAll('[data-del]').forEach((btn) => {
+    if (btn.dataset.ccBound) return;
+    btn.dataset.ccBound = '1';
+    btn.addEventListener('click', async () => {
+      if (!confirm('Удалить человека с серверов и из Master? Ссылка сразу перестанет открываться.')) return;
+      try {
+        await withBusy(btn, () => api('/api/clients/' + btn.dataset.del, 'DELETE'));
+        location.reload();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+  });
+  const reconcile = root.getElementById ? root.getElementById('reconcile') : document.getElementById('reconcile');
+  if (reconcile && !reconcile.dataset.ccBound) {
+    reconcile.dataset.ccBound = '1';
+    reconcile.addEventListener('click', async (event) => {
+      const btn = event.currentTarget;
+      try {
+        const data = await withBusy(btn, () => api('/api/clients/reconcile', 'POST', {}));
+        toast('Сверка закончилась');
+        showLog(log, data.logs);
+      } catch (err) {}
+    });
+  }
+}
+
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
   pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyNodeRf, watchPresence,
+  initTemplatePicker, initClientControls,
 };

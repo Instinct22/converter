@@ -128,6 +128,13 @@ def dashboard(request: Request, session: SessionDep):
         node.id: len(session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all())
         for node in nodes
     }
+    # Виджет «Входы» (выбор шаблонов входов) — те же данные, что на странице «Серверы».
+    templates_rows = session.exec(select(InboundTemplate)).all()
+    node_templates: dict[int, list[int]] = {}
+    for node in nodes:
+        if node.id is None:
+            continue
+        node_templates[node.id] = node_template_ids(session, node.id)
     return templates.TemplateResponse(
         'dashboard.html',
         _ctx(
@@ -138,6 +145,8 @@ def dashboard(request: Request, session: SessionDep):
             active=sum(1 for c in clients if not is_expired(c)),
             nodes_enabled=sum(1 for n in nodes if n.enabled),
             inbound_counts=inbound_counts,
+            inbound_templates=templates_rows,
+            node_templates=node_templates,
         ),
     )
 
