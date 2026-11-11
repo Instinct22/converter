@@ -61,7 +61,18 @@
                 <span class="tpl-dropdown__count">{{ picked|length }}</span>
                 <span class="tpl-dropdown__preview">
                   {% for t in inbound_templates if t.enabled and t.id in picked %}
-                  <span class="tpl-pill">{{ t.port }}</span>
+                  <span class="tpl-pill">
+                    {% set badges = t.flag_badges() %}
+                    {% if badges %}
+                    <span class="tpl-pill__flags">
+                      {% for iso, src, title in badges %}
+                      <img class="flag-img" src="{{ src }}" alt="{{ title }}" title="{{ title }}">
+                      {% endfor %}
+                    </span>
+                    {% endif %}
+                    <span class="tpl-pill__name" title="{{ t.name }}">{{ t.name }}</span>
+                    <span class="tpl-pill__port">{{ t.port }}</span>
+                  </span>
                   {% endfor %}
                 </span>
                 {% else %}
@@ -285,6 +296,9 @@ document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('
 function tplDropdownRoot(el) {
   return el.closest('.tpl-dropdown');
 }
+function tplEsc(value) {
+  return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
 function tplSelectedIds(root) {
   return [...root.querySelectorAll('.tpl-option input:checked')].map((i) => Number(i.value));
 }
@@ -299,9 +313,14 @@ function tplRefreshTrigger(root) {
     return;
   }
   const pills = [...root.querySelectorAll('.tpl-option input:checked')].map((input) => {
-    const meta = input.closest('.tpl-option')?.querySelector('.tpl-option__meta')?.textContent || '';
-    const port = (meta.split('·')[0] || '').trim();
-    return '<span class="tpl-pill">' + (port || '—') + '</span>';
+    const option = input.closest('.tpl-option');
+    const name = option?.querySelector('.tpl-option__name')?.textContent?.trim() || '';
+    const port = input.dataset.port || '';
+    const flags = option?.querySelector('.tpl-option__flags')?.innerHTML || '';
+    const flagHtml = flags ? '<span class="tpl-pill__flags">' + flags + '</span>' : '';
+    return '<span class="tpl-pill">' + flagHtml
+      + '<span class="tpl-pill__name" title="' + tplEsc(name) + '">' + tplEsc(name) + '</span>'
+      + '<span class="tpl-pill__port">' + tplEsc(port || '—') + '</span></span>';
   }).join('');
   inner.innerHTML = '<span class="tpl-dropdown__count">' + ids.length + '</span><span class="tpl-dropdown__preview">' + pills + '</span>';
   tplSyncClash(root);
