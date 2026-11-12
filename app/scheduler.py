@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import Node
-from app.overview import probe_nodes
+from app.overview import probe_nodes, store_versions
 from app.provision import disable_expired
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 
@@ -21,6 +21,9 @@ def _job() -> None:
                 node.last_error = ''
             elif probe.get('error'):
                 node.last_error = str(probe.get('error'))[:500]
+            # Версии панели и ядра снимаются с того же ответа /server/status,
+            # что и CPU/RAM: отдельного запроса на ноде они не требуют.
+            store_versions(node, probe.get('status') or {})
             session.add(node)
         session.commit()
         _refresh_rf(session, nodes)

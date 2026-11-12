@@ -231,7 +231,8 @@ function bindSort(list) {
       const bv = sortValue(b, key);
       const cmp = typeof av === 'number' && typeof bv === 'number'
         ? av - bv
-        : String(av).localeCompare(String(bv), 'ru');
+        // numeric: версии вроде 25.11.1 и 25.9.8 сравниваются по числам, а не по буквам
+        : String(av).localeCompare(String(bv), 'ru', { numeric: true });
       return cmp * dir;
     });
     rows.forEach((row) => list.appendChild(row));
@@ -269,6 +270,27 @@ function applyClientPresence(clients) {
       if (traffic) traffic.textContent = client.used_label + ' / ' + (client.limit_label || 'без лимита');
     }
   });
+  applyUserStats();
+}
+
+// Метрика блока «Клиенты»: всего / в сети / не в сети. Считаем по строкам таблицы,
+// поэтому цифры всегда совпадают с тем, что человек видит списком ниже.
+function applyUserStats() {
+  const box = document.getElementById('user-stats');
+  if (!box) return;
+  let total = 0;
+  let online = 0;
+  document.querySelectorAll('[data-client]').forEach((row) => {
+    total += 1;
+    if (Number(row.dataset.online || 0) > 0) online += 1;
+  });
+  const put = (key, value) => {
+    const el = box.querySelector('[data-stat-' + key + ']');
+    if (el) el.textContent = String(value);
+  };
+  put('total', total);
+  put('online', online);
+  put('offline', total - online);
 }
 
 function sinceLabel(iso) {
@@ -309,6 +331,26 @@ function applyNodeRf(row, node) {
   if (node.rf_note) parts.push(node.rf_note);
   if (checked) parts.push('проверено ' + sinceLabel(node.rf_checked_at));
   label.setAttribute('title', parts.join(' · ') || 'Проверки из России ещё не было');
+}
+
+// Versions are read by the same /server/status call that powers CPU/RAM, so the
+// two columns refresh on every overview poll. Empty means "this panel release
+// does not report it" — we keep the last known value in the DB instead of blanking.
+function applyNodeVersions(row, node) {
+  if (!row || !node) return;
+  const put = (key, value, checkedAt, label) => {
+    row.dataset[key] = String(value || '');
+    const el = row.querySelector('[data-' + key + '-ver]');
+    if (!el) return;
+    el.textContent = value || '—';
+    el.classList.toggle('is-empty', !value);
+    const bits = [];
+    if (value) bits.push(label);
+    if (checkedAt) bits.push('снято ' + sinceLabel(checkedAt));
+    el.setAttribute('title', bits.join(' · ') || 'Панель не отдаёт версию');
+  };
+  put('xui', node.xui_version || '', node.version_checked_at, 'Панель 3x-ui на сервере');
+  put('xray', node.xray_version || '', node.version_checked_at, 'Ядро Xray на сервере');
 }
 
 function watchPresence(after) {
@@ -700,6 +742,7 @@ function initClientControls(scope, logId) {
 
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
-  pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyNodeRf, watchPresence,
+  pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyUserStats, applyNodeRf,
+  applyNodeVersions, watchPresence,
   initTemplatePicker, initClientControls,
 };

@@ -11,7 +11,7 @@ from app.fail2ban import GuardView, _remember, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
-from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence
+from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, store_versions
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
 from app.provision import (
@@ -173,6 +173,9 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'rf_ok': bool(node.rf_ok),
         'rf_note': node.rf_note or '',
         'rf_checked_at': _as_utc(node.rf_checked_at).isoformat() if node.rf_checked_at else None,
+        'xui_version': node.xui_version or '',
+        'xray_version': node.xray_version or '',
+        'version_checked_at': _as_utc(node.version_checked_at).isoformat() if node.version_checked_at else None,
         'install_state': node.install_state or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
@@ -859,6 +862,7 @@ def overview(session: SessionDep) -> dict:
             node.last_error = str(probe.get('error'))[:500]
         session.add(node)
         st = probe.get('status') or {}
+        store_versions(node, st)
         node_out.append(
             {
                 **_node_out(node, session),
@@ -868,6 +872,11 @@ def overview(session: SessionDep) -> dict:
                 'mem_total': st.get('mem_total'),
                 'uptime': st.get('uptime'),
                 'xray': st.get('xray'),
+                # Свежие версии с панели; в БД лежит последнее увиденное (на случай,
+                # когда панель этого релиза версию не отдаёт).
+                'xui_version': st.get('panel_version') or (node.xui_version or ''),
+                'xray_version': st.get('xray_version') or (node.xray_version or ''),
+                'version_checked_at': _as_utc(node.version_checked_at).isoformat() if node.version_checked_at else None,
                 'tcp': st.get('tcp'),
                 'udp': st.get('udp'),
                 'inbound_count': probe.get('inbound_count') or inbound_counts.get(node.id, 0),

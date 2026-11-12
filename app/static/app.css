@@ -247,13 +247,33 @@ input:focus, textarea:focus, select:focus {
 }
 .monitor-cols > * { min-width: 0; }
 .nodes-cols {
-  grid-template-columns: minmax(0, 1.05fr) 92px minmax(0, 0.8fr) minmax(0, 1.15fr) minmax(0, 0.95fr) 56px 88px 128px;
+  /* 10 колонок: сервер, 3x-ui, Xray, из РФ, адрес, входы, состояние, файрвол, в Clash, кнопки */
+  grid-template-columns: minmax(0, 0.95fr) 72px 72px 84px minmax(0, 0.72fr) minmax(0, 1.05fr) minmax(0, 0.9fr) 52px 80px 120px;
 }
 /* Заголовок «Из РФ» вместе со стрелкой сортировки не должен ломать сетку */
 .nodes-cols .sort-rf {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* Заголовки версий короче названий колонок, но длиннее самих значений */
+.nodes-cols .sort-ver {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nodes-cols [data-xui-ver],
+.nodes-cols [data-xray-ver] {
+  justify-self: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 1400px) {
+  .nodes-cols {
+    gap: 8px;
+    grid-template-columns: minmax(0, 0.95fr) 64px 64px 78px minmax(0, 0.72fr) minmax(0, 1fr) minmax(0, 0.85fr) 48px 74px 112px;
+  }
 }
 .nodes-cols [data-rf-label] { justify-self: start; white-space: nowrap; }
 /* Столбец «Входы» — виджет выбора шаблонов, скопирован со страницы «Серверы».
@@ -297,6 +317,39 @@ input:focus, textarea:focus, select:focus {
   .client-actions { gap: 6px; }
   .client-actions .btn.small { padding: 6px 9px; font-size: 12.5px; }
 }
+/* Метрика пользователей в блоке «Клиенты»: подписи в первой строке, цифры во второй */
+.user-stats {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px 38px;
+  margin: 0 0 14px;
+  padding: 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+.user-stats__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 120px;
+}
+.user-stats__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.user-stats__value {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.user-stats__value.is-online { color: var(--ok); }
+.user-stats__value.is-offline { color: var(--muted); }
 .monitor-head { padding: 0 14px 8px; }
 .fw-tag {
   font-size: 12px;
@@ -332,6 +385,14 @@ input:focus, textarea:focus, select:focus {
 .rf-tag.on::before { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.18); }
 .rf-tag.bad { color: var(--danger); }
 .rf-tag.bad::before { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.18); }
+/* Версии 3x-ui и Xray, снятые с панели: моноширинно, чтобы релизы не прыгали по ширине */
+.ver-tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  cursor: help;
+}
+.ver-tag.is-empty { color: var(--faint); }
 .note-warn {
   background: var(--warn-soft);
   border: 1px solid rgba(240, 180, 41, 0.35);

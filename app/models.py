@@ -39,6 +39,10 @@ class Node(SQLModel, table=True):
     rf_ok: bool = False
     rf_note: str = ''
     rf_checked_at: Optional[datetime] = None
+    # Версии на самой ноде: панель 3x-ui и ядро Xray (снимаются при опросе)
+    xui_version: str = ''
+    xray_version: str = ''
+    version_checked_at: Optional[datetime] = None
     install_state: str = ''
     install_log: str = ''
     install_ssl: str = ''

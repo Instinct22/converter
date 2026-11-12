@@ -41,6 +41,9 @@ NODE_COLUMNS = {
     'rf_ok': 'INTEGER DEFAULT 0',
     'rf_note': "TEXT DEFAULT ''",
     'rf_checked_at': 'TIMESTAMP',
+    'xui_version': "TEXT DEFAULT ''",
+    'xray_version': "TEXT DEFAULT ''",
+    'version_checked_at': 'TIMESTAMP',
 }
 
 TEMPLATE_COLUMNS = {
