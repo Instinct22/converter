@@ -31,6 +31,8 @@
     <div class="fold-body">
       <div class="monitor-head monitor-cols nodes-cols">
         <button class="sort-btn" type="button" data-sort="name">Сервер</button>
+        <button class="sort-btn sort-ver" type="button" data-sort="xui" title="Версия панели 3x-ui на сервере">3x-ui</button>
+        <button class="sort-btn sort-ver" type="button" data-sort="xray" title="Версия ядра Xray на сервере">Xray</button>
         <button class="sort-btn sort-rf" type="button" data-sort="rf" title="Проверка TCP по портам входов прямо с мастера. Мастер стоит в России — это и есть доступность для клиентов из РФ.">Из РФ</button>
         <button class="sort-btn" type="button" data-sort="host">Адрес</button>
         <button class="sort-btn" type="button" data-sort="ports">Входы</button>
@@ -41,7 +43,7 @@
       </div>
       <div class="monitor" id="node-monitor">
         {% for n in nodes %}
-        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
+        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-xui="{{ n.xui_version or '' }}" data-xray="{{ n.xray_version or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
             <span class="name-flag">
@@ -49,6 +51,8 @@
               <strong>{{ n.name }}</strong>
             </span>
           </div>
+          <span class="ver-tag {{ 'is-empty' if not n.xui_version }}" data-xui-ver title="{{ 'Версию панели снять не удалось' if not n.xui_version else 'Панель 3x-ui на сервере' }}">{{ n.xui_version or '—' }}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xray_version }}" data-xray-ver title="{{ 'Версию ядра снять не удалось' if not n.xray_version else 'Ядро Xray на сервере' }}">{{ n.xray_version or '—' }}</span>
           <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           <span class="mono">{{ n.public_host or '—' }}</span>
           <div class="node-tpl">
@@ -156,6 +160,20 @@
     </summary>
     {% if clients %}
     <div class="fold-body">
+      <div class="user-stats" id="user-stats">
+        <div class="user-stats__cell">
+          <span class="user-stats__label">Всего пользователей</span>
+          <span class="user-stats__value" data-stat-total>{{ clients | length }}</span>
+        </div>
+        <div class="user-stats__cell">
+          <span class="user-stats__label">Online</span>
+          <span class="user-stats__value is-online" data-stat-online>—</span>
+        </div>
+        <div class="user-stats__cell">
+          <span class="user-stats__label">Offline</span>
+          <span class="user-stats__value is-offline" data-stat-offline>—</span>
+        </div>
+      </div>
       <div class="monitor-head monitor-cols clients-cols">
         <button class="sort-btn" type="button" data-sort="name">Кто</button>
         <button class="sort-btn" type="button" data-sort="used">Трафик</button>
@@ -229,6 +247,7 @@ async function loadOverview() {
     if (n.inbound_count != null) row.dataset.ports = String(n.inbound_count);
     row.dataset.cpu = n.online && n.cpu != null ? String(n.cpu) : '-1';
     XUI.applyNodeRf(row, n);
+    XUI.applyNodeVersions(row, n);
   });
   (data.clients || []).forEach((c) => {
     const row = document.querySelector('[data-client="' + c.id + '"]');

@@ -31,6 +31,29 @@ def panel_timeout(read: float) -> httpx.Timeout:
     return httpx.Timeout(connect=3.0, read=limit, write=min(limit, 10.0), pool=3.0)
 
 
+def clean_version(value: Any) -> str:
+    """Версия в человеческом виде: панели заглушают пустое значение всяким мусором."""
+    text = str(value or '').strip()
+    if text.lower() in {'', 'n/a', 'na', 'none', 'null', 'unknown', 'неизвестно'}:
+        return ''
+    return text[:40]
+
+
+def versions_from_status(obj: Any) -> tuple[str, str]:
+    """(панель 3x-ui, ядро Xray) из ответа /panel/api/server/status.
+
+    Раскладка менялась от релиза к релизу: свежие панели кладут версию панели в
+    panelVersion, а ядро — в xray.version. В 2.5.x версии панели в этом ответе
+    нет вовсе, а ядро лежало то в xray.version, то в плоском xrayVersion.
+    """
+    if not isinstance(obj, dict):
+        return '', ''
+    xray = obj.get('xray') if isinstance(obj.get('xray'), dict) else {}
+    panel = clean_version(obj.get('panelVersion'))
+    core = clean_version(xray.get('version')) or clean_version(obj.get('xrayVersion'))
+    return panel, core
+
+
 class XuiClient:
     def __init__(self, node: Node, timeout: float = 12.0) -> None:
         self.node = node

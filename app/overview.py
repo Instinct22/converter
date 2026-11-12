@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from typing import Any
 
 from app.models import Node
 from app.util import cpu_percent
-from app.xui import XuiClient, XuiError, as_obj
+from app.xui import XuiClient, XuiError, as_obj, clean_version, versions_from_status
 
 
 def _status_bits(obj: dict[str, Any]) -> dict[str, Any]:
     mem = obj.get('mem') if isinstance(obj.get('mem'), dict) else {}
     xray = obj.get('xray') if isinstance(obj.get('xray'), dict) else {}
+    panel_version, xray_version = versions_from_status(obj)
     return {
         'cpu': cpu_percent(obj.get('cpu')),
         'mem_used': mem.get('current'),
@@ -19,7 +21,26 @@ def _status_bits(obj: dict[str, Any]) -> dict[str, Any]:
         'xray': xray.get('state') or '',
         'tcp': obj.get('tcpCount'),
         'udp': obj.get('udpCount'),
+        'panel_version': panel_version,
+        'xray_version': xray_version,
     }
+
+
+def store_versions(node: Node, status: dict[str, Any]) -> bool:
+    """Запомнить версии панели 3x-ui и ядра Xray, если панель их отдала.
+
+    Старые панели (2.5.x) версию панели в этом ответе не отдают вовсе, поэтому
+    найденное дописываем поверх, а не затираем пустым: колбэк вызывается на каждом
+    опросе, и «версия пропала» чаще означает «панель старая», а не «сервер откатился».
+    """
+    panel = clean_version(status.get('panel_version'))
+    core = clean_version(status.get('xray_version'))
+    if not panel and not core:
+        return False
+    node.xui_version = panel or node.xui_version or ''
+    node.xray_version = core or node.xray_version or ''
+    node.version_checked_at = datetime.now(timezone.utc)
+    return True
 
 
 def client_rows_from_inbounds(remote: list[dict[str, Any]]) -> list[dict[str, Any]]:
