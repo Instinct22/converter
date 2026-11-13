@@ -240,6 +240,11 @@ jobs:
           script: |
             set -eu
             echo "=== Deploy converter ==="
+            if [ ! -f /opt/caddy-sites/aegis-gate.caddy ]; then
+              echo "Нет /opt/caddy-sites/aegis-gate.caddy — сначала должен пройти деплой aegis-gate" >&2
+              exit 1
+            fi
+            docker network inspect edge >/dev/null 2>&1 || docker network create edge
             cd ${{ env.DEPLOY_PATH }}
             if [ ! -f converter-deploy.tgz ]; then
               echo "converter-deploy.tgz missing (SCP failed)" >&2

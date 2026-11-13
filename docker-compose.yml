@@ -17,12 +17,20 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./deploy/site:/srv/site:ro
+      - /opt/caddy-sites:/etc/caddy/sites:ro
       - caddy_data:/data
       - caddy_config:/config
+    networks:
+      - default
+      - edge
     depends_on:
       - xui-master
     restart: unless-stopped
+
+networks:
+  edge:
+    external: true
+    name: edge
 
 volumes:
   caddy_data:
