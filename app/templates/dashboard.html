@@ -24,6 +24,7 @@
       <div class="fold-tools" onclick="event.stopPropagation()">
         <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
         <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
+        <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
         <span class="fold-chev" aria-hidden="true"></span>
       </div>
     </summary>
@@ -140,7 +141,7 @@
       <div class="empty">
         <h3>Нод ещё нет</h3>
         <p>Добавьте первую панель 3x-ui: URL и API Token.</p>
-        <a class="btn" href="/nodes">Добавить сервер</a>
+        <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
       </div>
     </div>
     {% endif %}
@@ -154,7 +155,7 @@
       </div>
       <div class="fold-tools" onclick="event.stopPropagation()">
         <button class="btn secondary" type="button" id="reconcile">Сверить с серверами</button>
-        <a class="btn" href="/clients">Выдать доступ</a>
+        <button class="btn" type="button" data-new-client>Выдать доступ</button>
         <span class="fold-chev" aria-hidden="true"></span>
       </div>
     </summary>
@@ -208,12 +209,13 @@
       <div class="empty">
         <h3>Клиентов нет</h3>
         <p>После серверов выдайте человеку ссылку подписки — её вставляют в DHQ, не файл YAML.</p>
-        <a class="btn" href="/clients">Выдать доступ</a>
+        <button class="btn" type="button" data-new-client>Выдать доступ</button>
       </div>
     </div>
     {% endif %}
   </details>
 
+  {% include "_node_controls.html" %}
   {% include "_client_controls.html" %}
 </div>
 {% endblock %}
@@ -300,6 +302,8 @@ XUI.initTemplatePicker(document);
 // Кнопки клиентов (подписка/изменить/+30/YAML/удалить) и «Сверить с серверами» —
 // та же реализация, что на вкладке «Клиенты»; логи сверки идут в #client-action-log.
 XUI.initClientControls(document, 'client-action-log');
+// Форма добавления сервера — общая реализация в app.js (initNodeForm), та же, что на «Серверах».
+XUI.initNodeForm();
 loadOverview().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());
 });
