@@ -94,6 +94,22 @@ def remember_version_notes(found: dict[str, str]) -> None:
     temporary.replace(path)
 
 
+def _signatures(entry: dict) -> list[str]:
+    found: list[str] = []
+    raw = entry.get('signatures')
+    if isinstance(raw, list):
+        for item in raw:
+            text = item.strip() if isinstance(item, str) else ''
+            if text and text not in found:
+                found.append(text)
+    single = entry.get('signature')
+    if isinstance(single, str):
+        text = single.strip()
+        if text and text not in found:
+            found.insert(0, text)
+    return found
+
+
 def _release(channel: str, platform: str, arch: str) -> dict | None:
     path = catalog_path()
     if not path.is_file():
@@ -116,7 +132,7 @@ def _release(channel: str, platform: str, arch: str) -> dict | None:
     if target is None or not target.is_file():
         return None
     base = settings.update_base_url.rstrip('/')
-    return {
+    body = {
         'update': True,
         'version': version,
         'notes': str(entry.get('notes') or ''),
@@ -124,6 +140,11 @@ def _release(channel: str, platform: str, arch: str) -> dict | None:
         'filename': filename,
         'sha256': sha256,
     }
+    signatures = _signatures(entry)
+    if signatures:
+        body['signature'] = signatures[0]
+        body['signatures'] = signatures
+    return body
 
 
 @router.get('/api/app/latest')
