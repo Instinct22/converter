@@ -10,7 +10,8 @@ from app.deps import SessionDep, require_admin
 from app.fail2ban import GuardView, _remember, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
-from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
+from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound, UpdateNotification
+from app.node_updates import check_updates, perform_update
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, store_versions
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
@@ -176,6 +177,10 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'xui_version': node.xui_version or '',
         'xray_version': node.xray_version or '',
         'version_checked_at': _as_utc(node.version_checked_at).isoformat() if node.version_checked_at else None,
+        'panel_latest_version': node.panel_latest_version or '',
+        'xray_latest_version': node.xray_latest_version or '',
+        'update_state': node.update_state or '',
+        'update_checked_at': _as_utc(node.update_checked_at).isoformat() if node.update_checked_at else None,
         'install_state': node.install_state or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
@@ -190,6 +195,94 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
 def list_nodes(session: SessionDep) -> list[dict]:
     rows = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     return [_node_out(n, session) for n in rows]
+
+
+class UpdateIn(BaseModel):
+    node_ids: list[int] = Field(default_factory=list)
+    skip_floor: bool = False
+
+
+def _updates_view(session: Session, nodes: list[Node]) -> dict:
+    notes = session.exec(
+        select(UpdateNotification)
+        .where(UpdateNotification.dismissed.is_(False))
+        .order_by(UpdateNotification.created_at.desc())
+    ).all()
+    return {
+        'nodes': [
+            {
+                'id': node.id,
+                'name': node.name,
+                'flag': node.flag,
+                'enabled': node.enabled,
+                'xui_version': node.xui_version or '',
+                'panel_latest_version': node.panel_latest_version or '',
+                'xray_version': node.xray_version or '',
+                'xray_latest_version': node.xray_latest_version or '',
+                'update_state': node.update_state or '',
+                'update_checked_at': _as_utc(node.update_checked_at).isoformat() if node.update_checked_at else None,
+            }
+            for node in nodes
+        ],
+        'notifications': [
+            {
+                'id': note.id,
+                'created_at': _as_utc(note.created_at).isoformat() if note.created_at else None,
+                'node_name': note.node_name,
+                'message': note.message,
+            }
+            for note in notes
+        ],
+    }
+
+
+@router.get('/nodes/updates')
+def nodes_updates(session: SessionDep, refresh: bool = False) -> dict:
+    """Список нод с версиями (current/latest) + непрочитанные уведомления.
+
+    refresh=True — перед выдачей опросить каждую включённую ноду на наличие
+    обновления (для ручного режима, чтобы latest были свежими при открытии модалки).
+    """
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    if refresh:
+        for node in nodes:
+            if not node.enabled:
+                continue
+            try:
+                check_updates(node)
+            except XuiError:
+                pass
+            session.add(node)
+        session.commit()
+    return _updates_view(session, nodes)
+
+
+@router.post('/nodes/update')
+def nodes_update(payload: UpdateIn, session: SessionDep) -> dict:
+    """Запустить обновление выбранных нод. skip_floor=True — обновлять в обход пула."""
+    if not payload.node_ids:
+        raise HTTPException(400, 'не выбрано ни одной ноды')
+    floor_enabled = not payload.skip_floor
+    results = []
+    for node_id in payload.node_ids:
+        node = session.get(Node, node_id)
+        if not node:
+            results.append({'node_id': node_id, 'node_name': '', 'ok': False, 'message': 'нода не найдена'})
+            continue
+        result = perform_update(session, node, floor_enabled=floor_enabled)
+        results.append(result.to_dict())
+    return {'results': results}
+
+
+@router.post('/nodes/updates/dismiss')
+def nodes_updates_dismiss(session: SessionDep) -> dict:
+    """Пометить все непрочитанные уведомления об обновлениях прочитанными."""
+    notes = session.exec(select(UpdateNotification).where(UpdateNotification.dismissed.is_(False))).all()
+    for note in notes:
+        note.dismissed = True
+        session.add(note)
+    session.commit()
+    return {'dismissed': len(notes)}
 
 
 @router.get('/nodes/{node_id}')

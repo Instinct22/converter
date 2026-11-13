@@ -44,6 +44,11 @@ NODE_COLUMNS = {
     'xui_version': "TEXT DEFAULT ''",
     'xray_version': "TEXT DEFAULT ''",
     'version_checked_at': 'TIMESTAMP',
+    'panel_latest_version': "TEXT DEFAULT ''",
+    'xray_latest_version': "TEXT DEFAULT ''",
+    'update_run_id': "TEXT DEFAULT ''",
+    'update_state': "TEXT DEFAULT ''",
+    'update_checked_at': 'TIMESTAMP',
 }
 
 TEMPLATE_COLUMNS = {
