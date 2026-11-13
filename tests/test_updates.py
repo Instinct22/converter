@@ -37,6 +37,8 @@ def test_latest_points_at_the_update_host(monkeypatch, tmp_path):
                     'notes': 'fix',
                     'filename': name,
                     'sha256': 'ab' * 32,
+                    'signature': 'sig-current',
+                    'signatures': ['sig-current', 'sig-next'],
                 },
             },
         },
@@ -53,9 +55,57 @@ def test_latest_points_at_the_update_host(monkeypatch, tmp_path):
     assert body['update'] is True
     assert body['url'] == f'https://api.aegis-gate.ru/api/app/download/{name}'
     assert body['sha256'] == 'ab' * 32
+    assert body['signature'] == 'sig-current'
+    assert body['signatures'] == ['sig-current', 'sig-next']
     downloaded = client.get(f'/api/app/download/{name}')
     assert downloaded.status_code == 200
     assert downloaded.content == b'installer'
+
+
+def test_latest_keeps_a_single_signature_and_omits_an_unsigned_record(monkeypatch, tmp_path):
+    files = tmp_path / 'files'
+    files.mkdir()
+    signed = 'AegisGate-1.1.6-windows-amd64-setup.exe'
+    unsigned = 'AegisGate-1.1.6-android-arm64.apk'
+    (files / signed).write_bytes(b'installer')
+    (files / unsigned).write_bytes(b'apk')
+    catalog = {
+        'stable': {
+            'windows': {
+                'amd64': {
+                    'version': '1.1.6',
+                    'filename': signed,
+                    'sha256': 'ab' * 32,
+                    'signature': 'only-one',
+                },
+            },
+            'android': {
+                'arm64': {
+                    'version': '1.1.6',
+                    'filename': unsigned,
+                    'sha256': 'cd' * 32,
+                },
+            },
+        },
+    }
+    (tmp_path / 'catalog.json').write_text(json.dumps(catalog), encoding='utf-8')
+    monkeypatch.setattr(updates, 'catalog_path', lambda: tmp_path / 'catalog.json')
+    monkeypatch.setattr(updates, 'files_dir', lambda: files)
+    client = TestClient(app)
+
+    windows = client.get(
+        '/api/app/latest',
+        params={'platform': 'windows', 'arch': 'amd64'},
+    ).json()
+    assert windows['signature'] == 'only-one'
+    assert windows['signatures'] == ['only-one']
+
+    android = client.get(
+        '/api/app/latest',
+        params={'platform': 'android', 'arch': 'arm64'},
+    ).json()
+    assert 'signature' not in android
+    assert 'signatures' not in android
 
 
 def test_release_page_lists_files_and_delete_unpublishes_the_current_one(monkeypatch, tmp_path):
