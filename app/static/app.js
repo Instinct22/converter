@@ -740,9 +740,65 @@ function initClientControls(scope, logId) {
   }
 }
 
+// Форма добавления сервера (ноды): переключатель «панель стоит / чистый VPS» и отправка.
+// Работает и на «Серверах», и на «Обзоре»: разметка модалки общая (_node_controls.html).
+function initNodeForm() {
+  const nodeForm = document.getElementById('node-form');
+  if (!nodeForm || nodeForm.dataset.nfBound) return;
+  nodeForm.dataset.nfBound = '1';
+
+  function applyNodeSource() {
+    const install = nodeForm.source.value === 'install';
+    document.getElementById('source-existing').hidden = install;
+    document.getElementById('source-install').hidden = !install;
+    nodeForm.panel_url.required = !install;
+    nodeForm.api_token.required = !install;
+    nodeForm.host.required = install;
+    nodeForm.ssh_password.required = install;
+    document.getElementById('node-submit').textContent = install ? 'Поставить 3x-ui' : 'Подключить';
+  }
+
+  nodeForm.querySelectorAll('input[name=source]').forEach((input) => {
+    input.addEventListener('change', applyNodeSource);
+  });
+
+  nodeForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const f = event.target;
+    if (!f.flag.value) {
+      toast('Выберите флаг', 'err');
+      return;
+    }
+    const install = f.source.value === 'install';
+    const btn = f.querySelector('button[type=submit]');
+    const payload = {
+      flag: f.flag.value,
+      name: f.name.value,
+      clash_name: f.clash_name.value,
+    };
+    if (install) {
+      payload.install = true;
+      payload.host = f.host.value.trim();
+      payload.ssh_user = f.ssh_user.value.trim();
+      payload.ssh_password = f.ssh_password.value;
+    } else {
+      payload.panel_url = f.panel_url.value;
+      payload.api_token = f.api_token.value;
+    }
+    try {
+      await withBusy(btn, async () => {
+        const data = await api('/api/nodes', 'POST', payload);
+        if (data.logs && data.logs.length) showLog(document.getElementById('node-log'), data.logs);
+        toast(install ? 'Сервер в списке, 3x-ui ставится' : 'Сервер добавлен');
+      });
+      setTimeout(() => location.reload(), install ? 700 : 400);
+    } catch (err) {}
+  });
+}
+
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
   pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyUserStats, applyNodeRf,
   applyNodeVersions, watchPresence,
-  initTemplatePicker, initClientControls,
+  initTemplatePicker, initClientControls, initNodeForm,
 };
