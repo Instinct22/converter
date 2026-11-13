@@ -3,9 +3,11 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import Node
+from app.node_updates import check_updates
 from app.overview import probe_nodes, store_versions
 from app.provision import disable_expired
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
+from app.xui import XuiError
 
 scheduler = BackgroundScheduler()
 
@@ -24,6 +26,13 @@ def _job() -> None:
             # Версии панели и ядра снимаются с того же ответа /server/status,
             # что и CPU/RAM: отдельного запроса на ноде они не требуют.
             store_versions(node, probe.get('status') or {})
+            # Read-only: снимаем доступные (latest) версии панели и ядра, чтобы в
+            # таблице нод загоралась жёлтая лампочка «можно обновиться». Ничего не
+            # устанавливаем — автообновления нет, только подсветка доступных релизов.
+            try:
+                check_updates(node)
+            except XuiError:
+                pass
             session.add(node)
         session.commit()
         _refresh_rf(session, nodes)
@@ -49,3 +58,4 @@ def start_scheduler() -> None:
         return
     scheduler.add_job(_job, 'interval', minutes=10, id='expire-clients', replace_existing=True)
     scheduler.start()
+

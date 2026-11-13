@@ -22,6 +22,7 @@
         <p class="sub">Доступность панели, Xray, порты. Выключите свитч — сервер исчезнет из подписки.</p>
       </div>
       <div class="fold-tools" onclick="event.stopPropagation()">
+        <button class="btn secondary" type="button" id="open-updates" title="Авто- и ручное обновление панелей 3x-ui и ядер Xray по API">Обновления<span class="badge-dot" data-update-dot hidden></span></button>
         <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
         <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
         <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
@@ -52,8 +53,8 @@
               <strong>{{ n.name }}</strong>
             </span>
           </div>
-          <span class="ver-tag {{ 'is-empty' if not n.xui_version }}" data-xui-ver title="{{ 'Версию панели снять не удалось' if not n.xui_version else 'Панель 3x-ui на сервере' }}">{{ n.xui_version or '—' }}</span>
-          <span class="ver-tag {{ 'is-empty' if not n.xray_version }}" data-xray-ver title="{{ 'Версию ядра снять не удалось' if not n.xray_version else 'Ядро Xray на сервере' }}">{{ n.xray_version or '—' }}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if n.panel_latest_version and n.xui_version and n.panel_latest_version != n.xui_version }} {{ 'is-current' if n.panel_latest_version and n.xui_version and n.panel_latest_version == n.xui_version }}" data-xui-ver title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Доступно обновление панели до ' + n.panel_latest_version if n.panel_latest_version and n.panel_latest_version != n.xui_version else ('Актуальная версия панели' if n.panel_latest_version == n.xui_version else 'Панель 3x-ui на сервере')) }}">{{ n.xui_version or '—' }}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xray_version }} {{ 'has-update' if n.xray_latest_version and n.xray_version and n.xray_latest_version != n.xray_version }} {{ 'is-current' if n.xray_latest_version and n.xray_version and n.xray_latest_version == n.xray_version }}" data-xray-ver title="{{ 'Версию ядра снять не удалось' if not n.xray_version else ('Доступно обновление ядра до ' + n.xray_latest_version if n.xray_latest_version and n.xray_latest_version != n.xray_version else ('Актуальная версия ядра' if n.xray_latest_version == n.xray_version else 'Ядро Xray на сервере')) }}">{{ n.xray_version or '—' }}</span>
           <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           <span class="mono">{{ n.public_host or '—' }}</span>
           <div class="node-tpl">
@@ -216,6 +217,7 @@
   </details>
 
   {% include "_node_controls.html" %}
+  {% include "_update_nodes.html" %}
   {% include "_client_controls.html" %}
 </div>
 {% endblock %}
@@ -304,6 +306,8 @@ XUI.initTemplatePicker(document);
 XUI.initClientControls(document, 'client-action-log');
 // Форма добавления сервера — общая реализация в app.js (initNodeForm), та же, что на «Серверах».
 XUI.initNodeForm();
+// Обновления панелей/ядер — кнопка «Обновления» + модалка update-nodes (app.js).
+XUI.initUpdateControls();
 loadOverview().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());
 });
