@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ node.name }} — Master{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="/nodes">Серверы</a> / {{ node.name }}</div>
+<div class="crumbs"><a href="/">Обзор</a> / {{ node.name }}</div>
 <div class="page-head">
   <div>
     <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
-    <p class="lede">URL панели, токен и подписка 3x-ui. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке «Серверы».</p>
+    <p class="lede">URL панели, токен и подписка 3x-ui. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре».</p>
   </div>
   <div class="row">
     <button class="btn secondary" id="test" type="button" {% if node.install_state == 'installing' %}disabled{% endif %}>Проверить связь</button>

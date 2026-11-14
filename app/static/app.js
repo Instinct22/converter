@@ -395,9 +395,7 @@ function bindFolds(root) {
   });
 }
 
-// Пикер шаблонов входов: та же логика, что на «Серверах», но внутри замыкания —
-// глобальные функции tpl* из nodes.html остаются нетронутыми. Вызывается только
-// со страницы «Обзор», поэтому общие обработчики вешаются один раз.
+// Пикер шаблонов входов на «Обзоре». Общие обработчики вешаются один раз.
 let tplGlobalsBound = false;
 
 function initTemplatePicker(scope) {
@@ -601,6 +599,19 @@ function initTemplatePicker(scope) {
     btn.dataset.tplBound = '1';
     btn.addEventListener('click', () => saveTemplates(btn, btn.dataset.refreshTemplates, '/api/nodes/' + btn.dataset.refreshTemplates + '/refresh-templates'));
   });
+  root.querySelectorAll('[data-refresh-all]').forEach((btn) => {
+    if (btn.dataset.tplBound) return;
+    btn.dataset.tplBound = '1';
+    btn.addEventListener('click', async () => {
+      try {
+        const res = await withBusy(btn, () => api('/api/nodes/refresh-templates', 'POST', {}));
+        const text = (res.logs || []).join('\n') || 'Готово';
+        showLog(logTarget(), text);
+        toast(text, res.ok ? undefined : 'err');
+        if (res.ok) setTimeout(() => location.reload(), 1200);
+      } catch (e) { showLog(logTarget(), e.message); }
+    });
+  });
   if (!tplGlobalsBound) {
     tplGlobalsBound = true;
     window.addEventListener('resize', repositionOpen);
@@ -611,8 +622,7 @@ function initTemplatePicker(scope) {
 }
 
 // Кнопки клиентов (форма доступа, +30 дней, YAML, удалить, «Сверить с серверами»).
-// Работает и на «Клиентах», и на «Обзоре»: разметка модальок общая (_client_controls.html),
-// logId — куда показывать логи сверки и создания (на «Клиентах» это #log).
+// Разметка модалок — _client_controls.html, logId — куда писать логи сверки и создания.
 function initClientControls(scope, logId) {
   const root = scope || document;
   const form = document.getElementById('client-form');
@@ -746,9 +756,24 @@ function initClientControls(scope, logId) {
   }
 }
 
-// Форма добавления сервера (ноды): переключатель «панель стоит / чистый VPS» и отправка.
-// Работает и на «Серверах», и на «Обзоре»: разметка модалки общая (_node_controls.html).
+function bindNodeRemoval() {
+  document.querySelectorAll('[data-del-node]').forEach((btn) => {
+    if (btn.dataset.nodeDelBound) return;
+    btn.dataset.nodeDelBound = '1';
+    btn.addEventListener('click', async () => {
+      if (!confirm('Убрать сервер из Master? Панель 3x-ui не трогаем.')) return;
+      try {
+        await api('/api/nodes/' + btn.dataset.delNode, 'DELETE');
+        location.reload();
+      } catch (err) { toast(err.message, 'err'); }
+    });
+  });
+}
+
+// Форма добавления сервера: переключатель «панель стоит / чистый VPS» и отправка.
+// Разметка модалки — _node_controls.html.
 function initNodeForm() {
+  bindNodeRemoval();
   const nodeForm = document.getElementById('node-form');
   if (!nodeForm || nodeForm.dataset.nfBound) return;
   nodeForm.dataset.nfBound = '1';

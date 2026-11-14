@@ -128,7 +128,7 @@ def dashboard(request: Request, session: SessionDep):
         node.id: len(session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all())
         for node in nodes
     }
-    # Виджет «Входы» (выбор шаблонов входов) — те же данные, что на странице «Серверы».
+    # Виджет «Входы» на обзоре: те же шаблоны, что выбираются у каждой ноды.
     templates_rows = session.exec(select(InboundTemplate)).all()
     node_templates: dict[int, list[int]] = {}
     for node in nodes:
@@ -151,31 +151,11 @@ def dashboard(request: Request, session: SessionDep):
     )
 
 
-@router.get('/nodes', response_class=HTMLResponse)
-def nodes_page(request: Request, session: SessionDep):
+@router.get('/nodes')
+def nodes_page(request: Request):
     if (redir := _need_admin(request)):
         return redir
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-    templates_rows = session.exec(select(InboundTemplate)).all()
-    counts = {}
-    node_templates: dict[int, list[int]] = {}
-    for node in nodes:
-        if node.id is None:
-            continue
-        rows = session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
-        counts[node.id] = len(rows)
-        node_templates[node.id] = node_template_ids(session, node.id)
-    return templates.TemplateResponse(
-        'nodes.html',
-        _ctx(
-            request,
-            page='nodes',
-            nodes=nodes,
-            inbound_templates=templates_rows,
-            inbound_counts=counts,
-            node_templates=node_templates,
-        ),
-    )
+    return RedirectResponse('/', status_code=302)
 
 
 @router.get('/nodes/{node_id}', response_class=HTMLResponse)
@@ -184,10 +164,10 @@ def node_detail(request: Request, node_id: int, session: SessionDep):
         return redir
     node = session.get(Node, node_id)
     if not node:
-        return RedirectResponse('/nodes', status_code=302)
+        return RedirectResponse('/', status_code=302)
     return templates.TemplateResponse(
         'node_detail.html',
-        _ctx(request, page='nodes', node=node),
+        _ctx(request, page='dashboard', node=node),
     )
 
 
@@ -227,21 +207,11 @@ def releases_page(request: Request):
     )
 
 
-@router.get('/clients', response_class=HTMLResponse)
-def clients_page(request: Request, session: SessionDep):
+@router.get('/clients')
+def clients_page(request: Request):
     if (redir := _need_admin(request)):
         return redir
-    clients = session.exec(select(Client).order_by(Client.id.desc())).all()
-    return templates.TemplateResponse(
-        'clients.html',
-        _ctx(
-            request,
-            page='clients',
-            clients=clients,
-            days_left=days_left,
-            is_expired=is_expired,
-        ),
-    )
+    return RedirectResponse('/', status_code=302)
 
 
 @router.get('/templates', response_class=HTMLResponse)

@@ -25,6 +25,9 @@
         <button class="btn secondary" type="button" id="open-updates" title="Авто- и ручное обновление панелей 3x-ui и ядер Xray по API">Обновления<span class="badge-dot" data-update-dot hidden></span></button>
         <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
         <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
+        {% if nodes %}
+        <button class="btn secondary" type="button" data-refresh-all>Сверить все</button>
+        {% endif %}
         <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
         <span class="fold-chev" aria-hidden="true"></span>
       </div>
@@ -51,6 +54,8 @@
             <span class="name-flag">
               {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
               <strong>{{ n.name }}</strong>
+              {% if n.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
+              {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>{% endif %}
             </span>
           </div>
           <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if n.panel_latest_version and n.xui_version and n.panel_latest_version != n.xui_version }} {{ 'is-current' if n.panel_latest_version and n.xui_version and n.panel_latest_version == n.xui_version }}" data-xui-ver title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Доступно обновление панели до ' + n.panel_latest_version if n.panel_latest_version and n.panel_latest_version != n.xui_version else ('Актуальная версия панели' if n.panel_latest_version == n.xui_version else 'Панель 3x-ui на сервере')) }}">{{ n.xui_version or '—' }}</span>
@@ -131,6 +136,7 @@
           </div>
           <div class="monitor-actions">
             <a class="btn small secondary" href="/nodes/{{ n.id }}">Настройки</a>
+            <button class="btn small danger" type="button" data-del-node="{{ n.id }}">Убрать</button>
           </div>
         </article>
         {% endfor %}
@@ -220,6 +226,11 @@
   {% include "_update_nodes.html" %}
   {% include "_client_controls.html" %}
 </div>
+{% if '127.0.0.1' in public_base or 'localhost' in public_base %}
+<div class="callout" style="margin-top:16px">
+  Ссылка сейчас на <code>{{ public_base }}</code> — с телефона не откроется. В <code>.env</code> задайте <code>PUBLIC_BASE_URL</code> как внешний адрес Master, например <code>https://ваш-домен</code>.
+</div>
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script>
@@ -301,10 +312,7 @@ const clientSort = document.getElementById('client-monitor')
   : { resort() {} };
 XUI.bindFolds(document);
 XUI.initTemplatePicker(document);
-// Кнопки клиентов (подписка/изменить/+30/YAML/удалить) и «Сверить с серверами» —
-// та же реализация, что на вкладке «Клиенты»; логи сверки идут в #client-action-log.
 XUI.initClientControls(document, 'client-action-log');
-// Форма добавления сервера — общая реализация в app.js (initNodeForm), та же, что на «Серверах».
 XUI.initNodeForm();
 // Обновления панелей/ядер — кнопка «Обновления» + модалка update-nodes (app.js).
 XUI.initUpdateControls();
