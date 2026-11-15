@@ -1,4 +1,4 @@
-function detailMessage(detail) {
+﻿function detailMessage(detail) {
   if (!detail) return 'Ошибка запроса';
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) return detail.map((x) => x.msg || JSON.stringify(x)).join('; ');
@@ -355,30 +355,81 @@ function versionEqual(a, b) {
   return !versionNewer(a, b) && !versionNewer(b, a);
 }
 
+// Перерисовывает иконку против версии: спиннер (идёт обновление), красный «!»
+// (сбой — для ядра кликабелен = откатить), жёлтая ↑ (есть новее = обновить).
+function renderVerIcon(el, node, kind, current, latest, state) {
+  const old = el.querySelector('.ver-up,.ver-spin,.ver-fail');
+  if (old) old.remove();
+  el.classList.toggle('is-running', state === 'running');
+  el.classList.toggle('is-failed', state === 'failed');
+  if (state === 'running') {
+    const s = document.createElement('span');
+    s.className = 'ver-spin';
+    s.title = 'обновление выполняется…';
+    s.textContent = '…';
+    el.appendChild(s);
+    return;
+  }
+  if (state === 'failed') {
+    const canRollback = kind === 'xray';
+    const b = document.createElement(canRollback ? 'button' : 'span');
+    b.className = 'ver-fail';
+    if (canRollback) {
+      b.type = 'button';
+      b.dataset.nodeId = String(node.id);
+      b.dataset.updateRollback = '1';
+      b.title = 'обновление не завершилось — откатить на прежнюю версию';
+    } else {
+      b.title = 'обновление не завершилось — проверьте ноду вручную';
+    }
+    b.textContent = '!';
+    el.appendChild(b);
+    return;
+  }
+  if (versionNewer(latest, current)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ver-up';
+    b.dataset.nodeId = String(node.id);
+    b.dataset.updateKind = kind;
+    b.dataset.cur = current || '';
+    b.dataset.latest = latest || '';
+    b.title = 'обновить ' + (kind === 'panel' ? 'панель' : 'ядро') + ' до ' + latest;
+    b.textContent = '↑';
+    el.appendChild(b);
+  }
+}
+
 // Versions are read by the same /server/status call that powers CPU/RAM, so the
 // two columns refresh on every overview poll. Empty means "this panel release
 // does not report it" — we keep the last known value in the DB instead of blanking.
 function applyNodeVersions(row, node) {
   if (!row || !node) return;
-  const put = (key, value, latest, checkedAt, label) => {
+  const put = (key, value, latest, checkedAt, label, kind) => {
     row.dataset[key] = String(value || '');
     const el = row.querySelector('[data-' + key + '-ver]');
     if (!el) return;
-    el.textContent = value || '—';
+    const num = el.querySelector('.ver-num');
+    if (num) num.textContent = value || '—';
+    else el.textContent = value || '—';
     el.classList.toggle('is-empty', !value);
+    const state = (node.update_kind === kind) ? (node.update_state || '') : '';
     const canUpdate = versionNewer(latest, value);
     const isCurrent = Boolean(latest) && Boolean(value) && versionEqual(latest, value);
-    el.classList.toggle('has-update', canUpdate);
-    el.classList.toggle('is-current', isCurrent);
+    el.classList.toggle('has-update', canUpdate && !state);
+    el.classList.toggle('is-current', isCurrent && !state);
+    renderVerIcon(el, node, kind, value, latest, state);
     const bits = [];
     if (value) bits.push(label);
-    if (canUpdate) bits.push('доступно обновление до ' + latest);
-    if (isCurrent) bits.push('актуальная версия');
+    if (state === 'running') bits.push('обновление выполняется…');
+    else if (state === 'failed') bits.push('обновление не завершилось');
+    else if (canUpdate) bits.push('доступно обновление до ' + latest);
+    else if (isCurrent) bits.push('актуальная версия');
     if (checkedAt) bits.push('снято ' + sinceLabel(checkedAt));
     el.setAttribute('title', bits.join(' · ') || 'Панель не отдаёт версию');
   };
-  put('xui', node.xui_version || '', node.panel_latest_version || '', node.version_checked_at, 'Панель 3x-ui на сервере');
-  put('xray', node.xray_version || '', node.xray_latest_version || '', node.version_checked_at, 'Ядро Xray на сервере');
+  put('xui', node.xui_version || '', node.panel_latest_version || '', node.version_checked_at, 'Панель 3x-ui на сервере', 'panel');
+  put('xray', node.xray_version || '', node.xray_latest_version || '', node.version_checked_at, 'Ядро Xray на сервере', 'xray');
 }
 
 function watchPresence(after) {
@@ -849,159 +900,9 @@ function initNodeForm() {
   });
 }
 
-function initUpdateControls() {
-  const openBtn = document.getElementById('open-updates');
-  if (!openBtn || openBtn.dataset.updBound) return;
-  openBtn.dataset.updBound = '1';
-
-  const rowsBox = document.getElementById('update-rows');
-  const notesBox = document.getElementById('update-notes');
-  const dot = openBtn.querySelector('[data-update-dot]');
-
-  function setDot(hasUndismissed) {
-    if (dot) dot.hidden = !hasUndismissed;
-  }
-
-  // Панель и ядро — отдельные сущности: у каждой своя кнопка обновления.
-  function verCell(current, latest) {
-    const wrap = document.createElement('span');
-    if (!current && !latest) {
-      wrap.className = 'upd-ver';
-      wrap.textContent = '—';
-      return { wrap, needs: false };
-    }
-    if (versionNewer(latest, current)) {
-      wrap.className = 'upd-ver diff';
-      wrap.textContent = (current || '—') + ' → ' + latest;
-      wrap.title = 'доступно обновление до ' + latest;
-      return { wrap, needs: true };
-    }
-    if (current && latest && versionEqual(latest, current)) {
-      wrap.className = 'upd-ver ok';
-      wrap.textContent = current;
-      wrap.title = 'актуально';
-      return { wrap, needs: false };
-    }
-    wrap.className = 'upd-ver';
-    wrap.textContent = current || '—';
-    return { wrap, needs: false };
-  }
-
-  function versionColumn(node, current, latest, kind, label) {
-    const cell = document.createElement('div');
-    cell.className = 'upd-cell';
-    const { wrap, needs } = verCell(current, latest);
-    cell.appendChild(wrap);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'upd-btn';
-    btn.dataset.updateId = String(node.id);
-    btn.dataset.updateKind = kind;
-    btn.textContent = label;
-    const enabled = Boolean(node.enabled) && needs;
-    btn.disabled = !enabled;
-    btn.title = !node.enabled
-      ? 'нода выключена'
-      : (needs ? 'обновить ' + label.toLowerCase() : label.toLowerCase() + ' актуальна');
-    cell.appendChild(btn);
-    return cell;
-  }
-
-  function renderRows(nodes) {
-    if (!rowsBox) return;
-    rowsBox.innerHTML = '';
-    nodes.forEach((n) => {
-      const row = document.createElement('div');
-      row.className = 'monitor-row update-cols';
-      row.dataset.node = String(n.id);
-
-      const main = document.createElement('div');
-      main.className = 'monitor-main';
-      const name = document.createElement('strong');
-      name.textContent = n.name + (n.enabled ? '' : ' (выкл)');
-      main.appendChild(name);
-      row.appendChild(main);
-
-      row.appendChild(versionColumn(n, n.xui_version, n.panel_latest_version, 'panel', 'Панель ↑'));
-      row.appendChild(versionColumn(n, n.xray_version, n.xray_latest_version, 'xray', 'Ядро ↑'));
-
-      rowsBox.appendChild(row);
-    });
-  }
-
-  function renderNotes(notes) {
-    if (!notesBox) return;
-    notesBox.innerHTML = '';
-    if (!notes.length) {
-      const empty = document.createElement('span');
-      empty.className = 'hint';
-      empty.textContent = 'Непрочитанных уведомлений нет';
-      notesBox.appendChild(empty);
-      return;
-    }
-    notes.forEach((note) => {
-      const line = document.createElement('div');
-      line.className = 'update-note';
-      line.textContent = note.message;
-      notesBox.appendChild(line);
-    });
-  }
-
-  async function loadUpdates(refresh) {
-    const data = await api('/api/nodes/updates' + (refresh ? '?refresh=true' : ''));
-    renderRows(data.nodes || []);
-    renderNotes(data.notifications || []);
-    setDot((data.notifications || []).length > 0);
-    return data;
-  }
-
-  openBtn.addEventListener('click', () => {
-    openModal('update-nodes');
-    loadUpdates(true).catch((err) => toast(err.message, 'err'));
-  });
-
-  document.getElementById('update-refresh')?.addEventListener('click', async (e) => {
-    try {
-      await withBusy(e.currentTarget, () => loadUpdates(true));
-    } catch (err) {}
-  });
-
-  // Раздельное обновление: клик по «Панель ↑» или «Ядро ↑» конкретной ноды.
-  rowsBox?.addEventListener('click', async (e) => {
-    const btn = e.target.closest('.upd-btn');
-    if (!btn || btn.disabled) return;
-    const id = Number(btn.dataset.updateId);
-    const kind = btn.dataset.updateKind;
-    try {
-      // Результаты (успех/пропуск/сбой/откат) заводятся уведомлениями на бэкенде —
-      // после прогона перезагружаем жёлтый блок «Уведомления».
-      await withBusy(btn, async () => {
-        await api('/api/nodes/update', 'POST', {
-          node_ids: [id],
-          kind,
-        });
-        await loadUpdates(false);
-      });
-      toast('Готово — результаты в блоке «Уведомления»');
-    } catch (err) {}
-  });
-
-  document.getElementById('update-dismiss')?.addEventListener('click', async (e) => {
-    try {
-      await withBusy(e.currentTarget, () => api('/api/nodes/updates/dismiss', 'POST', {}));
-      renderNotes([]);
-      setDot(false);
-    } catch (err) {}
-  });
-
-  // Первичная лёгкая загрузка без опроса нод — только чтобы зажечь точку,
-  // если остались непрочитанные уведомления.
-  loadUpdates(false).catch(() => {});
-}
-
 window.XUI = {
   api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
   pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyUserStats, applyNodeRf,
   applyNodeVersions, watchPresence,
-  initTemplatePicker, initClientControls, initNodeForm, initUpdateControls,
+  initTemplatePicker, initClientControls, initNodeForm,
 };

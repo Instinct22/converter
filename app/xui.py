@@ -225,7 +225,7 @@ class XuiClient:
         return body
 
     def update_panel(self) -> str:
-        """Запускает self-update панели, возвращает runId (может быть пустым)."""
+        """Запускает self-update панели (обновление до latest), возвращает runId (может быть '')."""
         body = self.call('/panel/api/server/updatePanel', {})
         if body.get('success') is False:
             raise XuiError(_xui_msg(body, 'update panel failed'))
@@ -236,14 +236,11 @@ class XuiClient:
             return str(obj.get('runId') or obj.get('id') or '')
         return ''
 
-    def get_update_status(self) -> dict[str, Any]:
-        """{runId, state: pending|success|failed} статуса self-update панели."""
-        body = self.call('/panel/api/server/getUpdateStatus', method='GET')
-        obj = body.get('obj')
-        if isinstance(obj, dict):
-            return obj
-        if body.get('raw'):
-            raise XuiError(_xui_msg(body, 'панель не отдаёт статус обновления'))
+    def install_xray(self, version: str) -> dict[str, Any]:
+        """Ставит/обновляет ядро Xray на указанную версию (перезапускает Xray)."""
+        body = self.call(f'/panel/api/server/installXray/{_path_id(version)}', {})
+        if body.get('success') is False:
+            raise XuiError(_xui_msg(body, 'install xray failed'))
         return body
 
     def get_xray_versions(self) -> list[str]:
@@ -255,13 +252,6 @@ class XuiClient:
         if isinstance(obj, str) and clean_version(obj):
             return [clean_version(obj)]
         return []
-
-    def install_xray(self, version: str) -> dict[str, Any]:
-        """Ставит/обновляет ядро Xray на указанную версию. Перезапускает Xray."""
-        body = self.call(f'/panel/api/server/installXray/{_path_id(version)}', {})
-        if body.get('success') is False:
-            raise XuiError(_xui_msg(body, 'install xray failed'))
-        return body
 
     def server_logs(self, count: int = 80) -> str:
         chunks: list[str] = []

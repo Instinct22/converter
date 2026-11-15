@@ -10,8 +10,8 @@ from app.deps import SessionDep, require_admin
 from app.fail2ban import GuardView, _remember, guard_snapshot, guard_totals, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
-from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound, UpdateNotification
-from app.node_updates import check_updates, perform_update
+from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
+from app.node_updates import start_rollback, start_update
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, store_versions
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
@@ -36,7 +36,7 @@ from app.routers.updates import delete_installer
 from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
 from app.flags import normalize_flags, to_iso
-from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url, version_newer
+from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url
 from app.xui_install import prepare_install, start_install
 
 router = APIRouter(prefix='/api', dependencies=[Depends(require_admin)])
@@ -181,7 +181,9 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'panel_latest_version': node.panel_latest_version or '',
         'xray_latest_version': node.xray_latest_version or '',
         'update_state': node.update_state or '',
-        'update_checked_at': _as_utc(node.update_checked_at).isoformat() if node.update_checked_at else None,
+        'update_kind': node.update_kind or '',
+        'update_prev_version': node.update_prev_version or '',
+        'update_target_version': node.update_target_version or '',
         'install_state': node.install_state or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
@@ -198,94 +200,26 @@ def list_nodes(session: SessionDep) -> list[dict]:
     return [_node_out(n, session) for n in rows]
 
 
-class UpdateIn(BaseModel):
-    node_ids: list[int] = Field(default_factory=list)
-    kind: str = 'both'
+@router.post('/nodes/{node_id}/update')
+def node_update(node_id: int, kind: str, session: SessionDep) -> dict:
+    """Обновить панель/ядро ноды через API панели. kind: 'panel' | 'xray'.
 
-
-def _updates_view(session: Session, nodes: list[Node]) -> dict:
-    notes = session.exec(
-        select(UpdateNotification)
-        .where(UpdateNotification.dismissed.is_(False))
-        .order_by(UpdateNotification.created_at.desc())
-    ).all()
-    return {
-        'nodes': [
-            {
-                'id': node.id,
-                'name': node.name,
-                'flag': node.flag,
-                'enabled': node.enabled,
-                'xui_version': node.xui_version or '',
-                'panel_latest_version': node.panel_latest_version or '',
-                'xray_version': node.xray_version or '',
-                'xray_latest_version': node.xray_latest_version or '',
-                'panel_update_available': version_newer(node.panel_latest_version or '', node.xui_version or ''),
-                'xray_update_available': version_newer(node.xray_latest_version or '', node.xray_version or ''),
-                'update_state': node.update_state or '',
-                'update_checked_at': _as_utc(node.update_checked_at).isoformat() if node.update_checked_at else None,
-            }
-            for node in nodes
-        ],
-        'notifications': [
-            {
-                'id': note.id,
-                'created_at': _as_utc(note.created_at).isoformat() if note.created_at else None,
-                'node_name': note.node_name,
-                'message': note.message,
-            }
-            for note in notes
-        ],
-    }
-
-
-@router.get('/nodes/updates')
-def nodes_updates(session: SessionDep, refresh: bool = False) -> dict:
-    """Список нод с версиями (current/latest) + непрочитанные уведомления.
-
-    refresh=True — перед выдачей опросить каждую включённую ноду на наличие
-    обновления (для ручного режима, чтобы latest были свежими при открытии модалки).
+    Запуск асинхронный: мастер дёрнул API и вернул 'running'; фон-поток ждёт возврата
+    ноды и переведёт состояние в успех (версия обновилась) либо в 'failed'.
     """
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-    if refresh:
-        for node in nodes:
-            if not node.enabled:
-                continue
-            try:
-                check_updates(node)
-            except XuiError:
-                pass
-            session.add(node)
-        session.commit()
-    return _updates_view(session, nodes)
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    return start_update(session, node, kind)
 
 
-@router.post('/nodes/update')
-def nodes_update(payload: UpdateIn, session: SessionDep) -> dict:
-    """Обновить выбранные ноды. kind: 'panel' | 'xray' | 'both'."""
-    if not payload.node_ids:
-        raise HTTPException(400, 'не выбрано ни одной ноды')
-    kind = payload.kind if payload.kind in ('panel', 'xray', 'both') else 'both'
-    results = []
-    for node_id in payload.node_ids:
-        node = session.get(Node, node_id)
-        if not node:
-            results.append({'node_id': node_id, 'node_name': '', 'ok': False, 'message': 'нода не найдена'})
-            continue
-        result = perform_update(session, node, kind=kind)
-        results.append(result.to_dict())
-    return {'results': results}
-
-
-@router.post('/nodes/updates/dismiss')
-def nodes_updates_dismiss(session: SessionDep) -> dict:
-    """Пометить все непрочитанные уведомления об обновлениях прочитанными."""
-    notes = session.exec(select(UpdateNotification).where(UpdateNotification.dismissed.is_(False))).all()
-    for note in notes:
-        note.dismissed = True
-        session.add(note)
-    session.commit()
-    return {'dismissed': len(notes)}
+@router.post('/nodes/{node_id}/update/rollback')
+def node_update_rollback(node_id: int, session: SessionDep) -> dict:
+    """Откатить ядро на прежнюю версию после сбоя обновления (для панели — подсказка)."""
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    return start_rollback(session, node)
 
 
 @router.get('/nodes/{node_id}')

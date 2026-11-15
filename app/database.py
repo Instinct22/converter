@@ -47,9 +47,11 @@ NODE_COLUMNS = {
     'version_checked_at': 'TIMESTAMP',
     'panel_latest_version': "TEXT DEFAULT ''",
     'xray_latest_version': "TEXT DEFAULT ''",
-    'update_run_id': "TEXT DEFAULT ''",
-    'update_state': "TEXT DEFAULT ''",
     'update_checked_at': 'TIMESTAMP',
+    'update_state': "TEXT DEFAULT ''",
+    'update_kind': "TEXT DEFAULT ''",
+    'update_prev_version': "TEXT DEFAULT ''",
+    'update_target_version': "TEXT DEFAULT ''",
 }
 
 TEMPLATE_COLUMNS = {

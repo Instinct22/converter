@@ -3,8 +3,10 @@
 Поднимает несколько HTTP-панелей на 127.0.0.1 разных портов и заводит соответствующие
 ноды в БД мастера (rf_ok=True, чтобы пул пропускал обновление ядер). Реализует ровно те
 эндпоинты, что зовёт XuiClient: status, inbounds/list, clients/onlines,
-getPanelUpdateInfo, updatePanel, getUpdateStatus, getXrayVersion, installXray/<ver>.
-После updatePanel/installXray версии в моке реально меняются — UI это подхватит.
+getPanelUpdateInfo, getXrayVersion, updatePanel, installXray. Версии latest в моке
+фиксированы — UI рисует против них индикатор: жёлтая ↑ (есть новее, клик = обновить
+через API) либо зелёный текст (актуально). updatePanel/installXray реально меняют
+текущую версию мока, чтобы увидеть цикл обновления вживую.
 
 Запуск из корня репозитория (виртуальное окружение):
     python scripts/mock_panels.py            # завести ноды + поднять моки (Ctrl+C — стоп)
@@ -24,20 +26,38 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # Имя ноды -> (порт, версия панели сейчас, версия панели доступна,
-#              версия ядра сейчас, версия ядра доступна, включена ли нода)
+#              версия ядра сейчас, версия ядра доступна, включена ли нода,
+#              назначенные входы (для демонстрации переноса чипов по высоте))
 MOCK_NODES = [
     {'name': 'MOCK-DE-1', 'flag': 'de', 'port': 20801,
      'panel_current': '3.0.5', 'panel_latest': '3.11',
-     'xray_current': '25.9.8', 'xray_latest': '25.11.7', 'enabled': True},
+     'xray_current': '25.9.8', 'xray_latest': '25.11.7', 'enabled': True,
+     'inbounds': ['443 Apple', '8443 Yahoo', '2083 samsung', '443 meshlaurel',
+                  '443 austria', '443 Latviya', '443 albania', '443 main3']},
     {'name': 'MOCK-NL-2', 'flag': 'nl', 'port': 20802,
      'panel_current': '3.11.0', 'panel_latest': '3.11',
-     'xray_current': '26.10.21', 'xray_latest': '26.10.23', 'enabled': True},
+     'xray_current': '26.10.21', 'xray_latest': '26.10.23', 'enabled': True,
+     'inbounds': ['443 Apple', '2083 samsung', '443 austria']},
     {'name': 'MOCK-US-3', 'flag': 'us', 'port': 20803,
      'panel_current': '2.6.2', 'panel_latest': '3.11',
-     'xray_current': '25.9.8', 'xray_latest': '25.11.7', 'enabled': True},
+     'xray_current': '25.9.8', 'xray_latest': '25.11.7', 'enabled': True,
+     'inbounds': ['443 Apple', '8443 Yahoo', '2083 samsung', '443 meshlaurel', '443 main3']},
     {'name': 'MOCK-FI-4', 'flag': 'fi', 'port': 20804,
      'panel_current': '3.0.5', 'panel_latest': '3.11',
-     'xray_current': '25.9.8', 'xray_latest': '25.11.7', 'enabled': False},
+     'xray_current': '25.9.8', 'xray_latest': '25.11.7', 'enabled': False,
+     'inbounds': ['443 Latviya']},
+]
+
+# Общие шаблоны входов (name, порт, флаги) — создаются по имени один раз.
+MOCK_TEMPLATES = [
+    ('443 Apple', 443, 'fi'),
+    ('8443 Yahoo', 8443, ''),
+    ('2083 samsung', 2083, 'fi'),
+    ('443 meshlaurel', 443, 'se'),
+    ('443 austria', 443, 'at'),
+    ('443 Latviya', 443, 'lv'),
+    ('443 albania', 443, 'al'),
+    ('443 main3', 443, 'de'),
 ]
 
 
@@ -51,8 +71,6 @@ class MockPanel:
         self.panel_latest = cfg['panel_latest']
         self.xray_current = cfg['xray_current']
         self.xray_latest = cfg['xray_latest']
-        self.update_state = 'idle'
-        self.run_id = ''
 
     # --- ответы на эндпоинты ---
     def status(self) -> dict:
@@ -76,15 +94,15 @@ class MockPanel:
                 seen.append(v)
         return seen
 
-    def do_update_panel(self) -> str:
-        self.run_id = f'run-{self.port}-{abs(hash(self.panel_latest)) % 1000}'
+    def do_update_panel(self) -> dict:
+        """updatePanel: ставим панели последнюю версию (как настоящий self-update)."""
         self.panel_current = self.panel_latest
-        self.update_state = 'success'
-        return self.run_id
+        return {'success': True, 'obj': ''}
 
-    def do_install_xray(self, version: str) -> None:
-        if version:
-            self.xray_current = version
+    def do_install_xray(self, version: str) -> dict:
+        """installXray: ставим ядро на запрошенную версию."""
+        self.xray_current = version
+        return {'success': True, 'obj': {'success': True}}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -118,16 +136,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send({'success': True, 'obj': []})
         elif path == '/panel/api/server/getPanelUpdateInfo':
             self._send({'success': True, 'obj': panel.update_info()})
-        elif path == '/panel/api/server/updatePanel':
-            self._send({'success': True, 'obj': panel.do_update_panel()})
-        elif path == '/panel/api/server/getUpdateStatus':
-            self._send({'success': True, 'obj': {'runId': panel.run_id, 'state': panel.update_state}})
         elif path == '/panel/api/server/getXrayVersion':
             self._send({'success': True, 'obj': panel.xray_versions()})
+        elif path == '/panel/api/server/updatePanel':
+            self._send(panel.do_update_panel())
         elif path.startswith('/panel/api/server/installXray/'):
-            version = path.rsplit('/', 1)[-1]
-            panel.do_install_xray(version)
-            self._send({'success': True, 'obj': True})
+            self._send(panel.do_install_xray(path.rsplit('/', 1)[-1]))
         else:
             self._send({'success': False, 'msg': f'no route {path}', 'raw': True, 'status': 404})
 
@@ -152,6 +166,7 @@ def seed_nodes(panels: list[MockPanel]) -> None:
     from app.database import engine, init_db
     from app.models import (
         ClientPlacement,
+        InboundTemplate,
         Node,
         NodeInbound,
         NodeTemplateAssignment,
@@ -180,29 +195,53 @@ def seed_nodes(panels: list[MockPanel]) -> None:
         for node in stale:
             session.delete(node)
         session.commit()
+        created: list[tuple[Node, dict]] = []
         for order, panel in enumerate(panels):
             cfg = next(c for c in MOCK_NODES if c['name'] == panel.name)
-            session.add(
-                Node(
-                    flag=cfg['flag'],
-                    name=cfg['name'],
-                    clash_name=cfg['name'],
-                    panel_url=f'http://127.0.0.1:{panel.port}',
-                    api_token=f'mock-token-{panel.port}',
-                    public_host='127.0.0.1',
-                    sub_scheme='http',
-                    enabled=cfg['enabled'],
-                    sort_order=order,
-                    rf_ok=True,
-                    rf_note='тестовый мок',
-                    rf_checked_at=utcnow(),
-                    xui_version=panel.panel_current,
-                    xray_version=panel.xray_current,
-                    panel_latest_version=panel.panel_latest,
-                    xray_latest_version=panel.xray_latest,
-                    version_checked_at=utcnow(),
-                )
+            node = Node(
+                flag=cfg['flag'],
+                name=cfg['name'],
+                clash_name=cfg['name'],
+                panel_url=f'http://127.0.0.1:{panel.port}',
+                api_token=f'mock-token-{panel.port}',
+                public_host='127.0.0.1',
+                sub_scheme='http',
+                enabled=cfg['enabled'],
+                sort_order=order,
+                rf_ok=True,
+                rf_note='тестовый мок',
+                rf_checked_at=utcnow(),
+                xui_version=panel.panel_current,
+                xray_version=panel.xray_current,
+                panel_latest_version=panel.panel_latest,
+                xray_latest_version=panel.xray_latest,
+                version_checked_at=utcnow(),
             )
+            session.add(node)
+            created.append((node, cfg))
+        session.commit()
+
+        # Шаблоны входов создаём по имени один раз, затем назначаем нодам —
+        # чтобы в колонке «Входы» было видно перенос чипов по высоте строки.
+        tpl_by_name: dict[str, InboundTemplate] = {}
+        for name, port, flags in MOCK_TEMPLATES:
+            existing = session.exec(
+                select(InboundTemplate).where(InboundTemplate.name == name)
+            ).first()
+            if existing is not None:
+                tpl_by_name[name] = existing
+                continue
+            tpl = InboundTemplate(name=name, port=port, flags=flags)
+            session.add(tpl)
+            session.commit()
+            session.refresh(tpl)
+            tpl_by_name[name] = tpl
+        for node, cfg in created:
+            for tpl_name in cfg.get('inbounds', []):
+                tpl = tpl_by_name.get(tpl_name)
+                if tpl is None or node.id is None:
+                    continue
+                session.add(NodeTemplateAssignment(node_id=node.id, template_id=tpl.id))
         session.commit()
 
 
@@ -214,7 +253,7 @@ def print_table(panels: list[MockPanel]) -> None:
         panel_col = f"{panel.panel_current}->{panel.panel_latest}" if panel.panel_current != panel.panel_latest else panel.panel_current
         xray_col = f"{panel.xray_current}->{panel.xray_latest}" if panel.xray_current != panel.xray_latest else panel.xray_current
         print(f"{panel.name:<12}{f'http://127.0.0.1:{panel.port}':<24}{panel_col:<16}{xray_col:<16}{'да' if cfg['enabled'] else 'нет'}")
-    print('\nОткройте дашборд мастера → кнопка «Обновления» → «Проверить версии» → «Обновить выбранные».')
+    print('\nОткройте дашборд мастера: против версий нод загорится жёлтая ↑ (есть новее) либо зелёный текст (актуально).')
     print('Ctrl+C — остановить моки.\n')
 
 
