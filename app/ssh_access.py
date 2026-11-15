@@ -11,10 +11,11 @@ import hashlib
 import os
 import re
 import shlex
+import time
 from dataclasses import dataclass
 
 from app.models import Node
-from app.settings import DATA_DIR
+from app.settings import DATA_DIR, settings
 
 KEY_DIR = DATA_DIR / 'ssh'
 PRIVATE_PATH = KEY_DIR / 'master_ed25519'
@@ -105,10 +106,19 @@ echo MASTER_PUB_OK
 '''
 
 
-def lockdown_script() -> str:
-    return r'''set -eu
+def lockdown_script(ssh_port: int = 22, master_ip: str = '') -> str:
+    port = int(ssh_port or 22)
+    master = (master_ip or '').strip()
+    allow = ''
+    if re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', master):
+        allow = (
+            'if command -v ufw >/dev/null 2>&1; then\n'
+            f'  ufw insert 1 allow from {master} to any port {port} proto tcp >/dev/null 2>&1 || true\n'
+            'fi\n'
+        )
+    return f'''set -eu
 export PATH="/usr/local/sbin:/usr/sbin:/sbin:/usr/bin:/bin:$PATH"
-drop=/etc/ssh/sshd_config.d/99-master-key.conf
+{allow}drop=/etc/ssh/sshd_config.d/99-master-key.conf
 mkdir -p /etc/ssh/sshd_config.d
 cat > "$drop" <<'EOF'
 PasswordAuthentication no
@@ -116,7 +126,7 @@ KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 EOF
 chmod 644 "$drop"
-auth=$(sshd -T 2>/dev/null | awk 'tolower($1)=="passwordauthentication"{print $2; exit}')
+auth=$(sshd -T 2>/dev/null | awk 'tolower($1)=="passwordauthentication"{{print $2; exit}}')
 if [ "$auth" != "no" ]; then
   cfg=/etc/ssh/sshd_config
   tmp=$(mktemp)
@@ -128,12 +138,19 @@ EOF
   cat "$cfg" >> "$tmp"
   mv "$tmp" "$cfg"
   chmod 644 "$cfg"
-  auth=$(sshd -T 2>/dev/null | awk 'tolower($1)=="passwordauthentication"{print $2; exit}')
+  auth=$(sshd -T 2>/dev/null | awk 'tolower($1)=="passwordauthentication"{{print $2; exit}}')
 fi
 sshd -t
-echo "PASSWORD_AUTH ${auth:-unknown}"
+printf 'PASSWORD_AUTH %s\\n' "${{auth:-unknown}}" > /run/master-ssh-auth
+cat /run/master-ssh-auth
+sleep 1
 systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1 || service ssh reload >/dev/null 2>&1 || true
 '''
+
+
+def key_lockdown_script(ssh_port: int = 22, master_ip: str = '') -> str:
+    """Одна сессия: доказать вход ключом и только потом выключить пароль."""
+    return 'echo MASTER_KEY_OK\n' + lockdown_script(ssh_port, master_ip)
 
 
 def run_remote(
@@ -184,15 +201,54 @@ def open_client(node: Node, *, mode: str = 'auto', timeout: int = 20):
 
 
 def run_on_node(node: Node, command: str, timeout: int, *, mode: str = 'auto') -> tuple[int, str, str]:
-    client = open_client(node, mode=mode, timeout=min(timeout, 25))
+    client = _open_with_retry(node, mode=mode, timeout=min(timeout, 20))
     try:
-        _stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
-        code = stdout.channel.recv_exit_status()
-        out = stdout.read().decode('utf-8', 'replace')
-        err = stderr.read().decode('utf-8', 'replace')
-        return code, out, err
+        return _exec_bash(client, command, timeout)
     finally:
         client.close()
+
+
+def _open_with_retry(node: Node, *, mode: str, timeout: int):
+    """ufw limit режет частые новые входы с одного адреса. Подождать и повторить."""
+    delay = 0
+    last = None
+    for _attempt in range(4):
+        if delay:
+            time.sleep(delay)
+        try:
+            return open_client(node, mode=mode, timeout=timeout)
+        except Exception as exc:
+            last = exc
+            if not _retryable_connect(exc):
+                raise
+            delay = 12
+    raise last
+
+
+def _retryable_connect(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return 'unable to connect' in text or 'timed out' in text or 'connection refused' in text or 'connection reset' in text
+
+
+def _exec_bash(client, script: str, timeout: int) -> tuple[int, str, str]:
+    stdin, stdout, stderr = client.exec_command('bash -s', timeout=timeout)
+    stdin.write(script if script.endswith('\n') else script + '\n')
+    stdin.channel.shutdown_write()
+    out = ''
+    err = ''
+    try:
+        out = stdout.read().decode('utf-8', 'replace')
+    except Exception:
+        out = ''
+    try:
+        err = stderr.read().decode('utf-8', 'replace')
+    except Exception:
+        err = ''
+    try:
+        code = stdout.channel.recv_exit_status()
+    except Exception:
+        code = 0 if 'PASSWORD_AUTH no' in out else 1
+    return code, out, err
 
 
 def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
@@ -215,44 +271,48 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
             session.add(node)
             session.commit()
 
-    key_ok = _key_login(call)
-    if not key_ok:
-        if not password:
-            save(AUTH_NONE, True)
-            return AdoptResult(False, AUTH_NONE, [f'{name}: нет пароля, ключ флота не подходит'])
-        try:
-            code, out, err = call('password', install_pubkey_script(public), 40)
-        except Exception as exc:
-            save(AUTH_PASSWORD, True)
-            return AdoptResult(False, AUTH_PASSWORD, [f'{name}: не удалось зайти по паролю: {exc}'])
-        if code != 0 or 'MASTER_PUB_OK' not in (out or ''):
-            save(AUTH_PASSWORD, True)
-            detail = ((err or out or f'код {code}').strip())[:200]
-            return AdoptResult(False, AUTH_PASSWORD, [f'{name}: ключ не записался: {detail}'])
-        key_ok = _key_login(call)
-        if not key_ok:
-            save(AUTH_PASSWORD, True)
-            return AdoptResult(False, AUTH_PASSWORD, [f'{name}: ключ записан, вход им не открылся, пароль оставлен'])
+    def finish_key_session(code: int, out: str, err: str, connect_error: str = '') -> AdoptResult | None:
+        text = out or ''
+        if 'MASTER_KEY_OK' in text and 'PASSWORD_AUTH no' in text:
+            save(AUTH_KEY, False)
+            return AdoptResult(True, AUTH_KEY, [f'{name}: парольный вход выключен, пароль удалён из Master'])
+        if 'MASTER_KEY_OK' not in text:
+            return None
+        save(AUTH_BOTH, True)
+        detail = ((err or text or connect_error or f'код {code}').strip())[:200]
+        return AdoptResult(False, AUTH_BOTH, [f'{name}: вход по ключу есть, пароль ещё включён: {detail}'])
 
+    script = key_lockdown_script(int(getattr(node, 'ssh_port', 0) or 22), settings.master_ip)
     try:
-        code, out, err = call('key', lockdown_script(), 40)
+        code, out, err = call('key', script, 70)
+    except Exception as exc:
+        code, out, err = 1, '', str(exc)
+    done = finish_key_session(code, out, err)
+    if done is not None:
+        return done
+    if not password:
+        save(AUTH_NONE, True)
+        detail = (err or 'ключ флота не подходит').strip()[:200]
+        return AdoptResult(False, AUTH_NONE, [f'{name}: нет пароля, {detail}'])
+    try:
+        code, out, err = call('password', install_pubkey_script(public), 40)
+    except Exception as exc:
+        save(AUTH_PASSWORD, True)
+        return AdoptResult(False, AUTH_PASSWORD, [f'{name}: не удалось зайти по паролю: {exc}'])
+    if code != 0 or 'MASTER_PUB_OK' not in (out or ''):
+        save(AUTH_PASSWORD, True)
+        detail = ((err or out or f'код {code}').strip())[:200]
+        return AdoptResult(False, AUTH_PASSWORD, [f'{name}: ключ не записался: {detail}'])
+    try:
+        code, out, err = call('key', script, 70)
     except Exception as exc:
         save(AUTH_BOTH, True)
-        return AdoptResult(False, AUTH_BOTH, [f'{name}: вход по ключу есть, пароль выключить не удалось: {exc}'])
-    if code != 0 or 'PASSWORD_AUTH no' not in (out or ''):
-        save(AUTH_BOTH, True)
-        detail = ((err or out or f'код {code}').strip())[:200]
-        return AdoptResult(False, AUTH_BOTH, [f'{name}: вход по ключу есть, пароль ещё включён: {detail}'])
-    save(AUTH_KEY, False)
-    return AdoptResult(True, AUTH_KEY, [f'{name}: парольный вход выключен, пароль удалён из Master'])
-
-
-def _key_login(call) -> bool:
-    try:
-        code, out, _err = call('key', 'echo MASTER_KEY_OK', 20)
-    except Exception:
-        return False
-    return code == 0 and 'MASTER_KEY_OK' in (out or '')
+        return AdoptResult(False, AUTH_BOTH, [f'{name}: ключ записан, повторный вход не открылся: {exc}'])
+    done = finish_key_session(code, out, err)
+    if done is not None:
+        return done
+    save(AUTH_PASSWORD, True)
+    return AdoptResult(False, AUTH_PASSWORD, [f'{name}: ключ записан, вход им не открылся, пароль оставлен'])
 
 
 def _target(node: Node) -> tuple[str, str, int]:
