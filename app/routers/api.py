@@ -11,7 +11,7 @@ from app.fail2ban import GuardView, _remember, guard_snapshot, guard_totals, rea
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
-from app.node_updates import start_rollback, start_update
+from app.node_updates import reconcile_update, start_update
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, store_versions
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
@@ -182,7 +182,6 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'xray_latest_version': node.xray_latest_version or '',
         'update_state': node.update_state or '',
         'update_kind': node.update_kind or '',
-        'update_prev_version': node.update_prev_version or '',
         'update_target_version': node.update_target_version or '',
         'install_state': node.install_state or '',
         'clash_sub_base': node_clash_sub_base(node),
@@ -204,22 +203,13 @@ def list_nodes(session: SessionDep) -> list[dict]:
 def node_update(node_id: int, kind: str, session: SessionDep) -> dict:
     """Обновить панель/ядро ноды через API панели. kind: 'panel' | 'xray'.
 
-    Запуск асинхронный: мастер дёрнул API и вернул 'running'; фон-поток ждёт возврата
-    ноды и переведёт состояние в успех (версия обновилась) либо в 'failed'.
+    Мастер дёрнул API панели и вернул 'running'; фактический успех разрешает
+    reconcile_update по мере снятия версий обзором/планировщиком (откат не нужен).
     """
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
     return start_update(session, node, kind)
-
-
-@router.post('/nodes/{node_id}/update/rollback')
-def node_update_rollback(node_id: int, session: SessionDep) -> dict:
-    """Откатить ядро на прежнюю версию после сбоя обновления (для панели — подсказка)."""
-    node = session.get(Node, node_id)
-    if not node:
-        raise HTTPException(404, 'node not found')
-    return start_rollback(session, node)
 
 
 @router.get('/nodes/{node_id}')
@@ -900,6 +890,8 @@ def overview(session: SessionDep) -> dict:
         session.add(node)
         st = probe.get('status') or {}
         store_versions(node, st)
+        # Разрешаем статус обновления по фактической версии (без ложного «сбоя»).
+        reconcile_update(node, online)
         node_out.append(
             {
                 **_node_out(node, session),

@@ -1,7 +1,9 @@
-﻿from sqlmodel import Session, SQLModel, create_engine
+from datetime import timedelta
+
+from sqlmodel import Session, SQLModel, create_engine
 
 from app import node_updates
-from app.models import Node
+from app.models import Node, utcnow
 from app.xui import XuiError
 
 # Сценарий поведения фейковой панели по id ноды.
@@ -47,16 +49,6 @@ class FakeXui:
         return {'success': True}
 
 
-class _NoThread:
-    """Заглука threading.Thread: .start() ничего не делает (фон не трогаем в тесте)."""
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def start(self):
-        return None
-
-
 def _session():
     engine = create_engine('sqlite://')
     SQLModel.metadata.create_all(engine)
@@ -76,7 +68,6 @@ def _node(session, id, name, *, enabled=True, xui='2.4.5', xray='25.9.8'):
 def _reset(monkeypatch):
     SCENARIOS.clear()
     monkeypatch.setattr(node_updates, 'XuiClient', FakeXui)
-    monkeypatch.setattr(node_updates.threading, 'Thread', _NoThread)
 
 
 def test_check_updates_detects_diffs(monkeypatch):
@@ -109,6 +100,7 @@ def test_check_updates_padded_versions_equal(monkeypatch):
         SCENARIOS[1] = {'panel_current': '3.11.0', 'panel_latest': '3.11', 'xray_versions': ['26.10.23']}
         info = node_updates.check_updates(node)
         assert info['panel_differs'] is False
+        assert info['xray_differs'] is True
 
 
 def test_start_update_panel_sets_running(monkeypatch):
@@ -125,8 +117,8 @@ def test_start_update_panel_sets_running(monkeypatch):
         session.refresh(node)
         assert node.update_state == 'running'
         assert node.update_kind == 'panel'
-        assert node.update_prev_version == '2.4.5'
         assert node.update_target_version == '2.5.0'
+        assert node.update_started_at is not None
 
 
 def test_start_update_xray_sets_running(monkeypatch):
@@ -171,34 +163,96 @@ def test_start_update_rejects_when_running(monkeypatch):
         assert res['ok'] is False
 
 
-def test_start_rollback_xray_installs_prev(monkeypatch):
+def test_start_update_panel_rejected_keeps_state_clear(monkeypatch):
+    """Панель отказала в запуске — статус не уходит в failed (стрелка ↑ остаётся)."""
     _reset(monkeypatch)
     with _session() as session:
+        node = _node(session, 1, 'DE', xui='2.4.5', xray='25.9.8')
+        SCENARIOS[1] = {'panel_current': '2.4.5', 'panel_latest': '2.5.0', 'xray_versions': ['25.11.1'], 'offline': True}
+        res = node_updates.start_update(session, node, 'panel')
+        assert res['ok'] is False
+        session.refresh(node)
+        assert node.update_state == ''
+
+
+def test_reconcile_running_success_when_version_reached():
+    with _session() as session:
         node = _node(session, 1, 'DE', xui='2.5.0', xray='25.9.8')
-        node.update_state = 'failed'
-        node.update_kind = 'xray'
-        node.update_prev_version = '25.9.8'
+        node.update_state = 'running'
+        node.update_kind = 'panel'
+        node.update_target_version = '2.5.0'
+        node.update_started_at = utcnow()
         session.add(node)
         session.commit()
-        SCENARIOS[1] = {}
-        res = node_updates.start_rollback(session, node)
-        assert res['ok'] is True
-        assert res['to'] == '25.9.8'
-        assert SCENARIOS[1].get('_installed') == '25.9.8'
-        session.refresh(node)
+        node_updates.reconcile_update(node, True)
+        assert node.update_state == ''
+        assert node.update_kind == ''
+        assert node.update_target_version == ''
+
+
+def test_reconcile_running_success_when_version_newer():
+    """Версия перескочила дальше целевой (или '3.11.0'=='3.11') — тоже успех."""
+    with _session() as session:
+        node = _node(session, 1, 'NL', xui='3.11.0', xray='26.10.21')
+        node.update_state = 'running'
+        node.update_kind = 'panel'
+        node.update_target_version = '3.11'
+        node.update_started_at = utcnow()
+        session.add(node)
+        session.commit()
+        node_updates.reconcile_update(node, True)
+        assert node.update_state == ''
+
+
+def test_reconcile_running_stays_when_not_yet_reached():
+    with _session() as session:
+        node = _node(session, 1, 'DE', xui='2.4.5', xray='25.9.8')
+        node.update_state = 'running'
+        node.update_kind = 'panel'
+        node.update_target_version = '2.5.0'
+        node.update_started_at = utcnow()
+        session.add(node)
+        session.commit()
+        node_updates.reconcile_update(node, True)
         assert node.update_state == 'running'
 
 
-def test_start_rollback_panel_unavailable(monkeypatch):
-    _reset(monkeypatch)
+def test_reconcile_running_timeout_offline_marks_failed():
+    with _session() as session:
+        node = _node(session, 1, 'DE', xui='2.4.5', xray='25.9.8')
+        node.update_state = 'running'
+        node.update_kind = 'panel'
+        node.update_target_version = '2.5.0'
+        node.update_started_at = utcnow() - timedelta(minutes=node_updates.UPDATE_TIMEOUT_MINUTES + 1)
+        session.add(node)
+        session.commit()
+        node_updates.reconcile_update(node, False)
+        assert node.update_state == 'failed'
+
+
+def test_reconcile_running_online_not_failed_yet():
+    """Пока нода online — сбой не помечаем, даже если целевая ещё не достигнута."""
+    with _session() as session:
+        node = _node(session, 1, 'DE', xui='2.4.5', xray='25.9.8')
+        node.update_state = 'running'
+        node.update_kind = 'panel'
+        node.update_target_version = '2.5.0'
+        node.update_started_at = utcnow() - timedelta(minutes=node_updates.UPDATE_TIMEOUT_MINUTES + 1)
+        session.add(node)
+        session.commit()
+        node_updates.reconcile_update(node, True)
+        assert node.update_state == 'running'
+
+
+def test_reconcile_failed_reset_when_back_online():
     with _session() as session:
         node = _node(session, 1, 'DE', xui='2.4.5', xray='25.9.8')
         node.update_state = 'failed'
         node.update_kind = 'panel'
-        node.update_prev_version = '2.4.5'
+        node.update_target_version = '2.5.0'
         session.add(node)
         session.commit()
-        res = node_updates.start_rollback(session, node)
-        assert res['ok'] is False
-        assert 'панели' in res['message']
+        node_updates.reconcile_update(node, True)
+        assert node.update_state == ''
+        assert node.update_kind == ''
 

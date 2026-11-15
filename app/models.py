@@ -55,8 +55,8 @@ class Node(SQLModel, table=True):
     # '' | running | failed; kind — что обновляем (panel/xray); prev — на что откатывать.
     update_state: str = ''
     update_kind: str = ''
-    update_prev_version: str = ''
     update_target_version: str = ''
+    update_started_at: Optional[datetime] = None
     install_state: str = ''
     install_log: str = ''
     install_ssl: str = ''

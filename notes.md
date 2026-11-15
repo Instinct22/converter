@@ -61,15 +61,22 @@ XTLS/Xray-core). Планировщик read-only снимает latest в `pane
 Против версий в таблице нод — индикатор: **жёлтая ↑ (кликабельная)** = есть версия новее;
 **зелёный текст версии** = совпадает с последней (всё ок). Клик по ↑ → окно подтверждения
 «обновить с X на Y» → установка через API панели.
-- `node_updates.py`: `check_updates` (read-only latest → в Node) + `start_update`/`start_rollback`
-  (запуск обновления в фоновом потоке, ожидание возврата ноды, авто-откат ядра на прежнюю версию).
+- `node_updates.py`: `check_updates` (read-only latest → в Node) + `start_update` (запуск
+  обновления через API панели, ставит `running`) + `reconcile_update` (разрешает статус по
+  ФАКТИЧЕСКОЙ версии: версия дошла до целевой/новее → успех (зелёный); offline по таймауту →
+  `failed`; failed при возврате online → сброс в ↑). Откат УДАЛЁН (панель 3x-ui не понижает по
+  API, переустановка прежней версии ядра падает — механизм не работал).
 - `xui.py`: read-only `get_panel_update_info`, `get_xray_versions` + `update_panel`, `install_xray`.
-- API: `POST /api/nodes/{id}/update` (kind=panel|xray), `POST /api/nodes/{id}/update/rollback`.
-  Состояние — в колонках `update_state`(running/failed)/`update_kind`/`update_prev_version`/`update_target_version`.
-- UI: ячейки версии с индикатором + confirm-окно и запуск (`app.js: applyNodeVersions` + inline в `dashboard.html`).
+- API: `POST /api/nodes/{id}/update` (kind=panel|xray). Состояние — в колонках
+  `update_state`(running/failed)/`update_kind`/`update_target_version`/`update_started_at`.
+  Эндпоинт `/update/rollback` и колонка `update_prev_version` — УДАЛЕНЫ.
+- UI: ячейки версии с индикатором + confirm-окно и запуск (`app.js: applyNodeVersions`/`renderVerIcon`
+  + inline в `dashboard.html`). Красный «!» при сбое — НЕкликабелен («проверьте ноду вручную»).
   Старые модалка `_update_nodes.html`, кнопка «Обновления», `initUpdateControls`, `UpdateNotification` — УДАЛЕНЫ.
-- Откат: для **ядра** — авто (installXray прежней версии); для **панели** — нет (3x-ui не понижает по API), ошибка для ручной правки.
-- Тесты: `tests/test_node_updates.py` — 10 шт (check_updates, запуск panel/xray, откат ядра, откат панели недоступен).
+- Успех определяется по фактической версии ноды (обзор/планировщик каждый цикл снимают версии):
+  ложного «сбоя» после успешного обновления больше нет.
+- Тесты: `tests/test_node_updates.py` — 15 шт (check_updates, запуск panel/xray, отказ панели,
+  reconcile_update: успех/новее/ожидание/таймаут/сброс failed).
 
 ## Тестовые моки нод
 `scripts/mock_panels.py` — фейковые панели 3x-ui на портах 20801–20804 (DE-1/NL-2/US-3/FI-4),

@@ -50,8 +50,8 @@ NODE_COLUMNS = {
     'update_checked_at': 'TIMESTAMP',
     'update_state': "TEXT DEFAULT ''",
     'update_kind': "TEXT DEFAULT ''",
-    'update_prev_version': "TEXT DEFAULT ''",
     'update_target_version': "TEXT DEFAULT ''",
+    'update_started_at': 'TIMESTAMP',
 }
 
 TEMPLATE_COLUMNS = {

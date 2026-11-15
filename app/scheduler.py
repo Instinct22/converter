@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 
 from app.database import engine
 from app.models import Node
-from app.node_updates import check_updates
+from app.node_updates import check_updates, reconcile_update
 from app.overview import probe_nodes, store_versions
 from app.provision import disable_expired
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
@@ -26,6 +26,8 @@ def _job() -> None:
             # Версии панели и ядра снимаются с того же ответа /server/status,
             # что и CPU/RAM: отдельного запроса на ноде они не требуют.
             store_versions(node, probe.get('status') or {})
+            # Разрешаем статус обновления по фактической версии (без ложного «сбоя»).
+            reconcile_update(node, bool(probe.get('online')))
             # Read-only: снимаем доступные (latest) версии панели и ядра, чтобы в
             # таблице нод против версии загорелась жёлтая стрелка ↑ (есть новее) либо
             # версия стала зелёной (актуально). Ничего не устанавливаем.
