@@ -5,7 +5,8 @@
 ## Что это
 **XUI Master** — веб-панель (FastAPI + SQLModel/SQLite) для управления парком серверов
 с 3x-ui (VLESS/Reality-прокси): ноды, клиенты, подписки Mihomo/Clash, защита (fail2ban/файрвол),
-проверка доступности из РФ, индикатор доступных обновлений панелей/ядер (сами обновления — вручную на ноде).
+проверка доступности из РФ, обновление версий панелей/ядер на нодах прямо из мастера через API панели
+(кликабельная стрелка ↑ + подтверждение; авто-откат ядра при сбое).
 
 ## Стек / запуск / тесты
 - Python, FastAPI 0.115, SQLModel 0.0.22, httpx, APScheduler, paramiko (SSH), jinja2.
@@ -36,40 +37,45 @@ Middleware: SessionMiddleware (cookie `master_session`). Static `/static`.
 - `xui.py` — `XuiClient` (httpx, **verify=False**, Bearer-токен, без /login). Все вызовы панели.
 - `overview.py` — `probe_nodes`/`probe_node` (онлайн/CPU/RAM/версии), `store_versions`.
 - `reachability.py` — TCP-пробы портов из РФ (`probe_nodes_rf`), «доходит ли до клиентов».
-- `node_updates.py` — **read-only** снятие latest-версий панели/ядра (только индикатор; см. ниже).
+- `node_updates.py` — снятие latest-версий (read-only) + запуск обновления панели/ядра через API и откат ядра (см. ниже).
 - `provision.py` — раскладка клиентов по нодам/входам, `disable_expired`, шаблоны по умолчанию.
 - `mihomo.py` — рендер YAML-подписки Mihomo. `sub_link.py` — токены/пути подписок.
 - `xui_install.py` — первичная установка 3x-ui по SSH (paramiko) + файрвол.
 - `firewall.py`, `fail2ban.py` — защита нод. `neighbor_scan.py`, `reality_scan.py`, `tls_sni.py`,
   `crypto_reality.py`, `parse_inbound.py`, `flags.py`, `util.py` — вспомогательное.
 - `scheduler.py` — APScheduler, **интервал 10 мин**: `disable_expired` → `probe_nodes` →
-  `store_versions` → **read-only `check_updates`** (только latest для лампочки) → `_refresh_rf`.
-  **Автообновления нод НЕТ** (cron удалён намеренно).
+  `store_versions` → **read-only `check_updates`** (только latest для индикатора) → `_refresh_rf`.
+  Планировщик **сам ничего не обновляет** — обновление панели/ядра запускается только по клику в UI.
 - `settings.py` — pydantic-settings, `.env`. `bootstrap.py` — сид при пустой БД.
 
 ## Модели (models.py)
 `Node` (panel_url, api_token, ssh_*, rf_ok, firewall_on, xui_version/xray_version,
-**panel_latest_version/xray_latest_version**, install_state, enabled, sort_order),
+**panel_latest_version/xray_latest_version**, **update_state/update_kind/update_prev_version/update_target_version**,
+install_state, enabled, sort_order),
 `InboundTemplate`, `NodeTemplateAssignment`, `NodeInbound`, `Client` (slug, uuid, sub_token, expire),
 `ClientPlacement`, `ConfigDoc` (yaml_text, pool_group_names, global_extra_snis), `AppSetting`.
 
-## Обновление версий на нодах — только индикатор (обновление делаем вручную на ноде)
+## Обновление версий панели/ядра на нодах (из мастера, через API панели)
 Панель сама знает latest (`getPanelUpdateInfo` → GitHub MHSanaei/3x-ui; `getXrayVersion` →
 XTLS/Xray-core). Планировщик read-only снимает latest в `panel_latest_version`/`xray_latest_version`.
-Против версий в таблице нод рисуется индикатор: **жёлтая стрелка ↑** (есть версия новее) либо
-**зелёный текст версии** (совпадает с последней — всё ок). Вызова обновления из мастера НЕТ.
-- `node_updates.py`: только `check_updates` (read-only latest → в Node). `perform_update`/авто-откат/пул — УДАЛЕНЫ.
-- `xui.py`: read-only `get_panel_update_info`, `get_xray_versions`. `update_panel`/`get_update_status`/`install_xray` — УДАЛЕНЫ.
-- API: update-эндпоинтов нод НЕТ (удалены `POST /api/nodes/update`, `POST /api/nodes/updates/dismiss`, `GET /api/nodes/updates`).
-- UI: в таблице нод ячейки версии с индикатором (`app.js: applyNodeVersions` + inline в `dashboard.html`).
-  Модалка `_update_nodes.html`, кнопка «Обновления», `initUpdateControls`, `UpdateNotification` — УДАЛЕНЫ.
-- Тесты: `tests/test_node_updates.py` — 3 шт (только `check_updates`).
+Против версий в таблице нод — индикатор: **жёлтая ↑ (кликабельная)** = есть версия новее;
+**зелёный текст версии** = совпадает с последней (всё ок). Клик по ↑ → окно подтверждения
+«обновить с X на Y» → установка через API панели.
+- `node_updates.py`: `check_updates` (read-only latest → в Node) + `start_update`/`start_rollback`
+  (запуск обновления в фоновом потоке, ожидание возврата ноды, авто-откат ядра на прежнюю версию).
+- `xui.py`: read-only `get_panel_update_info`, `get_xray_versions` + `update_panel`, `install_xray`.
+- API: `POST /api/nodes/{id}/update` (kind=panel|xray), `POST /api/nodes/{id}/update/rollback`.
+  Состояние — в колонках `update_state`(running/failed)/`update_kind`/`update_prev_version`/`update_target_version`.
+- UI: ячейки версии с индикатором + confirm-окно и запуск (`app.js: applyNodeVersions` + inline в `dashboard.html`).
+  Старые модалка `_update_nodes.html`, кнопка «Обновления», `initUpdateControls`, `UpdateNotification` — УДАЛЕНЫ.
+- Откат: для **ядра** — авто (installXray прежней версии); для **панели** — нет (3x-ui не понижает по API), ошибка для ручной правки.
+- Тесты: `tests/test_node_updates.py` — 10 шт (check_updates, запуск panel/xray, откат ядра, откат панели недоступен).
 
 ## Тестовые моки нод
 `scripts/mock_panels.py` — фейковые панели 3x-ui на портах 20801–20804 (DE-1/NL-2/US-3/FI-4),
 разные версии. `python scripts/mock_panels.py --seed` (сид БД) / `--serve` (HTTP).
+Мок принимает `updatePanel`/`installXray` и реально меняет версию — видно полный цикл обновления.
 Версии latest в моках условные (3.11 / 25.11.7) — в бою берутся с реальной панели.
-Debug-скрипты `scripts/_inspect_db.py`, `scripts/_probe_updates.py` — untracked, временные.
 
 ## Конвенции / грабли
 - **Кэш-буст**: `app.css?v=NN` и `app.js?v=NN` в `app/templates/base.html` — при правке статики
