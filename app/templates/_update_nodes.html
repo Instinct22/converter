@@ -1,36 +1,30 @@
 {#
-  Модалка авто- и ручного обновления панелей 3x-ui и ядер Xray.
+  Модалка ручного обновления панелей 3x-ui и ядер Xray. Панель и ядро — отдельные
+  сущности: у каждой ноды своя кнопка «Панель ↑» и «Ядро ↑».
   Подключается из «Обзора». Строки нод и уведомления рисует initUpdateControls()
-  в app.js (кнопка #open-updates, tbody #update-rows, #update-notes, #update-log,
-  #update-skip-floor, #update-refresh, #update-apply, #update-dismiss).
+  в app.js (кнопка #open-updates, контейнер #update-rows, #update-notes,
+  #update-refresh, #update-dismiss).
 #}
 <div class="overlay" id="update-nodes">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="page-head" style="margin-bottom:4px">
       <div>
         <h2>Обновления</h2>
-        <p class="sub">Панель обновляется безопасно. Ядро Xray перезапускается — строго по пулу из 2 живых и доступных из РФ нод.</p>
+        <p class="sub">Панель обновляется безопасно. Ядро Xray перезапускается — при сбое обновления автоматически откатывается на прежнюю версию.</p>
       </div>
       <button class="btn ghost small" type="button" data-close="update-nodes">Закрыть</button>
     </div>
 
     <div class="row" style="margin-bottom:10px">
       <button class="btn secondary small" type="button" id="update-refresh">Проверить версии</button>
-      <label class="chip" title="Обновлять ядро в обход защитного пула из 2 живых и доступных из РФ нод. Риск: клиенты на выбранной ноде могут остаться без связи.">
-        <input type="checkbox" id="update-skip-floor"> Игнорировать защиту недоступности
-      </label>
     </div>
 
     <div class="monitor-head update-cols">
       <span class="col-cap">Нода</span>
-      <span class="col-cap">3x-ui</span>
-      <span class="col-cap">Xray</span>
+      <span class="col-cap">3x-ui<span class="th-hint">панель</span></span>
+      <span class="col-cap">Xray<span class="th-hint">ядро</span></span>
     </div>
     <div class="monitor update-cols" id="update-rows"></div>
-
-    <div class="row" style="margin-top:14px">
-      <button class="btn" type="button" id="update-apply">Обновить выбранные</button>
-    </div>
 
     <div class="step-label update-notes-label">Уведомления</div>
     <div id="update-notes" class="update-notes"></div>

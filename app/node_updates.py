@@ -1,13 +1,9 @@
 """Ручное обновление панелей 3x-ui и ядер Xray по API.
 
 Два объекта обновления: панель (3x-ui) и ядро (Xray). Панель перезапускает только
-веб-процесс — клиентов не рвёт, RF-доступность не падает, поэтому её обновляем смело.
-Ядро меняет бинарь Xray и перезапускает его — это микро-reconnect клиентов и
-кратковременное падение RF, поэтому ядро идёт строго по защитному пулу.
-
-Защитный инвариант: ни в один момент обновления не должно оставаться меньше 2 нод,
-которые одновременно живы (панель отвечает) И доступны из РФ (rf_ok). Пул считается
-скользящим — перед КАЖДЫМ шагом ядра, а не один раз в старте прогона.
+веб-процесс — клиентов не рвёт. Ядро меняет бинарь Xray и перезапускает его — это
+микро-reconnect клиентов; если новое ядро не поднялось, автоматически откатываемся
+на прежнюю версию, чтобы нода осталась рабочей.
 """
 from __future__ import annotations
 
@@ -18,14 +14,12 @@ from typing import Any
 from sqlmodel import Session, select
 
 from app.models import Node, UpdateNotification, utcnow
-from app.xui import XuiClient, XuiError, clean_version
+from app.xui import XuiClient, XuiError, clean_version, version_newer
 
 # Средний таймаут возврата: и на панель, и на ядро.
 STEP_TIMEOUT = 240.0
 # С каким шагом поллим статус панели и пингуем ноду после обновления ядра.
 POLL_INTERVAL = 10.0
-# Короткий таймаут на одиночный health-пинг ноды при подсчёте резерва.
-ALIVE_TIMEOUT = 6.0
 
 
 @dataclass
@@ -51,30 +45,6 @@ def _notify(session: Session, node_name: str | None, message: str) -> UpdateNoti
     return note
 
 
-def _panel_alive(node: Node) -> bool:
-    """Панель отвечает? Отдельный клиент на каждый пинг: unreachable-флаг не липнет."""
-    try:
-        with XuiClient(node, timeout=ALIVE_TIMEOUT) as xui:
-            xui.server_status()
-        return True
-    except XuiError:
-        return False
-
-
-def _reserve_nodes(session: Session, exclude_id: int | None = None) -> list[Node]:
-    """Живые + RF-доступные включённые ноды (кроме exclude) — это резерв пула."""
-    rows = session.exec(
-        select(Node).where(Node.enabled.is_(True), Node.rf_ok.is_(True))
-    ).all()
-    out: list[Node] = []
-    for node in rows:
-        if exclude_id is not None and node.id == exclude_id:
-            continue
-        if _panel_alive(node):
-            out.append(node)
-    return out
-
-
 def check_updates(node: Node) -> dict[str, Any]:
     """Опросить ноду: какие версии доступны. Сохранить latest в Node.
 
@@ -96,8 +66,8 @@ def check_updates(node: Node) -> dict[str, Any]:
         'panel_latest': panel_latest,
         'xray_current': xray_current,
         'xray_latest': xray_latest,
-        'panel_differs': bool(panel_latest and panel_current and panel_latest != panel_current),
-        'xray_differs': bool(xray_latest and xray_current and xray_latest != xray_current),
+        'panel_differs': bool(panel_latest and panel_current and version_newer(panel_latest, panel_current)),
+        'xray_differs': bool(xray_latest and xray_current and version_newer(xray_latest, xray_current)),
     }
 
 
@@ -193,12 +163,15 @@ def _rollback_xray(node: Node, prev_version: str) -> tuple[bool, str]:
 
 
 
-def perform_update(session: Session, node: Node, *, floor_enabled: bool = True) -> UpdateResult:
-    """Обновить одну ноду вручную: сначала панель → дождаться → потом ядро → дождаться возврата.
+def perform_update(session: Session, node: Node, *, kind: str = 'both') -> UpdateResult:
+    """Обновить одну ноду вручную. kind: 'panel' | 'xray' | 'both'.
 
-    floor_enabled=True — перед шагом ядра проверяем пул: count(alive AND rf_ok AND
-    enabled AND id != current) >= 2. Если нет — пропускаем ноду с причиной.
-    Каждый пропуск/сбой фиксируется уведомлением (UpdateNotification), чтобы зона
+    Панель и ядро — отдельные сущности: kind='panel' трогает только веб-процесс
+    панели, kind='xray' — только бинарь Xray, kind='both' — панель, затем ядро.
+
+    Панель обновляем смело (не рвёт клиентов). Ядро перезапускается; если новое
+    ядро не поднялось — автоматически откатываемся на прежнюю версию. Каждый
+    пропуск/сбой/успех фиксируется уведомлением (UpdateNotification), чтобы зона
     «Уведомления» в ручном режиме не оставалась пустой.
     """
     name = node.name
@@ -218,13 +191,21 @@ def perform_update(session: Session, node: Node, *, floor_enabled: bool = True) 
     session.add(node)
     session.commit()
 
-    if not info['panel_differs'] and not info['xray_differs']:
-        return UpdateResult(node.id or 0, name, ok=True, message='актуально')
+    want_panel = kind in ('panel', 'both') and info['panel_differs']
+    want_xray = kind in ('xray', 'both') and info['xray_differs']
+    if not want_panel and not want_xray:
+        if kind == 'panel':
+            message = 'панель актуальна'
+        elif kind == 'xray':
+            message = 'ядро актуально'
+        else:
+            message = 'актуально'
+        return UpdateResult(node.id or 0, name, ok=True, message=message)
 
     result = UpdateResult(node.id or 0, name, ok=True)
 
     # Шаг панели: безопасно, без ограничения пулом.
-    if info['panel_differs']:
+    if want_panel:
         ok, msg = _update_panel_step(node)
         if not ok:
             message = f'нода «{name}»: панель не обновилась — {msg}'
@@ -238,17 +219,8 @@ def perform_update(session: Session, node: Node, *, floor_enabled: bool = True) 
         session.add(node)
         session.commit()
 
-    # Шаг ядра: строго по пулу, с ожиданием возврата и шагом отката.
-    if info['xray_differs']:
-        if floor_enabled:
-            reserve = _reserve_nodes(session, exclude_id=node.id)
-            if len(reserve) < 2:
-                reason = f'нода «{name}» пропущена: менее 2 живых и доступных из РФ резервных нод'
-                _notify(session, name, reason)
-                return UpdateResult(
-                    node.id or 0, name, ok=False, skipped=True, reason=reason,
-                    panel_updated=result.panel_updated,
-                )
+    # Шаг ядра: с ожиданием возврата и шагом отката при сбое.
+    if want_xray:
         prev_xray = info['xray_current']
         ok, msg = _update_xray_step(node, info['xray_latest'])
         if not ok:

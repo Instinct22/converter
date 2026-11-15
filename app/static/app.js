@@ -333,6 +333,28 @@ function applyNodeRf(row, node) {
   label.setAttribute('title', parts.join(' · ') || 'Проверки из России ещё не было');
 }
 
+function versionTuple(value) {
+  return String(value || '').split(/[^0-9]+/).filter(Boolean).map(Number);
+}
+
+// Строго новее ли candidate, чем base (с учётом '3.11' == '3.11.0').
+function versionNewer(candidate, base) {
+  const a = versionTuple(candidate);
+  const b = versionTuple(base);
+  if (!a.length || !b.length) return Boolean(candidate) && candidate !== base;
+  const size = Math.max(a.length, b.length);
+  while (a.length < size) a.push(0);
+  while (b.length < size) b.push(0);
+  for (let i = 0; i < size; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
+function versionEqual(a, b) {
+  return !versionNewer(a, b) && !versionNewer(b, a);
+}
+
 // Versions are read by the same /server/status call that powers CPU/RAM, so the
 // two columns refresh on every overview poll. Empty means "this panel release
 // does not report it" — we keep the last known value in the DB instead of blanking.
@@ -344,8 +366,8 @@ function applyNodeVersions(row, node) {
     if (!el) return;
     el.textContent = value || '—';
     el.classList.toggle('is-empty', !value);
-    const canUpdate = Boolean(latest) && Boolean(value) && latest !== value;
-    const isCurrent = Boolean(latest) && Boolean(value) && latest === value;
+    const canUpdate = versionNewer(latest, value);
+    const isCurrent = Boolean(latest) && Boolean(value) && versionEqual(latest, value);
     el.classList.toggle('has-update', canUpdate);
     el.classList.toggle('is-current', isCurrent);
     const bits = [];
@@ -834,38 +856,55 @@ function initUpdateControls() {
 
   const rowsBox = document.getElementById('update-rows');
   const notesBox = document.getElementById('update-notes');
-  const applyBtn = document.getElementById('update-apply');
-  const skipFloor = document.getElementById('update-skip-floor');
   const dot = openBtn.querySelector('[data-update-dot]');
 
   function setDot(hasUndismissed) {
     if (dot) dot.hidden = !hasUndismissed;
   }
 
-  // Кнопка «Обновить выбранные» активна только когда отмечена хотя бы одна нода.
-  function syncApply() {
-    if (!applyBtn) return;
-    const any = Array.from(document.querySelectorAll('[data-update-id]')).some((cb) => cb.checked);
-    applyBtn.disabled = !any;
-  }
-
+  // Панель и ядро — отдельные сущности: у каждой своя кнопка обновления.
   function verCell(current, latest) {
     const wrap = document.createElement('span');
-    wrap.className = 'upd-ver';
     if (!current && !latest) {
+      wrap.className = 'upd-ver';
       wrap.textContent = '—';
-      return wrap;
+      return { wrap, needs: false };
     }
-    if (!latest || current === latest) {
+    if (versionNewer(latest, current)) {
+      wrap.className = 'upd-ver diff';
+      wrap.textContent = (current || '—') + ' → ' + latest;
+      wrap.title = 'доступно обновление до ' + latest;
+      return { wrap, needs: true };
+    }
+    if (current && latest && versionEqual(latest, current)) {
       wrap.className = 'upd-ver ok';
-      wrap.textContent = current || '—';
+      wrap.textContent = current;
       wrap.title = 'актуально';
-      return wrap;
+      return { wrap, needs: false };
     }
-    wrap.className = 'upd-ver diff';
-    wrap.textContent = current + ' → ' + latest;
-    wrap.title = 'доступно обновление до ' + latest;
-    return wrap;
+    wrap.className = 'upd-ver';
+    wrap.textContent = current || '—';
+    return { wrap, needs: false };
+  }
+
+  function versionColumn(node, current, latest, kind, label) {
+    const cell = document.createElement('div');
+    cell.className = 'upd-cell';
+    const { wrap, needs } = verCell(current, latest);
+    cell.appendChild(wrap);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'upd-btn';
+    btn.dataset.updateId = String(node.id);
+    btn.dataset.updateKind = kind;
+    btn.textContent = label;
+    const enabled = Boolean(node.enabled) && needs;
+    btn.disabled = !enabled;
+    btn.title = !node.enabled
+      ? 'нода выключена'
+      : (needs ? 'обновить ' + label.toLowerCase() : label.toLowerCase() + ' актуальна');
+    cell.appendChild(btn);
+    return cell;
   }
 
   function renderRows(nodes) {
@@ -878,42 +917,13 @@ function initUpdateControls() {
 
       const main = document.createElement('div');
       main.className = 'monitor-main';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.className = 'upd-check';
-      cb.dataset.updateId = String(n.id);
-      const differs = (n.panel_latest_version && n.panel_latest_version !== n.xui_version)
-        || (n.xray_latest_version && n.xray_latest_version !== n.xray_version);
-      const selectable = n.enabled && differs;
-      cb.disabled = !selectable;
-      if (selectable) cb.checked = true;
-      if (selectable) row.classList.add('is-selectable', 'is-selected');
       const name = document.createElement('strong');
       name.textContent = n.name + (n.enabled ? '' : ' (выкл)');
-      main.appendChild(cb);
       main.appendChild(name);
       row.appendChild(main);
 
-      const panel = document.createElement('span');
-      panel.appendChild(verCell(n.xui_version, n.panel_latest_version));
-      row.appendChild(panel);
-
-      const core = document.createElement('span');
-      core.appendChild(verCell(n.xray_version, n.xray_latest_version));
-      row.appendChild(core);
-
-      // Клик по любой части строки переключает выбор — не надо попадать в чекбокс.
-      row.addEventListener('click', (event) => {
-        if (!selectable) return;
-        if (event.target === cb) return; // сам чекбокс переключился штатно
-        cb.checked = !cb.checked;
-        row.classList.toggle('is-selected', cb.checked);
-        syncApply();
-      });
-      cb.addEventListener('change', () => {
-        row.classList.toggle('is-selected', cb.checked);
-        syncApply();
-      });
+      row.appendChild(versionColumn(n, n.xui_version, n.panel_latest_version, 'panel', 'Панель ↑'));
+      row.appendChild(versionColumn(n, n.xray_version, n.xray_latest_version, 'xray', 'Ядро ↑'));
 
       rowsBox.appendChild(row);
     });
@@ -942,7 +952,6 @@ function initUpdateControls() {
     renderRows(data.nodes || []);
     renderNotes(data.notifications || []);
     setDot((data.notifications || []).length > 0);
-    syncApply();
     return data;
   }
 
@@ -957,21 +966,19 @@ function initUpdateControls() {
     } catch (err) {}
   });
 
-  document.getElementById('update-apply')?.addEventListener('click', async (e) => {
-    const ids = Array.from(document.querySelectorAll('[data-update-id]'))
-      .filter((cb) => cb.checked)
-      .map((cb) => Number(cb.dataset.updateId));
-    if (!ids.length) {
-      toast('Выберите ноды для обновления', 'err');
-      return;
-    }
+  // Раздельное обновление: клик по «Панель ↑» или «Ядро ↑» конкретной ноды.
+  rowsBox?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.upd-btn');
+    if (!btn || btn.disabled) return;
+    const id = Number(btn.dataset.updateId);
+    const kind = btn.dataset.updateKind;
     try {
       // Результаты (успех/пропуск/сбой/откат) заводятся уведомлениями на бэкенде —
-      // после прогона перезагружаем жёлтый блок «Уведомления», тёмный лог не нужен.
-      await withBusy(e.currentTarget, async () => {
+      // после прогона перезагружаем жёлтый блок «Уведомления».
+      await withBusy(btn, async () => {
         await api('/api/nodes/update', 'POST', {
-          node_ids: ids,
-          skip_floor: skipFloor ? skipFloor.checked : false,
+          node_ids: [id],
+          kind,
         });
         await loadUpdates(false);
       });
@@ -988,7 +995,7 @@ function initUpdateControls() {
   });
 
   // Первичная лёгкая загрузка без опроса нод — только чтобы зажечь точку,
-  // если с ночного автопрогона остались непрочитанные уведомления.
+  // если остались непрочитанные уведомления.
   loadUpdates(false).catch(() => {});
 }
 

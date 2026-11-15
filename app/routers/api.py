@@ -36,7 +36,7 @@ from app.routers.updates import delete_installer
 from app.tls_sni import fetch_dest_sni, parse_dest
 from app.util import expire_from_days, format_bytes, new_token, new_uuid, slugify
 from app.flags import normalize_flags, to_iso
-from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url
+from app.xui import XuiClient, XuiError, normalize_panel_url, public_host_from_url, version_newer
 from app.xui_install import prepare_install, start_install
 
 router = APIRouter(prefix='/api', dependencies=[Depends(require_admin)])
@@ -200,7 +200,7 @@ def list_nodes(session: SessionDep) -> list[dict]:
 
 class UpdateIn(BaseModel):
     node_ids: list[int] = Field(default_factory=list)
-    skip_floor: bool = False
+    kind: str = 'both'
 
 
 def _updates_view(session: Session, nodes: list[Node]) -> dict:
@@ -220,6 +220,8 @@ def _updates_view(session: Session, nodes: list[Node]) -> dict:
                 'panel_latest_version': node.panel_latest_version or '',
                 'xray_version': node.xray_version or '',
                 'xray_latest_version': node.xray_latest_version or '',
+                'panel_update_available': version_newer(node.panel_latest_version or '', node.xui_version or ''),
+                'xray_update_available': version_newer(node.xray_latest_version or '', node.xray_version or ''),
                 'update_state': node.update_state or '',
                 'update_checked_at': _as_utc(node.update_checked_at).isoformat() if node.update_checked_at else None,
             }
@@ -260,17 +262,17 @@ def nodes_updates(session: SessionDep, refresh: bool = False) -> dict:
 
 @router.post('/nodes/update')
 def nodes_update(payload: UpdateIn, session: SessionDep) -> dict:
-    """Запустить обновление выбранных нод. skip_floor=True — обновлять в обход пула."""
+    """Обновить выбранные ноды. kind: 'panel' | 'xray' | 'both'."""
     if not payload.node_ids:
         raise HTTPException(400, 'не выбрано ни одной ноды')
-    floor_enabled = not payload.skip_floor
+    kind = payload.kind if payload.kind in ('panel', 'xray', 'both') else 'both'
     results = []
     for node_id in payload.node_ids:
         node = session.get(Node, node_id)
         if not node:
             results.append({'node_id': node_id, 'node_name': '', 'ok': False, 'message': 'нода не найдена'})
             continue
-        result = perform_update(session, node, floor_enabled=floor_enabled)
+        result = perform_update(session, node, kind=kind)
         results.append(result.to_dict())
     return {'results': results}
 
