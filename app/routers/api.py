@@ -1191,6 +1191,53 @@ def adopt_protection(session: SessionDep) -> dict:
     return {'ok': all(item.get('ssh_auth') == 'key' for item in views) if views else True, 'logs': logs, 'nodes': views}
 
 
+@router.post('/protection/ports')
+def sync_ports(session: SessionDep) -> dict:
+    """Записать правило портов в ufw и выключить подписку 3x-ui на всём флоте."""
+    from app.database import engine
+    from app.models import NodeInbound
+    from app.provision import disable_node_subscription
+    from app.util import run_parallel
+
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    node_ids = [node.id for node in nodes if node.id is not None]
+
+    def run(node_id: int):
+        with Session(engine) as local:
+            node = local.get(Node, node_id)
+            if node is None:
+                return [], None
+            logs: list[str] = []
+            try:
+                logs.append(disable_node_subscription(node))
+            except Exception as exc:
+                logs.append(f'{node.name}: подписку 3x-ui не выключить: {exc}')
+            inbound_ports = {
+                int(row.port)
+                for row in local.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
+                if int(row.port or 0) > 0
+            }
+            logs.extend(sync_node_firewall(node, inbound_ports, local))
+            local.refresh(node)
+            return logs, {
+                'id': node.id,
+                'firewall_on': bool(node.firewall_on),
+                'note': node.firewall_note or '',
+            }
+
+    logs: list[str] = []
+    views: list[dict] = []
+    for part in run_parallel(node_ids, run):
+        if isinstance(part, Exception):
+            logs.append(str(part))
+            continue
+        part_logs, view = part
+        logs.extend(str(line) for line in part_logs)
+        if view:
+            views.append(view)
+    return {'ok': True, 'logs': logs, 'nodes': views}
+
+
 @router.post('/protection/refresh')
 def refresh_protection(session: SessionDep) -> dict:
     return _guard_nodes(session, install=False)

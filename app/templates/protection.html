@@ -9,6 +9,7 @@
   </div>
   <div class="row">
     <button class="btn secondary" type="button" id="guard-refresh">Обновить</button>
+    <button class="btn secondary" type="button" id="ports-sync">Сверить порты</button>
     <button class="btn" type="button" id="guard-install">Поставить защиту</button>
   </div>
 </div>
@@ -34,7 +35,7 @@
 
 <div class="card">
     <h2>Серверы</h2>
-    <p class="sub">Порты одинаковые по смыслу: SSH, 80, панель и входы. 2096 закрыт. Нажмите строку — список адресов в бане.</p>
+    <p class="sub">В столбце — порты, которые должны быть открыты: SSH, 80, панель и входы. «Сверить порты» записывает это в ufw и закрывает 2096. Нажмите строку — список адресов в бане.</p>
     {% if nodes %}
     <div class="table-scroll">
       <table class="table-guard">
@@ -254,6 +255,23 @@ async function loadGuard(btn, path) {
 
 document.getElementById('guard-refresh').onclick = (e) => loadGuard(e.currentTarget, '/api/protection/refresh');
 document.getElementById('guard-install').onclick = (e) => loadGuard(e.currentTarget, '/api/protection/install');
+document.getElementById('ports-sync').onclick = async (event) => {
+  const btn = event.currentTarget;
+  try {
+    const data = await XUI.withBusy(btn, () => XUI.api('/api/protection/ports', 'POST', {}));
+    (data.nodes || []).forEach((node) => {
+      const row = document.querySelector('.table-guard tbody tr[data-bans="' + node.id + '"]');
+      const cell = row && row.querySelector('[data-guard="ports"]');
+      if (!cell || !node.firewall_on) return;
+      const hint = cell.querySelector('.hint');
+      if (hint) hint.remove();
+      if (node.note) cell.title = node.note;
+    });
+    const text = (data.logs || []).join('\n') || 'Готово';
+    XUI.showLog(log, text);
+    XUI.toast((data.logs || ['Готово'])[0], data.ok === false ? 'err' : undefined);
+  } catch (err) {}
+};
 loadGuard(null, '/api/protection/refresh');
 
 const AUTH_LABEL = {
