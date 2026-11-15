@@ -48,17 +48,6 @@ def node_clash_sub_url(_node: Node, _sub_id: str) -> str:
     return ''
 
 
-def _health_lines(*, lazy: bool = False) -> list[str]:
-    return [
-        '  health-check:',
-        '    enable: true',
-        '    url: https://cp.cloudflare.com/generate_204',
-        '    interval: 300',
-        f'    lazy: {"true" if lazy else "false"}',
-        "    expected-status: '204'",
-    ]
-
-
 def _provider_slug(node: Node, extra: str = '') -> str:
     base = provider_name(node)
     if not extra:
@@ -89,8 +78,7 @@ def _filter_yaml(filt: str) -> str:
 def _provider_cache_path(key: str, sub_id: str) -> str:
     """Unique file per client sub token so Mihomo refetches after reprovision."""
     slug = re.sub(r'[^a-z0-9]+', '', (sub_id or '').lower())[:12] or 'sub'
-    # Суффикс меняется, когда меняется тело прокси: иначе DHQ час сидит
-    # на старом файле и health-check бьёт в конфиг без MLKEM.
+    # Суффикс меняется вместе с телом прокси: иначе клиент час сидит на старом файле.
     return f'./providers/{key}-{slug}-p4.yaml'
 
 
@@ -104,7 +92,6 @@ def _provider_block(
     prefix: str | None = None,
     suffix: str | None = None,
     expr: list[str] | None = None,
-    lazy: bool = False,
 ) -> list[str]:
     lines = [
         f'{key}:',
@@ -128,7 +115,6 @@ def _provider_block(
             lines.append('    override-expr:')
             for item in expr:
                 lines.append(_override_expr_line(item))
-    lines.extend(_health_lines(lazy=lazy))
     return lines
 
 

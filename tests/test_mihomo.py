@@ -34,16 +34,43 @@ def test_fallback_group_has_no_direct():
     raw = SAMPLE.read_text(encoding='utf-8')
     fallback = raw.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
     assert 'DIRECT' not in fallback
+    assert 'interval:' not in fallback
+    assert 'generate_204' not in fallback
     from app.bootstrap import strip_fallback_direct
 
     broken = raw.replace(
-        'expected-status: \'204\'\n    use:',
-        'expected-status: \'204\'\n    proxies:\n      - DIRECT\n    use:',
+        '    type: fallback\n    use:',
+        '    type: fallback\n    proxies:\n      - DIRECT\n    use:',
         1,
     )
     assert 'proxies:\n      - DIRECT' in broken.split('Reality pool fallback', 1)[1]
     fixed = strip_fallback_direct(broken)
     assert 'DIRECT' not in fixed.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
+
+
+def test_strip_probe_schedule_removes_fallback_timer():
+    from app.bootstrap import strip_probe_schedule
+
+    raw = SAMPLE.read_text(encoding='utf-8')
+    old = raw.replace(
+        '    type: fallback\n    use:',
+        '    type: fallback\n'
+        '    url: https://cp.cloudflare.com/generate_204\n'
+        '    interval: 30\n'
+        '    lazy: false\n'
+        "    expected-status: '204'\n"
+        '    use:',
+        1,
+    )
+    fixed = strip_probe_schedule(old)
+    fallback = fixed.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
+    assert 'interval: 30' not in fallback
+    assert 'generate_204' not in fallback
+    assert 'lazy:' not in fallback
+    assert "expected-status:" not in fallback
+    assert '    use:' in fallback
+    assert strip_probe_schedule(fixed) == fixed
+    assert 'interval: 86400' in fixed
 
 
 def test_custom_overrides_stay_under_the_marker_and_are_not_duplicated():
@@ -251,6 +278,8 @@ def test_providers_expand_snis_and_ports():
     assert 'n1-finland-82-yahoo-ymail' not in keys
     assert text.count('/prov/') == len(keys)
     assert ':2096' not in text
+    assert 'health-check:' not in text
+    assert 'interval: 300' not in text
 
 
 def test_inbound_sni_chain_respects_snis_locked():

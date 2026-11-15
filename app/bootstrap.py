@@ -36,6 +36,30 @@ def ensure_custom_overrides(text: str) -> str:
     return ''.join(out)
 
 
+_PROBE_LINE = re.compile(
+    r'\n[ \t]*(?:'
+    r'url: https://cp\.cloudflare\.com/generate_204|'
+    r'interval: 30|'
+    r'lazy: false|'
+    r'expected-status: [\'"]204[\'"]'
+    r')(?=\n)'
+)
+
+
+def strip_probe_schedule(text: str) -> str:
+    """У Reality pool fallback нет таймера опроса.
+
+    Интервал 30 секунд и URL проверки заставляют чужой Mihomo обойти каждый
+    прокси. Свой клиент этот блок не запускает, поэтому в шаблоне его нет.
+    """
+    marker = 'name: Reality pool fallback'
+    if marker not in text:
+        return text
+    head, rest = text.split(marker, 1)
+    group, sep, tail = rest.partition('\n  - name:')
+    return head + marker + _PROBE_LINE.sub('', group) + sep + tail
+
+
 def strip_fallback_direct(text: str) -> str:
     marker = 'name: Reality pool fallback'
     if marker not in text:
@@ -65,7 +89,8 @@ def seed_if_empty(session: Session) -> None:
         doc.updated_at = utcnow()
         session.add(doc)
     if doc is not None and doc.yaml_text:
-        updated = ensure_custom_overrides(doc.yaml_text)
+        updated = strip_probe_schedule(doc.yaml_text)
+        updated = ensure_custom_overrides(updated)
         if updated != doc.yaml_text:
             doc.yaml_text = updated
             doc.updated_at = utcnow()
