@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
-from app.fail2ban import GuardView, _remember, read_bans, sync_node_guard, unban
+from app.fail2ban import GuardView, _remember, guard_snapshot, guard_totals, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound, UpdateNotification
@@ -169,6 +169,7 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'ssh_user': node.ssh_user or 'root',
         'ssh_port': node.ssh_port or 22,
         'has_ssh_password': bool((node.ssh_password or '').strip()),
+        'ssh_auth': (node.ssh_auth or '') or ('password' if (node.ssh_password or '').strip() else 'none'),
         'firewall_on': bool(node.firewall_on),
         'firewall_note': node.firewall_note or '',
         'rf_ok': bool(node.rf_ok),
@@ -500,6 +501,11 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     template_ids = data.pop('template_ids', None)
     for key, value in data.items():
         setattr(node, key, value)
+    if str(data.get('ssh_password') or '').strip():
+        if (node.ssh_auth or '') == 'key':
+            node.ssh_auth = 'both'
+        elif (node.ssh_auth or '') != 'both':
+            node.ssh_auth = 'password'
     session.add(node)
     session.commit()
     session.refresh(node)
@@ -1081,20 +1087,106 @@ def presence(session: SessionDep) -> dict:
 
 
 def _guard_nodes(session: SessionDep, install: bool) -> dict:
+    """Снять состояние защиты со всех машин одним проходом.
+
+    Счётчик «в бане» приходит в том же снимке, что состояние и баны за сутки:
+    вкладка рисует столбцы из этого ответа, не дожидаясь клика по серверу.
+    """
     from app.database import engine
-    from app.util import flatten_logs, run_parallel
+    from app.util import run_parallel
 
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     node_ids = [node.id for node in nodes if node.id is not None]
 
-    def run(node_id: int) -> list[str]:
+    def run(node_id: int):
         with Session(engine) as local:
             node = local.get(Node, node_id)
             if node is None:
-                return []
-            return sync_node_guard(node, local, install=install)
+                return [], None
+            logs = sync_node_guard(node, local, install=install)
+            return logs, guard_snapshot(node)
 
-    return {'ok': True, 'logs': flatten_logs(run_parallel(node_ids, run))}
+    logs: list[str] = []
+    by_id: dict[int, dict] = {}
+    for part in run_parallel(node_ids, run):
+        if isinstance(part, Exception):
+            logs.append(str(part))
+            continue
+        part_logs, view = part
+        logs.extend(str(line) for line in part_logs)
+        if view and view.get('id') is not None:
+            by_id[int(view['id'])] = view
+    views = [by_id[node_id] for node_id in node_ids if node_id in by_id]
+    return {'ok': True, 'logs': logs, **guard_totals(views)}
+
+
+class AdoptIn(BaseModel):
+    ssh_user: str = ''
+    ssh_port: int = 0
+    ssh_password: str = ''
+
+
+def _apply_adopt_hint(node: Node, body: AdoptIn) -> None:
+    if (body.ssh_user or '').strip():
+        node.ssh_user = body.ssh_user.strip()
+    if body.ssh_port:
+        node.ssh_port = int(body.ssh_port)
+    if (body.ssh_password or '').strip():
+        node.ssh_password = body.ssh_password.strip()
+        if (node.ssh_auth or '') == 'key':
+            node.ssh_auth = 'both'
+        elif (node.ssh_auth or '') != 'both':
+            node.ssh_auth = 'password'
+
+
+@router.post('/nodes/{node_id}/adopt-key')
+def adopt_node_key(node_id: int, body: AdoptIn, session: SessionDep) -> dict:
+    from app.ssh_access import adopt_node as adopt_ssh
+
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'node not found')
+    _apply_adopt_hint(node, body)
+    session.add(node)
+    session.commit()
+    result = adopt_ssh(node, session)
+    session.refresh(node)
+    return {
+        'ok': result.ok,
+        'logs': result.logs,
+        'id': node.id,
+        'ssh_auth': result.auth,
+    }
+
+
+@router.post('/protection/adopt')
+def adopt_protection(session: SessionDep) -> dict:
+    from app.database import engine
+    from app.ssh_access import adopt_node as adopt_ssh
+    from app.util import run_parallel
+
+    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    node_ids = [node.id for node in nodes if node.id is not None]
+
+    def run(node_id: int):
+        with Session(engine) as local:
+            node = local.get(Node, node_id)
+            if node is None:
+                return [], None
+            result = adopt_ssh(node, local)
+            return result.logs, {'id': node.id, 'ssh_auth': node.ssh_auth or result.auth}
+
+    logs: list[str] = []
+    views: list[dict] = []
+    for part in run_parallel(node_ids, run):
+        if isinstance(part, Exception):
+            logs.append(str(part))
+            continue
+        part_logs, view = part
+        logs.extend(str(line) for line in part_logs)
+        if view:
+            views.append(view)
+    return {'ok': all(item.get('ssh_auth') == 'key' for item in views) if views else True, 'logs': logs, 'nodes': views}
 
 
 @router.post('/protection/refresh')
@@ -1157,6 +1249,10 @@ def node_unban(node_id: int, body: UnbanIn, session: SessionDep) -> dict:
     return {
         'ok': True,
         'logs': logs,
+        'state': view.state,
+        'note': view.note,
+        'banned': view.banned,
+        'day': view.day,
         'bans': [
             {
                 'ip': row.ip,

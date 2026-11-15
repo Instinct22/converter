@@ -785,7 +785,7 @@ function initNodeForm() {
     nodeForm.panel_url.required = !install;
     nodeForm.api_token.required = !install;
     nodeForm.host.required = install;
-    nodeForm.ssh_password.required = install;
+    nodeForm.ssh_password.required = false;
     document.getElementById('node-submit').textContent = install ? 'Поставить 3x-ui' : 'Подключить';
   }
 

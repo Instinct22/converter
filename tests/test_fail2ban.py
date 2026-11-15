@@ -1,6 +1,14 @@
 from fastapi.testclient import TestClient
 
-from app.fail2ban import _status_python, jail_config, parse_ban_lines, parse_guard_output, until_label, valid_ban_ip
+from app.fail2ban import (
+    _status_python,
+    guard_totals,
+    jail_config,
+    parse_ban_lines,
+    parse_guard_output,
+    until_label,
+    valid_ban_ip,
+)
 from app.main import app
 from app.settings import settings
 
@@ -42,6 +50,9 @@ def test_remote_status_script_compiles():
 
 
 def test_protection_page_renders():
+    from app.database import init_db
+
+    init_db()
     client = TestClient(app)
     login = client.post(
         '/login',
@@ -53,6 +64,22 @@ def test_protection_page_renders():
     assert page.status_code == 200
     assert 'Поставить защиту' in page.text
     assert 'Клиентские порты не баним' in page.text
+    assert "loadGuard(null, '/api/protection/refresh')" in page.text
+    assert 'Перевести на ключ' in page.text
+    assert '>Вход<' in page.text
+    assert 'data-guard="banned"' in page.text or 'Серверов нет' in page.text
+
+
+def test_guard_totals_include_banned_with_the_rest_of_the_snapshot():
+    totals = guard_totals([
+        {'id': 1, 'state': 'protecting', 'banned': 2, 'day': 5, 'note': 'ok'},
+        {'id': 2, 'state': 'missing', 'banned': 0, 'day': 1, 'note': ''},
+    ])
+    assert totals['banned_now'] == 2
+    assert totals['banned_day'] == 6
+    assert totals['protecting'] == 1
+    assert totals['total'] == 2
+    assert [row['banned'] for row in totals['nodes']] == [2, 0]
 
 
 def test_ban_ip_must_look_like_address():

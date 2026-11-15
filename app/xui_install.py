@@ -10,7 +10,6 @@ from __future__ import annotations
 import secrets
 import shlex
 import string
-import subprocess
 import threading
 
 from sqlmodel import Session, select
@@ -149,51 +148,23 @@ def run_ssh(
     password: str,
     *,
     port: int = 22,
+    prefer_key: bool = False,
 ) -> tuple[int, str]:
-    target = f'{user}@{host}'
-    if password:
-        try:
-            import paramiko
-        except ImportError as exc:
-            raise RuntimeError(
-                'Для входа по паролю нужен paramiko. Либо зайдите ключом.'
-            ) from exc
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(
-            host,
-            port=port,
-            username=user,
-            password=password,
-            timeout=25,
-            look_for_keys=False,
-            allow_agent=False,
-        )
-        stdin, stdout, stderr = client.exec_command('bash -s', timeout=900)
-        stdin.write(script)
-        stdin.channel.shutdown_write()
-        out = stdout.read().decode('utf-8', 'replace')
-        err = stderr.read().decode('utf-8', 'replace')
-        code = stdout.channel.recv_exit_status()
-        client.close()
-        return code, out + err
-    cmd = [
-        'ssh',
-        '-o', 'StrictHostKeyChecking=accept-new',
-        '-o', 'ConnectTimeout=25',
-        '-p', str(port),
-    ]
-    if key:
-        cmd.extend(['-i', key])
-    cmd.extend([target, 'bash -s'])
-    proc = subprocess.run(
-        cmd,
-        input=script.encode(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    return proc.returncode, proc.stdout.decode('utf-8', 'replace')
+    from app.ssh_access import run_remote
+
+    use_key = bool(key) and (prefer_key or not password)
+    try:
+        if use_key:
+            code, out, err = run_remote(host, user, port, script, key_path=key, timeout=900)
+        elif password:
+            code, out, err = run_remote(host, user, port, script, password=password, timeout=900)
+        else:
+            raise RuntimeError('Нет SSH-ключа и пароля')
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f'Не удалось зайти по SSH: {exc}') from exc
+    return code, out + err
 
 
 def parse_master_lines(text: str) -> dict[str, str]:
@@ -224,9 +195,7 @@ def prepare_install(
     address = (host or '').strip()
     if not is_ipv4(address):
         raise ValueError('IP сервера должен быть IPv4')
-    password = ssh_password or ''
-    if not password.strip():
-        raise ValueError('Нужен SSH-пароль')
+    password = (ssh_password or '').strip()
     user = (ssh_user or 'root').strip() or 'root'
     port = int(ssh_port or 22)
     if port < 1 or port > 65535:
@@ -245,6 +214,7 @@ def prepare_install(
         ssh_user=user,
         ssh_port=port,
         ssh_password=password,
+        ssh_auth='password' if password else 'key',
         install_state='installing',
         install_ssl='ip',
         install_log='Ставлю 3x-ui. Это несколько минут. Логин панели появится здесь, когда установщик закончит.',
@@ -257,6 +227,14 @@ def prepare_install(
 
 def _clip(text: str) -> str:
     return (text or '')[:_LOG_LIMIT]
+
+
+def _with_adopt(logs: list[str], message: str) -> str:
+    head = '\n'.join(line for line in logs if line).strip()
+    body = (message or '').strip()
+    if head and body:
+        return _clip(head + '\n' + body)
+    return _clip(head or body)
 
 
 def _visible_output(output: str) -> str:
@@ -299,6 +277,16 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
         return
     host = (node.public_host or '').strip()
     user = (node.ssh_user or 'root').strip() or 'root'
+    adopt_logs: list[str] = []
+    if runner is None:
+        from app.ssh_access import AUTH_NONE, adopt_node, resolved_auth
+
+        adopted = adopt_node(node, session)
+        adopt_logs = list(adopted.logs)
+        session.refresh(node)
+        if resolved_auth(node) == AUTH_NONE:
+            _fail(session, node, '\n'.join(adopt_logs) or 'SSH не открылся')
+            return
     script = remote_script(
         username=rand(12),
         password=rand(20),
@@ -307,18 +295,31 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
         server_ip=host,
         ssl_mode=node.install_ssl or 'ip',
     )
-    call = runner or run_ssh
     try:
-        code, output = call(
-            host,
-            user,
-            script,
-            '',
-            node.ssh_password,
-            port=int(node.ssh_port or 22),
-        )
+        if runner is None:
+            from app.ssh_access import AUTH_BOTH, AUTH_KEY, PRIVATE_PATH, resolved_auth
+
+            use_key = resolved_auth(node) in {AUTH_KEY, AUTH_BOTH} and not (node.ssh_password or '').strip()
+            code, output = run_ssh(
+                host,
+                user,
+                script,
+                str(PRIVATE_PATH) if use_key else '',
+                node.ssh_password,
+                port=int(node.ssh_port or 22),
+                prefer_key=use_key,
+            )
+        else:
+            code, output = runner(
+                host,
+                user,
+                script,
+                '',
+                node.ssh_password,
+                port=int(node.ssh_port or 22),
+            )
     except Exception as exc:
-        _fail(session, node, f'Не удалось зайти по SSH: {exc}')
+        _fail(session, node, _with_adopt(adopt_logs, f'Не удалось зайти по SSH: {exc}'))
         return
     creds = parse_master_lines(output)
     url = (creds.get('MASTER_URL') or '').strip()
@@ -328,7 +329,7 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
         if not message:
             visible = _visible_output(output)
             message = visible or f'установщик завершился с кодом {code}'
-        _fail(session, node, message)
+        _fail(session, node, _with_adopt(adopt_logs, message))
         return
     node.panel_url = normalize_panel_url(url)
     node.api_token = token
@@ -336,7 +337,7 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
     node.install_state = 'done'
     node.enabled = True
     node.last_error = ''
-    node.install_log = _success_log(output, creds)
+    node.install_log = _with_adopt(adopt_logs, _success_log(output, creds))
     session.add(node)
     session.commit()
     session.refresh(node)

@@ -175,6 +175,9 @@ def node_detail(request: Request, node_id: int, session: SessionDep):
 def protection_page(request: Request, session: SessionDep):
     if (redir := _need_admin(request)):
         return redir
+    from app.ssh_access import ensure_fleet_key, fingerprint, public_key_line
+
+    ensure_fleet_key()
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     protecting = sum(1 for node in nodes if node.fail2ban_state == 'protecting')
     return templates.TemplateResponse(
@@ -186,6 +189,8 @@ def protection_page(request: Request, session: SessionDep):
             protecting=protecting,
             banned_now=sum(int(node.fail2ban_banned or 0) for node in nodes),
             banned_day=sum(int(node.fail2ban_day or 0) for node in nodes),
+            key_fingerprint=fingerprint(),
+            public_key=public_key_line(),
         ),
     )
 

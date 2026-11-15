@@ -18,6 +18,9 @@ from sqlmodel import Session
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    from app.ssh_access import ensure_fleet_key
+
+    ensure_fleet_key()
     with Session(engine) as session:
         seed_if_empty(session)
         from app.provision import ensure_default_node_templates

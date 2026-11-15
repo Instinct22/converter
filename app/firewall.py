@@ -159,23 +159,9 @@ def _remember(node: Node, session, on: bool, note: str) -> None:
 
 
 def _ssh(node: Node):
-    import paramiko
+    from app.ssh_access import open_client
 
-    host = (node.public_host or '').strip() or (urlparse(node.panel_url or '').hostname or '')
-    user = (getattr(node, 'ssh_user', '') or 'root').strip() or 'root'
-    ssh_port = int(getattr(node, 'ssh_port', 0) or 22)
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        host,
-        port=ssh_port,
-        username=user,
-        password=node.ssh_password,
-        timeout=8,
-        look_for_keys=False,
-        allow_agent=False,
-    )
-    return client
+    return open_client(node, timeout=20)
 
 
 def _run(node: Node, command: str, timeout: int) -> tuple[int, str, str]:
@@ -191,9 +177,11 @@ def _run(node: Node, command: str, timeout: int) -> tuple[int, str, str]:
 
 
 def sync_node_firewall(node: Node, open_ports: set[int], session=None) -> list[str]:
-    if not (getattr(node, 'ssh_password', '') or '').strip():
-        _remember(node, session, False, 'нет SSH-пароля')
-        return [f'{node.name}: файрвол не сверил, нет SSH-пароля']
+    from app.ssh_access import can_ssh
+
+    if not can_ssh(node):
+        _remember(node, session, False, 'нет входа SSH')
+        return [f'{node.name}: файрвол не сверил, нет входа SSH']
     host = (node.public_host or '').strip() or (urlparse(node.panel_url or '').hostname or '')
     if not host:
         _remember(node, session, False, 'нет адреса сервера')

@@ -29,6 +29,7 @@ NODE_COLUMNS = {
     'ssh_user': "TEXT DEFAULT 'root'",
     'ssh_port': 'INTEGER DEFAULT 22',
     'ssh_password': "TEXT DEFAULT ''",
+    'ssh_auth': "TEXT DEFAULT ''",
     'firewall_on': 'INTEGER DEFAULT 0',
     'firewall_note': "TEXT DEFAULT ''",
     'fail2ban_state': "TEXT DEFAULT ''",

@@ -119,8 +119,9 @@
       </div>
       <div class="field span-2">
         <label>SSH-пароль</label>
-        <input name="ssh_password" type="password" autocomplete="off" readonly placeholder="{{ 'сохранён — введите новый, чтобы заменить' if node.ssh_password else 'нужен, чтобы проверять ufw' }}">
-        <span class="hint">{% if node.ssh_password %}Пароль SSH сохранён. Поле остаётся пустым, пока не введёте новый: пустое сохранение и автозаполнение браузера его не затирают.{% else %}Пароля SSH нет. Введите его, чтобы сверять ufw.{% endif %} Сохранение сверяет ufw с входами сервера. SSH, 80, порт панели и порт подписки остаются открытыми.</span>
+        {% set auth = node.ssh_auth or ('password' if node.ssh_password else 'none') %}
+        <input name="ssh_password" type="password" autocomplete="off" readonly placeholder="{% if auth == 'key' %}вход по ключу флота{% elif node.ssh_password %}сохранён — введите новый, чтобы заменить{% else %}нужен один раз, чтобы поставить ключ{% endif %}">
+        <span class="hint">{% if auth == 'key' %}Вход по ключу флота. Пароль на сервере выключен и в Master не хранится.{% elif auth == 'both' %}Ключ уже стоит, пароль ещё включён. На «Защите» кнопка «Перевести на ключ» выключит пароль и сотрёт его отсюда.{% elif node.ssh_password %}Пароль SSH сохранён до перевода на ключ. Пустое поле его не затирает.{% else %}Входа нет. Введите пароль и на «Защите» нажмите «Перевести на ключ».{% endif %} Сохранение сверяет ufw с входами сервера.</span>
       </div>
     </div>
     <button class="btn" type="submit" {% if node.install_state == 'installing' %}disabled{% endif %}>Сохранить и проверить</button>

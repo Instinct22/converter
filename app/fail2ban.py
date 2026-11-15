@@ -161,6 +161,27 @@ def _remember(node: Node, session, view: GuardView) -> None:
         session.commit()
 
 
+def guard_snapshot(node: Node) -> dict:
+    """Состояние защиты ноды для таблицы вкладки, тем же снимком, что и счётчики."""
+    return {
+        'id': node.id,
+        'state': node.fail2ban_state or '',
+        'banned': int(node.fail2ban_banned or 0),
+        'day': int(node.fail2ban_day or 0),
+        'note': node.fail2ban_note or '',
+    }
+
+
+def guard_totals(views: list[dict]) -> dict:
+    return {
+        'nodes': views,
+        'protecting': sum(1 for view in views if view.get('state') == 'protecting'),
+        'total': len(views),
+        'banned_now': sum(int(view.get('banned') or 0) for view in views),
+        'banned_day': sum(int(view.get('day') or 0) for view in views),
+    }
+
+
 def _status_python() -> str:
     return r'''python3 - <<'PY'
 import json, sqlite3, subprocess, time
@@ -284,8 +305,10 @@ def _log(node: Node, view: GuardView) -> str:
 
 
 def sync_node_guard(node: Node, session=None, install: bool = False) -> list[str]:
-    if not (getattr(node, 'ssh_password', '') or '').strip():
-        view = GuardView(state='no_ssh', banned=0, day=0, note='нет SSH-пароля')
+    from app.ssh_access import can_ssh
+
+    if not can_ssh(node):
+        view = GuardView(state='no_ssh', banned=0, day=0, note='нет входа SSH')
         _remember(node, session, view)
         return [_log(node, view)]
     host = (node.public_host or '').strip()
@@ -310,8 +333,10 @@ def sync_node_guard(node: Node, session=None, install: bool = False) -> list[str
 
 
 def read_bans(node: Node) -> tuple[GuardView, list[BanView]]:
-    if not (getattr(node, 'ssh_password', '') or '').strip():
-        return GuardView(state='no_ssh', banned=0, day=0, note='нет SSH-пароля'), []
+    from app.ssh_access import can_ssh
+
+    if not can_ssh(node):
+        return GuardView(state='no_ssh', banned=0, day=0, note='нет входа SSH'), []
     code, out, err = _run(node, _read_script(), 40)
     view = parse_guard_output(out)
     if code != 0 and not view.note:

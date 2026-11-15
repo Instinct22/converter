@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.ssh_access import PRIVATE_PATH, ensure_fleet_key  # noqa: E402
 from app.xui_install import (  # noqa: E402
     choose_panel_port as panel_port,
     parse_master_lines,
@@ -127,6 +128,9 @@ def main() -> None:
     ]
     if missing:
         raise SystemExit(f'Заполните {", ".join(missing)} в {ENV_FILE}')
+    if not args.ssh_key:
+        ensure_fleet_key()
+        args.ssh_key = str(PRIVATE_PATH)
     if not args.ssh_password and not args.ssh_key:
         raise SystemExit(f'Заполните VPS_SSH_PASSWORD или VPS_SSH_KEY в {ENV_FILE}')
     if not re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', args.host):
@@ -152,7 +156,14 @@ def main() -> None:
     )
     print(f'Ставлю 3x-ui на {args.host}. Это несколько минут.', flush=True)
     try:
-        code, output = run_ssh(args.host, args.ssh_user, script, args.ssh_key, args.ssh_password)
+        try:
+            code, output = run_ssh(
+                args.host, args.ssh_user, script, args.ssh_key, '', prefer_key=True,
+            )
+        except RuntimeError:
+            if not args.ssh_password:
+                raise
+            code, output = run_ssh(args.host, args.ssh_user, script, '', args.ssh_password)
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
     sys.stdout.write(output)
@@ -182,6 +193,12 @@ def main() -> None:
     if not node_id:
         raise SystemExit(f'Master не создал сервер: {created}')
     print('Сервер в Master:', node_id, flush=True)
+    adopt_body = {'ssh_user': args.ssh_user, 'ssh_port': 22}
+    if args.ssh_password:
+        adopt_body['ssh_password'] = args.ssh_password
+    adopted = master.call('POST', f'/api/nodes/{node_id}/adopt-key', adopt_body)
+    adopt_logs = adopted.get('logs') if isinstance(adopted, dict) else []
+    print('Ключ:', ' · '.join(adopt_logs or []), flush=True)
     refreshed = master.call(
         'POST',
         f'/api/nodes/{node_id}/refresh-templates',

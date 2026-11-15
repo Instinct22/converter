@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>Защита</h1>
-    <p class="lede">Одно правило на весь флот. Fail2ban ставится по SSH из настроек сервера. Страница показывает последнюю проверку и сама на машины не ходит.</p>
+    <p class="lede">Один ключ на весь флот и одно правило fail2ban. Пароль нужен только до проверки входа по ключу. При открытии вкладки с машин снимаются состояние, число адресов в бане и баны за сутки.</p>
     <pre class="log" id="guard-log"></pre>
   </div>
   <div class="row">
@@ -14,22 +14,34 @@
 </div>
 
 <div class="stats">
-  <div class="stat-card"><div class="label">Серверов под защитой</div><div class="value">{{ protecting }} / {{ nodes|length }}</div></div>
-  <div class="stat-card"><div class="label">Адреса в бане сейчас</div><div class="value">{{ banned_now }}</div></div>
-  <div class="stat-card"><div class="label">Банов за 24 часа</div><div class="value">{{ banned_day }}</div></div>
+  <div class="stat-card"><div class="label">Серверов под защитой</div><div class="value" id="stat-protecting">{{ protecting }} / {{ nodes|length }}</div></div>
+  <div class="stat-card"><div class="label">Адреса в бане сейчас</div><div class="value" id="stat-banned">{{ banned_now }}</div></div>
+  <div class="stat-card"><div class="label">Банов за 24 часа</div><div class="value" id="stat-day">{{ banned_day }}</div></div>
+</div>
+
+<div class="card" id="fleet-key">
+  <h2>Ключ флота</h2>
+  <p class="sub">Закрытый ключ лежит только на диске Master. Публичный можно вставить у хостера при создании VPS. «Перевести на ключ» записывает его на серверы, где ещё есть пароль, проверяет вход и только потом выключает парольный SSH.</p>
+  <p class="mono" id="key-fingerprint">{{ key_fingerprint }}</p>
+  <code class="mono fleet-public" id="fleet-public">{{ public_key }}</code>
+  <div class="row" style="margin-top:12px">
+    <button class="btn secondary" type="button" id="key-copy">Скопировать публичный ключ</button>
+    <button class="btn" type="button" id="key-adopt">Перевести на ключ</button>
+  </div>
 </div>
 
 <div class="note-warn">Клиентские порты не баним. 443 и остальные входы Reality — это трафик людей, а не подбор пароля. Сторожим только SSH и адреса, которые уже попадали в бан несколько раз. Localhost и IP Master в бан не попадают.</div>
 
 <div class="card">
     <h2>Серверы</h2>
-    <p class="sub">Нажмите строку сервера — откроется актуальный список банов.</p>
+    <p class="sub">Столбцы заполняются при открытии вкладки. Нажмите строку — список адресов в бане.</p>
     {% if nodes %}
     <div class="table-scroll">
       <table class="table-guard">
         <colgroup>
           <col class="g-name">
           <col class="g-state">
+          <col class="g-auth">
           <col class="g-watch">
           <col class="g-ban">
           <col class="g-day">
@@ -38,6 +50,7 @@
           <tr>
             <th>Сервер</th>
             <th>Состояние</th>
+            <th>Вход</th>
             <th>Что сторожит</th>
             <th>В бане</th>
             <th>За сутки</th>
@@ -53,7 +66,7 @@
                 <strong>{{ n.name }}</strong>
               </span>
             </td>
-            <td>
+            <td data-guard="state">
               {% if state == 'protecting' %}
               <span class="fw-tag on" title="{{ n.fail2ban_note or '' }}">защищает</span>
               {% elif state == 'error' %}
@@ -66,9 +79,21 @@
               <span class="fw-tag">не проверяли</span>
               {% endif %}
             </td>
-            <td class="hint">{% if state == 'protecting' %}SSH · повтор{% else %}—{% endif %}</td>
-            <td>{{ n.fail2ban_banned or 0 }}</td>
-            <td>{{ n.fail2ban_day or 0 }}</td>
+            <td data-guard="auth">
+              {% set auth = n.ssh_auth or ('password' if n.ssh_password else 'none') %}
+              {% if auth == 'key' %}
+              <span class="fw-tag on">только ключ</span>
+              {% elif auth == 'both' %}
+              <span class="fw-tag warn">ключ и пароль</span>
+              {% elif auth == 'password' %}
+              <span class="fw-tag bad">только пароль</span>
+              {% else %}
+              <span class="fw-tag">нет входа</span>
+              {% endif %}
+            </td>
+            <td class="hint" data-guard="watch">{% if state == 'protecting' %}SSH · повтор{% else %}—{% endif %}</td>
+            <td data-guard="banned">{{ n.fail2ban_banned or 0 }}</td>
+            <td data-guard="day">{{ n.fail2ban_day or 0 }}</td>
           </tr>
         {% endfor %}
         </tbody>
@@ -90,7 +115,7 @@
 
 <div class="card">
   <h2>Правило на весь флот</h2>
-  <p class="sub">Отдельных порогов на каждый сервер нет. «Поставить защиту» записывает это правило на все машины, где уже сохранён SSH, и включает службу. Повтор не плодит jail.</p>
+  <p class="sub">Отдельных порогов на каждый сервер нет. «Поставить защиту» записывает это правило на все машины, куда Master уже входит по ключу или по ещё сохранённому паролю, и включает службу. Повтор не плодит jail.</p>
   <table>
     <thead>
       <tr><th>Сторож</th><th>За что</th><th>Порог</th><th>Бан</th></tr>
@@ -118,12 +143,72 @@ function esc(value) {
   })[ch]);
 }
 
+const GUARD_STATE = {
+  protecting: ['защищает', 'fw-tag on', 'SSH · повтор'],
+  error: ['ошибка', 'fw-tag bad', '—'],
+  no_ssh: ['нет SSH', 'fw-tag warn', '—'],
+  missing: ['не установлен', 'fw-tag', '—'],
+};
+
+function paintRow(row, node) {
+  if (!row || !node) return;
+  if ('state' in node) {
+    const spec = GUARD_STATE[node.state] || ['не проверяли', 'fw-tag', '—'];
+    const cell = row.querySelector('[data-guard="state"]');
+    if (cell) {
+      let tag = cell.querySelector('.fw-tag');
+      if (!tag) {
+        cell.textContent = '';
+        tag = document.createElement('span');
+        cell.appendChild(tag);
+      }
+      tag.className = spec[1];
+      tag.textContent = spec[0];
+      tag.title = node.note || '';
+    }
+    const watch = row.querySelector('[data-guard="watch"]');
+    if (watch) watch.textContent = spec[2];
+  }
+  const banned = row.querySelector('[data-guard="banned"]');
+  const day = row.querySelector('[data-guard="day"]');
+  if (banned && node.banned != null) banned.textContent = String(node.banned);
+  if (day && node.day != null) day.textContent = String(node.day);
+}
+
+function recount() {
+  let banned = 0;
+  let day = 0;
+  let protecting = 0;
+  const rows = document.querySelectorAll('.table-guard tbody tr');
+  rows.forEach((row) => {
+    banned += Number(row.querySelector('[data-guard="banned"]')?.textContent) || 0;
+    day += Number(row.querySelector('[data-guard="day"]')?.textContent) || 0;
+    const tag = row.querySelector('[data-guard="state"] .fw-tag');
+    if (tag && tag.classList.contains('on')) protecting += 1;
+  });
+  const protectingEl = document.getElementById('stat-protecting');
+  const bannedEl = document.getElementById('stat-banned');
+  const dayEl = document.getElementById('stat-day');
+  if (protectingEl) protectingEl.textContent = protecting + ' / ' + rows.length;
+  if (bannedEl) bannedEl.textContent = String(banned);
+  if (dayEl) dayEl.textContent = String(day);
+}
+
+function paintFleet(data) {
+  (data.nodes || []).forEach((node) => {
+    const row = document.querySelector('.table-guard tbody tr[data-bans="' + node.id + '"]');
+    if (row) paintRow(row, node);
+  });
+  recount();
+}
+
 function paintBans(name, data) {
   banTitle.textContent = name;
   banNote.textContent = data.note && data.note !== 'ok' ? data.note : 'Активные баны на этом сервере.';
   const rows = data.bans || [];
   const selected = document.querySelector('.table-guard tr.is-selected');
-  if (selected && data.banned != null) selected.cells[3].textContent = String(data.banned);
+  paintRow(selected, data);
+  recount();
   if (!rows.length) {
     banBody.innerHTML = '<p class="hint">Активных банов нет.</p>';
     banActions.hidden = true;
@@ -138,16 +223,99 @@ function paintBans(name, data) {
   banActions.hidden = false;
 }
 
-async function runGuard(btn, path) {
-  const res = await XUI.withBusy(btn, () => XUI.api(path, 'POST', {}));
-  const text = (res.logs || []).join('\n') || 'Готово';
-  XUI.showLog(log, text);
-  XUI.toast((res.logs || ['Готово'])[0], res.ok ? undefined : 'err');
-  setTimeout(() => location.reload(), 1600);
+let guardBusy = false;
+
+async function loadGuard(btn, path) {
+  if (guardBusy) {
+    if (btn) XUI.toast('Проверка уже идёт');
+    return;
+  }
+  guardBusy = true;
+  const table = document.querySelector('.table-guard');
+  if (table) table.classList.add('is-refreshing');
+  try {
+    const run = () => XUI.api(path, 'POST', {});
+    const res = btn ? await XUI.withBusy(btn, run) : await run();
+    paintFleet(res);
+    const text = (res.logs || []).join('\n');
+    if (text) XUI.showLog(log, text);
+    if (btn) XUI.toast((res.logs || ['Готово'])[0], res.ok === false ? 'err' : undefined);
+  } catch (err) {
+    if (!btn) XUI.toast(err.message || String(err), 'err');
+  } finally {
+    guardBusy = false;
+    if (table) table.classList.remove('is-refreshing');
+  }
 }
 
-document.getElementById('guard-refresh').onclick = (e) => runGuard(e.currentTarget, '/api/protection/refresh').catch(() => {});
-document.getElementById('guard-install').onclick = (e) => runGuard(e.currentTarget, '/api/protection/install').catch(() => {});
+document.getElementById('guard-refresh').onclick = (e) => loadGuard(e.currentTarget, '/api/protection/refresh');
+document.getElementById('guard-install').onclick = (e) => loadGuard(e.currentTarget, '/api/protection/install');
+loadGuard(null, '/api/protection/refresh');
+
+const AUTH_LABEL = {
+  key: ['только ключ', 'fw-tag on'],
+  both: ['ключ и пароль', 'fw-tag warn'],
+  password: ['только пароль', 'fw-tag bad'],
+  none: ['нет входа', 'fw-tag'],
+};
+
+function paintAuth(row, auth) {
+  const cell = row && row.querySelector('[data-guard="auth"]');
+  if (!cell) return;
+  const spec = AUTH_LABEL[auth] || AUTH_LABEL.none;
+  let tag = cell.querySelector('.fw-tag');
+  if (!tag) {
+    cell.textContent = '';
+    tag = document.createElement('span');
+    cell.appendChild(tag);
+  }
+  tag.className = spec[1];
+  tag.textContent = spec[0];
+}
+
+function copyPublicKey() {
+  const text = (document.getElementById('fleet-public').textContent || '').trim();
+  const done = () => XUI.toast('Публичный ключ скопирован');
+  const fail = () => XUI.toast('Не удалось скопировать', 'err');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done).catch(() => {
+      if (copyViaArea(text)) done();
+      else fail();
+    });
+    return;
+  }
+  if (copyViaArea(text)) done();
+  else fail();
+}
+
+function copyViaArea(text) {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.left = '-9999px';
+  document.body.appendChild(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+  area.remove();
+  return ok;
+}
+
+document.getElementById('key-copy').onclick = copyPublicKey;
+document.getElementById('key-adopt').onclick = async (event) => {
+  const btn = event.currentTarget;
+  try {
+    const data = await XUI.withBusy(btn, () => XUI.api('/api/protection/adopt', 'POST', {}));
+    (data.nodes || []).forEach((node) => {
+      const row = document.querySelector('.table-guard tbody tr[data-bans="' + node.id + '"]');
+      paintAuth(row, node.ssh_auth);
+    });
+    const text = (data.logs || []).join('\n') || 'Готово';
+    XUI.showLog(log, text);
+    XUI.toast((data.logs || ['Готово'])[0], data.ok === false ? 'err' : undefined);
+  } catch (err) {}
+};
 
 document.querySelectorAll('.table-guard tbody tr').forEach((row) => {
   row.onclick = async () => {

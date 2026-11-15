@@ -29,6 +29,9 @@ class Node(SQLModel, table=True):
     ssh_user: str = 'root'
     ssh_port: int = 22
     ssh_password: str = ''
+    # key — только ключ флота; both — ключ есть, пароль ещё включён;
+    # password — в базе ещё лежит пароль; none — входа нет.
+    ssh_auth: str = ''
     firewall_on: bool = False
     firewall_note: str = ''
     fail2ban_state: str = ''
