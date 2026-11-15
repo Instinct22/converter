@@ -356,7 +356,7 @@ function versionEqual(a, b) {
 }
 
 // Перерисовывает иконку против версии: спиннер (идёт обновление), красный «!»
-// (сбой — для ядра кликабелен = откатить), жёлтая ↑ (есть новее = обновить).
+// (сбой — некликабелен, «проверьте ноду вручную»), жёлтая ↑ (есть новее = обновить).
 function renderVerIcon(el, node, kind, current, latest, state) {
   const old = el.querySelector('.ver-up,.ver-spin,.ver-fail');
   if (old) old.remove();
@@ -371,17 +371,9 @@ function renderVerIcon(el, node, kind, current, latest, state) {
     return;
   }
   if (state === 'failed') {
-    const canRollback = kind === 'xray';
-    const b = document.createElement(canRollback ? 'button' : 'span');
+    const b = document.createElement('span');
     b.className = 'ver-fail';
-    if (canRollback) {
-      b.type = 'button';
-      b.dataset.nodeId = String(node.id);
-      b.dataset.updateRollback = '1';
-      b.title = 'обновление не завершилось — откатить на прежнюю версию';
-    } else {
-      b.title = 'обновление не завершилось — проверьте ноду вручную';
-    }
+    b.title = 'обновление не завершилось — проверьте ноду вручную';
     b.textContent = '!';
     el.appendChild(b);
     return;
