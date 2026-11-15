@@ -15,6 +15,7 @@ from app.provision import node_template_ids, split_csv
 from app.routers.updates import release_groups
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
+from app.xui import version_equal, version_newer
 
 
 def unique_snis(*parts: str) -> list[str]:
@@ -118,6 +119,17 @@ def _need_admin(request: Request):
     return RedirectResponse('/login', status_code=302)
 
 
+def _ver_state(current: str, latest: str) -> str:
+    """'update' — есть более новая версия; 'current' — версии равны; '' — данных нет."""
+    if not current or not latest:
+        return ''
+    if version_newer(latest, current):
+        return 'update'
+    if version_equal(latest, current):
+        return 'current'
+    return ''
+
+
 @router.get('/', response_class=HTMLResponse)
 def dashboard(request: Request, session: SessionDep):
     if (redir := _need_admin(request)):
@@ -135,6 +147,15 @@ def dashboard(request: Request, session: SessionDep):
         if node.id is None:
             continue
         node_templates[node.id] = node_template_ids(session, node.id)
+    # Флаги «нужно обновление» считаем по числам версий (3.11 == 3.11.0), а не строками.
+    update_flags = {
+        node.id: {
+            'panel': _ver_state(node.xui_version or '', node.panel_latest_version or ''),
+            'xray': _ver_state(node.xray_version or '', node.xray_latest_version or ''),
+        }
+        for node in nodes
+        if node.id is not None
+    }
     return templates.TemplateResponse(
         'dashboard.html',
         _ctx(
@@ -147,6 +168,7 @@ def dashboard(request: Request, session: SessionDep):
             inbound_counts=inbound_counts,
             inbound_templates=templates_rows,
             node_templates=node_templates,
+            update_flags=update_flags,
         ),
     )
 

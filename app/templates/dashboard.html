@@ -22,7 +22,6 @@
         <p class="sub">Доступность панели, Xray, порты. Выключите свитч — сервер исчезнет из подписки.</p>
       </div>
       <div class="fold-tools" onclick="event.stopPropagation()">
-        <button class="btn secondary" type="button" id="open-updates" title="Авто- и ручное обновление панелей 3x-ui и ядер Xray по API">Обновления<span class="badge-dot" data-update-dot hidden></span></button>
         <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
         <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
         {% if nodes %}
@@ -48,6 +47,10 @@
       </div>
       <div class="monitor" id="node-monitor">
         {% for n in nodes %}
+        {% set pflag = (update_flags.get(n.id, {}) or {}).get('panel', '') %}
+        {% set xflag = (update_flags.get(n.id, {}) or {}).get('xray', '') %}
+        {% set pstate = n.update_state if n.update_kind == 'panel' else '' %}
+        {% set xstate = n.update_state if n.update_kind == 'xray' else '' %}
         <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-xui="{{ n.xui_version or '' }}" data-xray="{{ n.xray_version or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
@@ -58,8 +61,8 @@
               {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>{% endif %}
             </span>
           </div>
-          <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if n.panel_latest_version and n.xui_version and n.panel_latest_version != n.xui_version }} {{ 'is-current' if n.panel_latest_version and n.xui_version and n.panel_latest_version == n.xui_version }}" data-xui-ver title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Доступно обновление панели до ' + n.panel_latest_version if n.panel_latest_version and n.panel_latest_version != n.xui_version else ('Актуальная версия панели' if n.panel_latest_version == n.xui_version else 'Панель 3x-ui на сервере')) }}">{{ n.xui_version or '—' }}</span>
-          <span class="ver-tag {{ 'is-empty' if not n.xray_version }} {{ 'has-update' if n.xray_latest_version and n.xray_version and n.xray_latest_version != n.xray_version }} {{ 'is-current' if n.xray_latest_version and n.xray_version and n.xray_latest_version == n.xray_version }}" data-xray-ver title="{{ 'Версию ядра снять не удалось' if not n.xray_version else ('Доступно обновление ядра до ' + n.xray_latest_version if n.xray_latest_version and n.xray_latest_version != n.xray_version else ('Актуальная версия ядра' if n.xray_latest_version == n.xray_version else 'Ядро Xray на сервере')) }}">{{ n.xray_version or '—' }}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if pflag == 'update' and not pstate }} {{ 'is-current' if pflag == 'current' and not pstate }} {{ 'is-running' if pstate == 'running' }} {{ 'is-failed' if pstate == 'failed' }}" data-xui-ver data-latest="{{ n.panel_latest_version }}" title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Обновление панели выполняется' if pstate == 'running' else ('Обновление панели не завершилось — проверьте ноду вручную' if pstate == 'failed' else ('Доступно обновление панели до ' + n.panel_latest_version if pflag == 'update' else ('Актуальная версия панели' if pflag == 'current' else 'Панель 3x-ui на сервере')))) }}"><span class="ver-num">{{ n.xui_version or '—' }}</span>{% if pstate == 'running' %}<span class="ver-spin" title="обновление панели выполняется">…</span>{% elif pstate == 'failed' %}<span class="ver-fail" title="обновление панели не завершилось — проверьте ноду вручную">!</span>{% elif pflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="panel" data-cur="{{ n.xui_version or '' }}" data-latest="{{ n.panel_latest_version }}" title="Обновить панель до {{ n.panel_latest_version }}">↑</button>{% endif %}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xray_version }} {{ 'has-update' if xflag == 'update' and not xstate }} {{ 'is-current' if xflag == 'current' and not xstate }} {{ 'is-running' if xstate == 'running' }} {{ 'is-failed' if xstate == 'failed' }}" data-xray-ver data-latest="{{ n.xray_latest_version }}" title="{{ 'Версию ядра снять не удалось' if not n.xray_version else ('Обновление ядра выполняется' if xstate == 'running' else ('Обновление ядра не завершилось — можно откатить' if xstate == 'failed' else ('Доступно обновление ядра до ' + n.xray_latest_version if xflag == 'update' else ('Актуальная версия ядра' if xflag == 'current' else 'Ядро Xray на сервере')))) }}"><span class="ver-num">{{ n.xray_version or '—' }}</span>{% if xstate == 'running' %}<span class="ver-spin" title="обновление ядра выполняется">…</span>{% elif xstate == 'failed' %}<button type="button" class="ver-fail" data-node-id="{{ n.id }}" data-update-rollback="1" title="обновление ядра не завершилось — откатить на {{ n.update_prev_version or 'прежнюю версию' }}">!</button>{% elif xflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="xray" data-cur="{{ n.xray_version or '' }}" data-latest="{{ n.xray_latest_version }}" title="Обновить ядро до {{ n.xray_latest_version }}">↑</button>{% endif %}</span>
           <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           <span class="mono">{{ n.public_host or '—' }}</span>
           <div class="node-tpl">
@@ -223,8 +226,22 @@
   </details>
 
   {% include "_node_controls.html" %}
-  {% include "_update_nodes.html" %}
   {% include "_client_controls.html" %}
+
+  <div class="overlay" id="confirm-update">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="page-head" style="margin-bottom:4px">
+        <div><h2 id="upd-title">Обновление</h2></div>
+        <button class="btn ghost small" type="button" data-close="confirm-update">Закрыть</button>
+      </div>
+      <p class="sub" id="upd-text" style="margin:8px 0 4px"></p>
+      <p class="hint" id="upd-note"></p>
+      <div class="upd-actions">
+        <button class="btn" type="button" id="upd-confirm">Обновить</button>
+        <button class="btn ghost" type="button" data-close="confirm-update">Отмена</button>
+      </div>
+    </div>
+  </div>
 </div>
 {% if '127.0.0.1' in public_base or 'localhost' in public_base %}
 <div class="callout" style="margin-top:16px">
@@ -314,10 +331,65 @@ XUI.bindFolds(document);
 XUI.initTemplatePicker(document);
 XUI.initClientControls(document, 'client-action-log');
 XUI.initNodeForm();
-// Обновления панелей/ядер — кнопка «Обновления» + модалка update-nodes (app.js).
-XUI.initUpdateControls();
+// Обновление панели/ядра: клик по жёлтой стрелке ↑ → окно подтверждения → запуск через API.
+let updPending = null;
+let updPoll = 0;
+function startUpdPoll() {
+  if (updPoll) return;
+  updPoll = setInterval(() => {
+    if (!document.querySelector('.ver-tag.is-running')) { clearInterval(updPoll); updPoll = 0; return; }
+    loadOverview().catch(() => {});
+  }, 6000);
+}
+document.getElementById('node-monitor')?.addEventListener('click', (e) => {
+  const up = e.target.closest('.ver-up');
+  const fail = e.target.closest('.ver-fail[data-update-rollback]');
+  if (!up && !fail) return;
+  const btn = up || fail;
+  const row = btn.closest('[data-node]');
+  const name = row ? (row.dataset.name || '') : '';
+  if (up) {
+    const kind = btn.dataset.updateKind;
+    updPending = { id: Number(btn.dataset.nodeId), kind, rollback: false, cur: btn.dataset.cur || '', latest: btn.dataset.latest || '' };
+    const what = kind === 'panel' ? 'панель 3x-ui' : 'ядро Xray';
+    document.getElementById('upd-title').textContent = 'Обновить ' + (kind === 'panel' ? 'панель' : 'ядро');
+    document.getElementById('upd-text').textContent =
+      'Вы собираетесь обновить ' + what + ' на ноде «' + name + '» с ' + (updPending.cur || '—') + ' на ' + (updPending.latest || '—') + '.';
+    document.getElementById('upd-note').textContent = 'Обновление выполнится через API панели. Нода на время обновления станет недоступна.';
+    document.getElementById('upd-confirm').textContent = 'Обновить';
+  } else {
+    updPending = { id: Number(btn.dataset.nodeId), kind: 'xray', rollback: true };
+    document.getElementById('upd-title').textContent = 'Откатить ядро';
+    document.getElementById('upd-text').textContent =
+      'Обновление ядра на ноде «' + name + '» не завершилось. Откатить ядро на прежнюю версию?';
+    document.getElementById('upd-note').textContent = 'Откат выполнится через API панели (установка прежней версии ядра).';
+    document.getElementById('upd-confirm').textContent = 'Откатить';
+  }
+  XUI.openModal('confirm-update');
+});
+document.getElementById('upd-confirm')?.addEventListener('click', async (e) => {
+  if (!updPending) return;
+  const p = updPending;
+  const btn = e.currentTarget;
+  const path = p.rollback
+    ? '/api/nodes/' + p.id + '/update/rollback'
+    : '/api/nodes/' + p.id + '/update?kind=' + p.kind;
+  let res;
+  XUI.busy(btn, true);
+  try {
+    res = await XUI.api(path, 'POST', {});
+  } catch (err) { XUI.busy(btn, false); return; }
+  XUI.busy(btn, false);
+  if (!res.ok) { XUI.toast(res.message || 'не удалось запустить обновление', 'err'); return; }
+  XUI.closeModal('confirm-update');
+  updPending = null;
+  XUI.toast(p.rollback ? 'Откат запущен — ждём возврата ноды' : 'Обновление запущено — ждём возврата ноды');
+  loadOverview().catch(() => {});
+  startUpdPoll();
+});
 loadOverview().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());
+  if (document.querySelector('.ver-tag.is-running')) startUpdPoll();
 });
 </script>
 {% endblock %}

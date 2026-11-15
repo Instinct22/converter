@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -37,6 +38,32 @@ def clean_version(value: Any) -> str:
     if text.lower() in {'', 'n/a', 'na', 'none', 'null', 'unknown', 'неизвестно'}:
         return ''
     return text[:40]
+
+
+def version_tuple(value: Any) -> tuple[int, ...]:
+    """Версия в виде кортежа чисел: '3.11.0' -> (3, 11, 0), '26.10.21' -> (26, 10, 21)."""
+    parts: list[int] = []
+    for chunk in re.split(r'[^0-9]+', str(value or '').strip()):
+        if chunk:
+            parts.append(int(chunk))
+    return tuple(parts)
+
+
+def version_newer(candidate: Any, base: Any) -> bool:
+    """Строго новее ли candidate, чем base (с учётом '3.11' == '3.11.0')."""
+    a, b = version_tuple(candidate), version_tuple(base)
+    if not a or not b:
+        # Одну из версий разобрать не удалось: считаем новее только если строки различаются.
+        return bool(str(candidate or '')) and str(candidate or '') != str(base or '')
+    size = max(len(a), len(b))
+    a = a + (0,) * (size - len(a))
+    b = b + (0,) * (size - len(b))
+    return a > b
+
+
+def version_equal(a: Any, b: Any) -> bool:
+    """Одинаковые ли версии с точки зрения чисел ('3.11' == '3.11.0')."""
+    return not version_newer(a, b) and not version_newer(b, a)
 
 
 def versions_from_status(obj: Any) -> tuple[str, str]:
@@ -198,7 +225,7 @@ class XuiClient:
         return body
 
     def update_panel(self) -> str:
-        """Запускает self-update панели, возвращает runId (может быть пустым)."""
+        """Запускает self-update панели (обновление до latest), возвращает runId (может быть '')."""
         body = self.call('/panel/api/server/updatePanel', {})
         if body.get('success') is False:
             raise XuiError(_xui_msg(body, 'update panel failed'))
@@ -209,14 +236,11 @@ class XuiClient:
             return str(obj.get('runId') or obj.get('id') or '')
         return ''
 
-    def get_update_status(self) -> dict[str, Any]:
-        """{runId, state: pending|success|failed} статуса self-update панели."""
-        body = self.call('/panel/api/server/getUpdateStatus', method='GET')
-        obj = body.get('obj')
-        if isinstance(obj, dict):
-            return obj
-        if body.get('raw'):
-            raise XuiError(_xui_msg(body, 'панель не отдаёт статус обновления'))
+    def install_xray(self, version: str) -> dict[str, Any]:
+        """Ставит/обновляет ядро Xray на указанную версию (перезапускает Xray)."""
+        body = self.call(f'/panel/api/server/installXray/{_path_id(version)}', {})
+        if body.get('success') is False:
+            raise XuiError(_xui_msg(body, 'install xray failed'))
         return body
 
     def get_xray_versions(self) -> list[str]:
@@ -228,13 +252,6 @@ class XuiClient:
         if isinstance(obj, str) and clean_version(obj):
             return [clean_version(obj)]
         return []
-
-    def install_xray(self, version: str) -> dict[str, Any]:
-        """Ставит/обновляет ядро Xray на указанную версию. Перезапускает Xray."""
-        body = self.call(f'/panel/api/server/installXray/{_path_id(version)}', {})
-        if body.get('success') is False:
-            raise XuiError(_xui_msg(body, 'install xray failed'))
-        return body
 
     def server_logs(self, count: int = 80) -> str:
         chunks: list[str] = []

@@ -50,9 +50,13 @@ class Node(SQLModel, table=True):
     # latest снимаются с getPanelUpdateInfo/getXrayVersion; current — xui_version/xray_version.
     panel_latest_version: str = ''
     xray_latest_version: str = ''
-    update_run_id: str = ''
-    update_state: str = ''  # pending / success / failed
     update_checked_at: Optional[datetime] = None
+    # Ручное обновление панели/ядра по API (запуск из UI, фон-поток ждёт возврата ноды):
+    # '' | running | failed; kind — что обновляем (panel/xray); prev — на что откатывать.
+    update_state: str = ''
+    update_kind: str = ''
+    update_prev_version: str = ''
+    update_target_version: str = ''
     install_state: str = ''
     install_log: str = ''
     install_ssl: str = ''
@@ -186,17 +190,3 @@ class ConfigDoc(SQLModel, table=True):
 class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str = ''
-
-
-class UpdateNotification(SQLModel, table=True):
-    """Одноразовое уведомление об автообновлении: пропуск ноды, нет резерва, срыв прогона.
-
-    node_name = None — глобальное (например, «не было резерва»). Кнопка в UI гасит
-    все undismissed, ставя dismissed=True.
-    """
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    created_at: datetime = Field(default_factory=utcnow)
-    node_name: Optional[str] = None
-    message: str = ''
-    dismissed: bool = False

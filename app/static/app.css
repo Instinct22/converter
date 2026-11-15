@@ -248,7 +248,7 @@ input:focus, textarea:focus, select:focus {
 .monitor-cols > * { min-width: 0; }
 .nodes-cols {
   /* 10 колонок: сервер, 3x-ui, Xray, из РФ, адрес, входы, состояние, файрвол, в Clash, кнопки */
-  grid-template-columns: minmax(0, 0.95fr) 72px 72px 84px minmax(0, 0.72fr) minmax(0, 1.05fr) minmax(0, 0.9fr) 52px 80px 120px;
+  grid-template-columns: minmax(0, 0.66fr) 86px 86px 84px minmax(0, 0.62fr) minmax(0, 1.05fr) minmax(0, 0.9fr) 52px 92px 150px;
 }
 /* Заголовок «Из РФ» вместе со стрелкой сортировки не должен ломать сетку */
 .nodes-cols .sort-rf {
@@ -266,22 +266,22 @@ input:focus, textarea:focus, select:focus {
 .nodes-cols [data-xray-ver] {
   justify-self: start;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 @media (max-width: 1400px) {
   .nodes-cols {
     gap: 8px;
-    grid-template-columns: minmax(0, 0.95fr) 64px 64px 78px minmax(0, 0.72fr) minmax(0, 1fr) minmax(0, 0.85fr) 48px 74px 112px;
+    grid-template-columns: minmax(0, 0.66fr) 78px 78px 78px minmax(0, 0.62fr) minmax(0, 1fr) minmax(0, 0.85fr) 48px 84px 142px;
   }
 }
 .nodes-cols [data-rf-label] { justify-self: start; white-space: nowrap; }
 /* Столбец «Входы» — виджет выбора шаблонов, скопирован со страницы «Серверы».
-   В строке обзора он должен оставаться однострочным, иначе сетка поедет. */
+   Чипы переносятся по ширине колонки, а строка растёт по высоте, чтобы было
+   видно все входы (как было на старой вкладке «Серверы»). */
 .nodes-cols .node-tpl { min-width: 0; }
 .nodes-cols .tpl-dropdown__trigger { min-height: 34px; align-items: center; }
 .nodes-cols .tpl-dropdown__trigger-inner { align-items: center; }
-.nodes-cols .tpl-dropdown__preview { flex-wrap: nowrap; overflow: hidden; }
+.nodes-cols .tpl-dropdown__preview { flex-wrap: wrap; }
 .nodes-cols .tpl-pill { flex: none; }
 .nodes-cols .tpl-pill__name { max-width: 110px; }
 .nodes-cols .tpl-dropdown__chev { margin-top: 0; }
@@ -385,125 +385,70 @@ input:focus, textarea:focus, select:focus {
 .rf-tag.on::before { background: var(--ok); box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.18); }
 .rf-tag.bad { color: var(--danger); }
 .rf-tag.bad::before { background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 92, 92, 0.18); }
-/* Версии 3x-ui и Xray, снятые с панели: моноширинно, чтобы релизы не прыгали по ширине */
+/* Версии 3x-ui и Xray: моноширинно + inline-подсказка (стрелка ↑ / галка ✓) */
 .ver-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text);
-  cursor: help;
+  line-height: 1.7;
 }
 .ver-tag.is-empty { color: var(--faint); }
-/* Жёлтая «лампочка» рядом с версией: доступно обновление панели/ядра */
-.ver-tag.has-update { color: #ffd23f; font-weight: 700; }
-.ver-tag.has-update::after {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: var(--warn);
-  box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.22);
-  vertical-align: middle;
-  animation: update-bulb 1.6s ease-in-out infinite;
-}
-@keyframes update-bulb {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.22); }
-  50% { box-shadow: 0 0 0 5px rgba(240, 180, 41, 0.34); }
-}
-/* Зелёная подсветка версии, когда она совпадает с последней доступной */
-.ver-tag.is-current { color: var(--ok); font-weight: 700; }
-.ver-tag.is-current::after {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 3px rgba(61, 214, 140, 0.22);
-  vertical-align: middle;
-}
-/* Точка-индикатор на кнопке «Обновления»: есть непрочитанные уведомления */
-.badge-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: var(--warn);
-  box-shadow: 0 0 0 3px rgba(255, 176, 32, 0.18);
-  vertical-align: middle;
-}
-.badge-dot[hidden] { display: none; }
-/* Модалка обновлений: 3 колонки — нода, 3x-ui, Xray */
-.update-cols {
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
-}
-.upd-ver {
-  font-family: var(--mono);
-  font-size: 12px;
-  cursor: help;
-}
-.upd-ver.ok { color: var(--ok); font-weight: 600; }
-.upd-ver.diff { color: var(--warn); font-weight: 600; }
-/* Строка обновлений: кликабельна целиком, если ноду можно обновить */
-.update-cols.is-selectable { cursor: pointer; }
-.update-cols.is-selectable:hover { background: var(--bg-hover); }
-.update-cols.is-selected {
-  background: var(--accent-soft);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-.upd-check {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
-  cursor: pointer;
+.ver-num { white-space: nowrap; }
+/* Жёлтая стрелка ↑: версия не последняя — клик открывает окно обновления через API */
+.ver-up {
   flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffd23f;
+  cursor: pointer;
 }
-.upd-check:disabled { cursor: not-allowed; opacity: 0.4; }
-#update-apply:disabled {
-  background: var(--bg-hover);
-  color: var(--faint);
-  border: 1px solid var(--line);
-  opacity: 1;
-  cursor: not-allowed;
-  filter: none;
-}
-.step-label.update-notes-label {
+.ver-up:hover { color: #ffe27a; }
+/* Спиннер: обновление панели/ядра выполняется, нода ждёт возврата в строй */
+.ver-spin {
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
   color: var(--warn);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  animation: ver-spin-blink 1s steps(2, start) infinite;
 }
-.update-notes {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+@keyframes ver-spin-blink { to { opacity: 0.25; } }
+/* Красный «!»: обновление не завершилось (для ядра клик = откатить на прежнюю версию) */
+.ver-fail {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--danger);
+  cursor: pointer;
 }
-/* Пустое состояние тоже подсвечиваем жёлтым — зона уведомлений должна читаться сразу */
-.update-notes .hint {
-  display: block;
-  margin-top: 0;
-  padding: 10px 12px;
-  border: 1px dashed rgba(240, 180, 41, 0.55);
-  border-left: 4px solid var(--warn);
-  border-radius: 8px;
-  background: rgba(240, 180, 41, 0.12);
-  color: #ffd23f;
-  font-weight: 600;
-}
-.update-note {
-  background: rgba(240, 180, 41, 0.26);
-  color: #ffd23f;
-  border: 1px solid rgba(240, 180, 41, 0.6);
-  border-left: 4px solid var(--warn);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 6px 18px rgba(240, 180, 41, 0.14);
-}
+span.ver-fail { cursor: help; }
+.ver-fail:hover { color: #ff7676; }
+/* Зелёный текст версии: версия совпадает с последней доступной — всё ок */
+.ver-tag.is-current .ver-num { color: var(--ok); font-weight: 700; }
+.ver-tag.is-running .ver-num { color: var(--warn); }
+.ver-tag.is-failed .ver-num { color: var(--danger); }
+.upd-actions { display: flex; gap: 10px; margin-top: 14px; }
 .note-warn {
   background: var(--warn-soft);
   border: 1px solid rgba(240, 180, 41, 0.35);
