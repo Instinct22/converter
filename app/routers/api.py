@@ -437,7 +437,9 @@ def api_sync_node(node_id: int, session: SessionDep) -> dict:
         raise HTTPException(404, 'node not found')
     try:
         rows = sync_node(session, node)
-        return {'ok': True, 'count': len(rows)}
+        ports = {row.port for row in rows}
+        logs = sync_node_firewall(node, ports, session)
+        return {'ok': True, 'logs': logs, 'count': len(rows)}
     except XuiError as exc:
         node.last_error = str(exc)
         session.add(node)

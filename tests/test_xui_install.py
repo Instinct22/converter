@@ -30,9 +30,10 @@ def test_install_script_leaves_firewall_and_fail2ban_to_master():
         ssh_port=22,
         sub_port=2096,
     )
-    assert wanted_ports(node, set()) == {22, 80, 2096, 25001}
+    assert wanted_ports(node, set()) == {22, 80, 25001}
     assert 443 not in wanted_ports(node, set())
-    assert wanted_ports(node, {443}) == {22, 80, 443, 2096, 25001}
+    assert 2096 not in wanted_ports(node, set())
+    assert wanted_ports(node, {443}) == {22, 80, 443, 25001}
 
 
 def test_prepare_install_rejects_a_bad_address_and_a_taken_ip():

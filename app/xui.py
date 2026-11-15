@@ -144,6 +144,11 @@ class XuiClient:
             return body['obj']
         raise XuiError(_xui_msg(body, 'setting/all failed'))
 
+    def update_settings(self, settings: dict[str, Any]) -> None:
+        body = self.call('/panel/api/setting/update', settings)
+        if body.get('success') is False:
+            raise XuiError(_xui_msg(body, 'настройки панели не сохранились'))
+
     def inbounds(self) -> list[dict[str, Any]]:
         for method, data in (('GET', None), ('POST', {})):
             body = self.call('/panel/api/inbounds/list', data=data, method=method)

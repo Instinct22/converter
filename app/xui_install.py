@@ -343,8 +343,10 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
     session.refresh(node)
     try:
         from app.firewall import sync_node_firewall
+        from app.provision import disable_node_subscription
 
-        logs = sync_node_firewall(node, set(), session)
+        logs = [disable_node_subscription(node)]
+        logs.extend(sync_node_firewall(node, set(), session))
     except Exception as exc:
         logs = [f'{node.name}: файрвол не обновился: {exc}']
         node.last_error = str(exc)[:240]

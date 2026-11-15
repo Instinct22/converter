@@ -104,6 +104,35 @@ def match_master_client(ident: dict[str, str], clients: list[Client]) -> Client 
     return None
 
 
+def subscription_is_on(settings: dict) -> bool:
+    value = settings.get('subEnable')
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def with_subscription_off(settings: dict) -> dict | None:
+    """Полный набор настроек панели с выключенной раздачей подписки."""
+    if not subscription_is_on(settings):
+        return None
+    updated = dict(settings)
+    updated['subEnable'] = False
+    return updated
+
+
+def disable_node_subscription(node: Node) -> str:
+    """Выключить HTTP-подписку 3x-ui. Клиентский YAML собирает Master из своей базы."""
+    with XuiClient(node) as xui:
+        current = xui.panel_settings()
+        updated = with_subscription_off(current)
+        if updated is None:
+            return f'{node.name}: подписка 3x-ui уже выключена'
+        xui.update_settings(updated)
+    return f'{node.name}: подписка 3x-ui выключена'
+
+
 def apply_sub_settings(node: Node, settings: dict) -> None:
     port = settings.get('subPort')
     try:
@@ -560,8 +589,11 @@ def ensure_default_node_templates(session: Session) -> None:
 def sync_node(session: Session, node: Node, *, apply_templates: bool = True) -> list[NodeInbound]:
     with XuiClient(node) as xui:
         try:
-            apply_sub_settings(node, xui.panel_settings())
-            refresh_clash_sub_path(session, node)
+            current = xui.panel_settings()
+            apply_sub_settings(node, current)
+            updated = with_subscription_off(current)
+            if updated is not None:
+                xui.update_settings(updated)
         except XuiError:
             pass
         remote = xui.inbounds()

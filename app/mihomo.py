@@ -39,21 +39,13 @@ def provider_name(node: Node) -> str:
     return f'n{node.id}-{slug}'[:48]
 
 
-def node_clash_sub_base(node: Node) -> str:
-    scheme = (node.sub_scheme or 'https').strip().rstrip(':/') or 'https'
-    host = (node.public_host or '').strip()
-    port = int(node.sub_port or 2096)
-    path = (node.sub_clash_path or '').strip().strip('/')
-    if not host or not path:
-        return ''
-    return f'{scheme}://{host}:{port}/{path}'
+def node_clash_sub_base(_node: Node) -> str:
+    """Адрес подписки ноды наружу не отдаём: клиент ходит только на Master."""
+    return ''
 
 
-def node_clash_sub_url(node: Node, sub_id: str) -> str:
-    base = node_clash_sub_base(node)
-    if not base:
-        return ''
-    return f'{base}/{sub_id}'
+def node_clash_sub_url(_node: Node, _sub_id: str) -> str:
+    return ''
 
 
 def _health_lines(*, lazy: bool = False) -> list[str]:

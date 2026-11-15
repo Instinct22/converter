@@ -1,8 +1,9 @@
 """Сверить ufw с входами сервера.
 
 Открыты порты выбранных входов плюс служебные: SSH, 80 (продление
-сертификата), порт панели и порт подписки. Любой другой порт в правилах
-ufw закрывается. Правило, которое уже есть, второй раз не добавляется.
+сертификата) и порт панели. Порт подписки 3x-ui не открываем: профиль
+клиент забирает с Master. Любой другой порт в правилах ufw закрывается.
+Правило, которое уже есть, второй раз не добавляется.
 """
 from __future__ import annotations
 
@@ -26,9 +27,6 @@ def protected_ports(node: Node) -> set[int]:
     ssh_port = int(getattr(node, 'ssh_port', 0) or 0)
     if ssh_port:
         ports.add(ssh_port)
-    sub_port = int(getattr(node, 'sub_port', 0) or 0)
-    if sub_port:
-        ports.add(sub_port)
     extra = panel_port(node)
     if extra:
         ports.add(extra)

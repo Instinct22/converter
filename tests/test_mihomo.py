@@ -78,7 +78,21 @@ def test_replace_pool_and_providers():
     assert '{{XUI_POOL_BEGIN}}' not in text
 
 
-def test_node_clash_sub_url_matches_3xui():
+def test_subscription_off_keeps_the_rest_of_panel_settings():
+    from app.provision import subscription_is_on, with_subscription_off
+
+    current = {'webPort': 2053, 'subEnable': True, 'subPort': 2096, 'subPath': 'secret'}
+    updated = with_subscription_off(current)
+    assert updated is not None
+    assert updated['subEnable'] is False
+    assert updated['webPort'] == 2053
+    assert updated['subPath'] == 'secret'
+    assert with_subscription_off(updated) is None
+    assert subscription_is_on({'subEnable': 'true'}) is True
+    assert subscription_is_on({}) is False
+
+
+def test_node_clash_sub_url_is_not_published():
     from app.mihomo import dump_providers, node_clash_sub_url, provider_name
     from app.models import Node
 
@@ -93,9 +107,9 @@ def test_node_clash_sub_url_matches_3xui():
         sub_scheme='https',
         flag='FI',
     )
-    url = node_clash_sub_url(node, '2amob9we0rzfk1z5')
-    assert url == 'https://82.40.58.78:2096/no1m62cdabx5fb5e/2amob9we0rzfk1z5'
+    assert node_clash_sub_url(node, '2amob9we0rzfk1z5') == ''
     dumped = '\n'.join(dump_providers([node], '2amob9we0rzfk1z5')[0])
+    assert ':2096' not in dumped
     assert dumped.strip() == '{}'
     assert provider_name(node) not in dumped
 
@@ -236,6 +250,7 @@ def test_providers_expand_snis_and_ports():
     assert pairs['n1-finland-82-yahoo-news']['servername'] == 'news.yahoo.com'
     assert 'n1-finland-82-yahoo-ymail' not in keys
     assert text.count('/prov/') == len(keys)
+    assert ':2096' not in text
 
 
 def test_inbound_sni_chain_respects_snis_locked():

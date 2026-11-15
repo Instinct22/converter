@@ -5,7 +5,7 @@
 <div class="page-head">
   <div>
     <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
-    <p class="lede">URL панели, токен и подписка 3x-ui. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре».</p>
+    <p class="lede">URL панели и токен. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре». Подписку клиент забирает с Master.</p>
   </div>
   <div class="row">
     <button class="btn secondary" id="test" type="button" {% if node.install_state == 'installing' %}disabled{% endif %}>Проверить связь</button>
@@ -65,22 +65,6 @@
         <label>URL 3x-ui</label>
         <input name="panel_url" value="{{ node.panel_url }}" placeholder="{{ 'появится после установки' if not node.panel_url else '' }}" {% if node.install_state == 'installing' %}readonly{% endif %}>
         <span class="hint">{% if node.install_state == 'installing' %}Адрес и токен появятся здесь, когда установщик закончит.{% else %}Пример: https://82.40.58.78:28879/l156n0rG5HBRse0B01{% endif %}</span>
-      </div>
-      <div class="field">
-        <label>Порт подписки 3x-ui</label>
-        <input name="sub_port" type="number" min="1" value="{{ node.sub_port or 2096 }}">
-      </div>
-      <div class="field">
-        <label>HTTPS подписки</label>
-        <select name="sub_scheme">
-          <option value="https" {% if node.sub_scheme != 'http' %}selected{% endif %}>https</option>
-          <option value="http" {% if node.sub_scheme == 'http' %}selected{% endif %}>http</option>
-        </select>
-      </div>
-      <div class="field span-2">
-        <label>Clash / Mihomo path</label>
-        <input name="sub_clash_path" value="{{ node.sub_clash_path }}" placeholder="подтянется при «Связь с панелью»">
-        <span class="hint">{% if node.sub_clash_path %}База: {{ node.sub_scheme or 'https' }}://{{ node.public_host }}:{{ node.sub_port or 2096 }}/{{ node.sub_clash_path }}/&lt;subId&gt;{% else %}Нажмите «Связь с панелью» — Master заберёт subClashPath с панели.{% endif %}</span>
       </div>
       <div class="field span-2">
         <label>
@@ -188,9 +172,6 @@ document.getElementById('edit').onsubmit = async (e) => {
     name: f.name.value,
     clash_name: f.clash_name.value,
     panel_url: f.panel_url.value,
-    sub_port: Number(f.sub_port.value),
-    sub_scheme: f.sub_scheme.value,
-    sub_clash_path: f.sub_clash_path.value,
   };
   const token = typedSecret(f.api_token);
   if (token) body.api_token = token;
