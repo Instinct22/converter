@@ -28,6 +28,19 @@ def test_firewall_keeps_only_inbound_and_service_ports():
     assert all(port not in {22, 80, 21096, 443} for kind, port in actions if kind == 'delete')
 
 
+def test_display_ports_lists_ssh_panel_and_inbounds_without_subscription():
+    from app.firewall import display_ports
+
+    node = _node()
+    node.firewall_on = True
+    label, title = display_ports(node, [443, 8443])
+    assert label == '22 80 443 8443 21096'
+    assert '2096' not in label
+    assert '443 вход' in title
+    assert '21096 панель' in title
+    assert 'сверено с ufw' in title
+
+
 def test_script_installs_ufw_when_missing():
     script = _script(_node(), {443})
     assert 'apt-get install -y -qq ufw' in script

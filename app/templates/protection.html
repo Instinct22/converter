@@ -34,7 +34,7 @@
 
 <div class="card">
     <h2>Серверы</h2>
-    <p class="sub">Столбцы заполняются при открытии вкладки. Нажмите строку — список адресов в бане.</p>
+    <p class="sub">Порты одинаковые по смыслу: SSH, 80, панель и входы. 2096 закрыт. Нажмите строку — список адресов в бане.</p>
     {% if nodes %}
     <div class="table-scroll">
       <table class="table-guard">
@@ -42,6 +42,7 @@
           <col class="g-name">
           <col class="g-state">
           <col class="g-auth">
+          <col class="g-ports">
           <col class="g-watch">
           <col class="g-ban">
           <col class="g-day">
@@ -51,6 +52,7 @@
             <th>Сервер</th>
             <th>Состояние</th>
             <th>Вход</th>
+            <th>Порты</th>
             <th>Что сторожит</th>
             <th>В бане</th>
             <th>За сутки</th>
@@ -91,6 +93,8 @@
               <span class="fw-tag">нет входа</span>
               {% endif %}
             </td>
+            {% set ports = port_views.get(n.id, ('—', '')) %}
+            <td class="mono ports-cell" data-guard="ports" title="{{ ports[1] }}">{{ ports[0] }}{% if not n.firewall_on %} <span class="hint">не сверено</span>{% endif %}</td>
             <td class="hint" data-guard="watch">{% if state == 'protecting' %}SSH · повтор{% else %}—{% endif %}</td>
             <td data-guard="banned">{{ n.fail2ban_banned or 0 }}</td>
             <td data-guard="day">{{ n.fail2ban_day or 0 }}</td>

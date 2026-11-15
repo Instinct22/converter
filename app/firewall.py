@@ -42,6 +42,27 @@ def wanted_ports(node: Node, open_ports: set[int]) -> set[int]:
     return ports
 
 
+def display_ports(node: Node, inbound_ports: list[int]) -> tuple[str, str]:
+    """Порты, которые Master держит открытыми: SSH, 80, панель и входы."""
+    ports = sorted(wanted_ports(node, set(inbound_ports)))
+    ssh = int(getattr(node, 'ssh_port', 0) or 22)
+    panel = panel_port(node)
+    roles: list[str] = []
+    for port in ports:
+        if port == ssh:
+            roles.append(f'{port} SSH')
+        elif port == 80:
+            roles.append(f'{port} сертификат')
+        elif panel and port == panel:
+            roles.append(f'{port} панель')
+        else:
+            roles.append(f'{port} вход')
+    label = ' '.join(str(port) for port in ports) or '—'
+    state = 'сверено с ufw' if node.firewall_on else 'правило ещё не сверяли с ufw'
+    title = ' · '.join(roles + [state, '2096 закрыт'])
+    return label, title
+
+
 def firewall_plan(node: Node, open_ports: set[int], current_ports: set[int]) -> list[tuple[str, int]]:
     """allow — порта нет в ufw, delete — в ufw есть порт, которого нет среди нужных."""
     wanted = wanted_ports(node, open_ports)

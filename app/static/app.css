@@ -548,12 +548,14 @@ input:focus, textarea:focus, select:focus {
 .table-releases th:nth-child(5),
 .table-releases td:nth-child(5) { text-align: right; }
 .table-guard { table-layout: fixed; width: 100%; }
-.table-guard col.g-name { width: 18%; }
-.table-guard col.g-state { width: 14%; }
-.table-guard col.g-auth { width: 16%; }
-.table-guard col.g-watch { width: 18%; }
-.table-guard col.g-ban { width: 16%; }
-.table-guard col.g-day { width: 18%; }
+.table-guard col.g-name { width: 16%; }
+.table-guard col.g-state { width: 12%; }
+.table-guard col.g-auth { width: 13%; }
+.table-guard col.g-ports { width: 20%; }
+.table-guard col.g-watch { width: 13%; }
+.table-guard col.g-ban { width: 13%; }
+.table-guard col.g-day { width: 13%; }
+.ports-cell { font-size: 12px; line-height: 1.35; white-space: normal; }
 .fleet-public {
   display: block; margin-top: 8px; padding: 10px 12px; border-radius: 12px;
   background: var(--bg); color: var(--muted); font-size: 12px; word-break: break-all;
@@ -564,10 +566,10 @@ input:focus, textarea:focus, select:focus {
 .table-guard tbody tr.is-loading { opacity: 0.55; }
 .table-guard.is-refreshing [data-guard="banned"],
 .table-guard.is-refreshing [data-guard="day"] { opacity: 0.45; }
-.table-guard th:nth-child(5),
-.table-guard td:nth-child(5),
 .table-guard th:nth-child(6),
-.table-guard td:nth-child(6) { text-align: right; }
+.table-guard td:nth-child(6),
+.table-guard th:nth-child(7),
+.table-guard td:nth-child(7) { text-align: right; }
 .sort-btn {
   appearance: none; background: none; border: 0; padding: 0;
   color: var(--faint); font-size: 12px; font-weight: 600;

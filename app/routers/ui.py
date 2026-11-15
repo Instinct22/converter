@@ -177,9 +177,17 @@ def protection_page(request: Request, session: SessionDep):
         return redir
     from app.ssh_access import ensure_fleet_key, fingerprint, public_key_line
 
+    from app.firewall import display_ports
+    from app.reachability import inbound_ports
+
     ensure_fleet_key()
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     protecting = sum(1 for node in nodes if node.fail2ban_state == 'protecting')
+    port_views = {
+        node.id: display_ports(node, inbound_ports(session, int(node.id)))
+        for node in nodes
+        if node.id is not None
+    }
     return templates.TemplateResponse(
         'protection.html',
         _ctx(
@@ -191,6 +199,7 @@ def protection_page(request: Request, session: SessionDep):
             banned_day=sum(int(node.fail2ban_day or 0) for node in nodes),
             key_fingerprint=fingerprint(),
             public_key=public_key_line(),
+            port_views=port_views,
         ),
     )
 
