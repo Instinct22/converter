@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ node.clash_prefix() }} — С клиентов{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/pings">С клиентов</a><span>/</span><span>{{ node.clash_prefix() }}</span></p>
+<div class="page-head">
+  <div>
+    <h1>{{ node.clash_prefix() }}</h1>
+    <p class="lede">Сутки по отчётам клиентов. Это не проверка мастера «Из РФ»: порт может отвечать мастеру, пока рукопожатие у людей ломается.</p>
+  </div>
+</div>
+<div class="card">
+  <h2>Медиана по часам</h2>
+  <p class="sub">{% if median is not none %}Сейчас {{ median }} мс.{% else %}За сутки успешных замеров нет.{% endif %}</p>
+  <div style="display:flex;align-items:flex-end;gap:6px;height:96px">
+    {% for item in series %}
+    <div title="{{ item.hour.strftime('%H:%M') }}{% if item.median is not none %} · {{ item.median }} мс{% endif %}" style="flex:1;height:{{ ((item.median or 0) * 100 / peak)|round }}%;min-height:{% if item.reports %}4px{% else %}0{% endif %};background:rgba(124,106,247,0.85);border-radius:4px 4px 0 0"></div>
+    {% endfor %}
+  </div>
+</div>
+<div class="card">
+  <h2>Почему не ответили</h2>
+  {% if reasons %}
+  <table>
+    <tbody>
+      {% for label, count in reasons %}
+      <tr><td>{{ label }}</td><td>{{ count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="sub">Отказов за сутки нет.</p>
+  {% endif %}
+</div>
+{% endblock %}

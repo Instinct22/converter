@@ -7,6 +7,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.database import init_db
 from app.database import engine
 from app.routers import api, sub, ui, updates
+from app.routers.pings import router as pings_router
+from app.routers.pings import take_report
 from app.scheduler import start_scheduler
 from app.bootstrap import seed_if_empty
 from app.routers.sub import serve_sub
@@ -28,6 +30,16 @@ async def lifespan(_app: FastAPI):
         ensure_default_node_templates(session)
         path = init_sub_path(session)
     from app.routers.sub import serve_provider_yaml
+
+    report_path = f'/{path}/{{token}}/report'
+    mounted = {getattr(route, 'path', '') for route in _app.routes}
+    if report_path not in mounted:
+        _app.add_api_route(
+            report_path,
+            take_report,
+            methods=['POST'],
+            name=f'secret_report_{path}',
+        )
 
     _app.add_api_route(
         f'/{path}/{{token}}/prov/{{key}}.yaml',
@@ -60,6 +72,7 @@ app.include_router(api.router)
 app.include_router(ui.router)
 app.include_router(sub.router)
 app.include_router(updates.router)
+app.include_router(pings_router)
 
 
 def run() -> None:

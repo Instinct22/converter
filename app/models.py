@@ -190,3 +190,31 @@ class ConfigDoc(SQLModel, table=True):
 class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str = ''
+
+
+class ClientPingReport(SQLModel, table=True):
+    """Последняя сводка одного клиента. Новая заменяет старую."""
+
+    client_id: int = Field(foreign_key='client.id', primary_key=True)
+    seen_at: datetime = Field(default_factory=utcnow)
+    app_version: str = ''
+    platform: str = ''
+    exit_server: str = ''
+    servers_json: str = '[]'
+
+
+class NodePingHour(SQLModel, table=True):
+    """Час наблюдений клиентов по одной ноде.
+
+    samples_json — медианы успешных отчётов этого часа. Старше двух недель
+    список сжимается до одной медианы, старше 90 дней строка удаляется.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    node_id: int = Field(foreign_key='node.id', index=True)
+    hour: datetime = Field(index=True)
+    reports: int = 0
+    fails: int = 0
+    samples_json: str = '[]'
+    reasons_json: str = '{}'
+    rolled: bool = False

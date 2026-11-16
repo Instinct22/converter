@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlmodel import Session, select
 
+from app.client_pings import purge_old_ping_hours
 from app.database import engine
 from app.models import Node
 from app.node_updates import check_updates, reconcile_update
@@ -14,6 +15,7 @@ scheduler = BackgroundScheduler()
 
 def _job() -> None:
     with Session(engine) as session:
+        purge_old_ping_hours(session)
         disable_expired(session)
         nodes = session.exec(select(Node).where(Node.enabled.is_(True))).all()
         probes = probe_nodes(nodes)

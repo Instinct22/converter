@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} — С клиентов{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/pings">С клиентов</a><span>/</span><span>{{ client.name }}</span></p>
+<div class="page-head">
+  <div>
+    <h1>{{ client.name }}</h1>
+    <p class="lede">Последний отчёт: {{ report.platform or 'платформа не названа' }}, приложение {{ report.app_version or '—' }}{% if report.exit_server %}, выход {{ report.exit_server }}{% endif %}.</p>
+  </div>
+</div>
+<div class="card">
+  <h2>Серверы</h2>
+  <table>
+    <thead><tr><th>Сервер</th><th>Пинг</th><th>Живых имён</th><th>Отказов</th></tr></thead>
+    <tbody>
+      {% for row in servers %}
+      <tr>
+        <td>{{ row.server }}</td>
+        <td>{% if row.median_ms is not none %}{{ row.median_ms }} мс{% elif row.reason %}{{ reason_label(row.reason) }}{% else %}—{% endif %}</td>
+        <td>{{ row.ok }}</td>
+        <td>{{ row.failed }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

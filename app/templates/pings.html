@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}С клиентов — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>С клиентов</h1>
+    <p class="lede">Медиана за последние два часа по тем, кто сам измерил сервер. «Из РФ» на обзоре — это по-прежнему проверка самого мастера.</p>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card"><div class="label">Отчётов</div><div class="value">{{ report_count }}</div></div>
+  <div class="stat-card"><div class="label">Клиентов</div><div class="value">{{ client_count }}</div></div>
+  <div class="stat-card"><div class="label">Нода с отказами</div><div class="value">{{ worst or '—' }}</div></div>
+</div>
+
+<div class="card">
+  <h2>Серверы</h2>
+  <p class="sub">Нажмите строку — сутки этой ноды.</p>
+  {% if nodes %}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Сервер</th><th>Медиана</th><th>Отказы</th><th>Отчётов</th></tr></thead>
+      <tbody>
+        {% for item in nodes %}
+        <tr onclick="location.href='/pings/node/{{ item.node.id }}'" style="cursor:pointer">
+          <td>{{ item.node.clash_prefix() }}</td>
+          <td>{% if item.median is not none %}{{ item.median }} мс{% else %}—{% endif %}</td>
+          <td>{% if item.reports %}{{ item.fail_rate }}%{% else %}—{% endif %}</td>
+          <td>{{ item.reports }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="sub">Включённых нод нет.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Клиенты</h2>
+  <p class="sub">Последний отчёт каждого. Нажмите имя.</p>
+  {% if clients %}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Клиент</th><th>Выход</th><th>Версия</th><th>Платформа</th><th>Был</th></tr></thead>
+      <tbody>
+        {% for client, report in clients %}
+        <tr onclick="location.href='/pings/client/{{ client.id }}'" style="cursor:pointer">
+          <td>{{ client.name }}</td>
+          <td>{{ report.exit_server or '—' }}</td>
+          <td>{{ report.app_version or '—' }}</td>
+          <td>{{ report.platform or '—' }}</td>
+          <td>{{ report.seen_at.strftime('%d.%m %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="sub">Отчётов ещё не было. Страница заполнится, когда кто-нибудь подключится и домерит серверы.</p>
+  {% endif %}
+</div>
+{% endblock %}
