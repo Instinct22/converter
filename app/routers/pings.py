@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
+from sqlmodel import select
 
 from app.client_pings import (
     as_moscow,
@@ -15,6 +16,7 @@ from app.client_pings import (
     recent_clients,
     recent_nodes,
     report_servers,
+    server_faces,
 )
 from app.deps import SessionDep
 from app.models import Client, ClientPingReport, Node
@@ -123,6 +125,7 @@ def ping_client_page(request: Request, client_id: int, session: SessionDep):
             client=client,
             report=report,
             servers=report_servers(report),
+            server_face=server_faces(list(session.exec(select(Node)).all())),
             counts=availability_counts(report),
             as_moscow=as_moscow,
             reason_label=reason_label,

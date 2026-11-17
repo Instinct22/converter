@@ -15,6 +15,7 @@ from app.client_pings import (
     percentile,
     purge_old_ping_hours,
     recent_nodes,
+    server_faces,
 )
 from app.database import get_session
 from app.main import app
@@ -52,6 +53,27 @@ def _seed(session: Session) -> tuple[Client, Node]:
 def test_normalize_drops_the_flag():
     assert normalize_server('🇸🇪 Sweden-01') == 'sweden-01'
     assert normalize_server('Sweden-01') == 'sweden-01'
+
+
+def test_server_face_uses_the_node_picture():
+    node = Node(
+        name='Sweden-01',
+        clash_name='Sweden-01',
+        panel_url='https://203.0.113.10:2053/x',
+        flag='se',
+    )
+    face = server_faces([node])
+    shown = face('🇸🇪 Sweden-01 | yahoo')
+    assert shown['flag'] == '/static/flags/se.png'
+    assert shown['title'] == 'Швеция'
+    assert shown['name'] == 'Sweden-01 | yahoo'
+    assert '🇸🇪' not in shown['name']
+    plain = face('Sweden-01 | 443')
+    assert plain['flag'] == '/static/flags/se.png'
+    assert plain['name'] == 'Sweden-01 | 443'
+    unknown = server_faces([])('🇫🇮 Finland')
+    assert unknown['flag'] == '/static/flags/fi.png'
+    assert unknown['name'] == 'Finland'
 
 
 def test_percentile_is_the_middle():

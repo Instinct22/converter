@@ -14,8 +14,9 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from app.models import Client, ClientPingReport, Node, NodePingHour, utcnow
+from app.flags import country_name, flag_src
 from app.mihomo import is_expired
+from app.models import Client, ClientPingReport, Node, NodePingHour, utcnow
 
 _FLAG = re.compile(r'[\U0001F1E6-\U0001F1FF]+')
 _MAX_SERVERS = 64
@@ -76,6 +77,50 @@ def _node_index(nodes: list[Node]) -> dict[str, Node]:
             if key and key not in index:
                 index[key] = node
     return index
+
+
+def _leading_flag(label: str) -> tuple[str, str]:
+    text = (label or '').strip()
+    if len(text) >= 2 and all('\U0001F1E6' <= ch <= '\U0001F1FF' for ch in text[:2]):
+        return text[:2], text[2:].lstrip()
+    return '', text
+
+
+def _match_node(label: str, index: dict[str, Node]) -> Node | None:
+    key = normalize_server(label)
+    if not key:
+        return None
+    found = index.get(key)
+    if found is not None:
+        return found
+    best_key = ''
+    best: Node | None = None
+    for node_key, node in index.items():
+        if node_key and key.startswith(node_key + ' ') and len(node_key) > len(best_key):
+            best_key = node_key
+            best = node
+    return best
+
+
+def server_faces(nodes: list[Node]):
+    """Имя туннеля без эмодзи и картинка флага, как на остальных страницах."""
+    index = _node_index(list(nodes))
+
+    def face(label: str) -> dict[str, str]:
+        emoji, name = _leading_flag(label or '')
+        node = _match_node(label or '', index)
+        if node is not None and node.flag_image():
+            flag = node.flag_image()
+            title = node.flag_title()
+        elif emoji:
+            flag = flag_src(emoji)
+            title = country_name(emoji)
+        else:
+            flag = ''
+            title = ''
+        return {'name': name or (label or '').strip() or '—', 'flag': flag, 'title': title}
+
+    return face
 
 
 def _clip(value: Any, limit: int) -> str:

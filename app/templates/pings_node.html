@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ node.clash_prefix() }} — С клиентов{% endblock %}
+{% block title %}{{ (node.clash_name or node.name)|trim }} — С клиентов{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="/pings">С клиентов</a><span>/</span><span>{{ node.clash_prefix() }}</span></p>
+<p class="crumbs"><a href="/pings">С клиентов</a><span>/</span><span class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}">{% endif %}{{ (node.clash_name or node.name)|trim }}</span></p>
 <div class="page-head">
   <div>
-    <h1>{{ node.clash_prefix() }}</h1>
+    <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}">{% endif %}{{ (node.clash_name or node.name)|trim }}</h1>
     <p class="lede">Сутки по отчётам клиентов. Это не проверка мастера «Из РФ»: порт может отвечать мастеру, пока рукопожатие у людей ломается.</p>
   </div>
 </div>

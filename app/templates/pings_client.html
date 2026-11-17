@@ -14,8 +14,14 @@
     <thead><tr><th>Туннель</th><th>Доступность</th><th>Задержка</th></tr></thead>
     <tbody>
       {% for row in servers %}
+      {% set face = server_face(row.server) %}
       <tr>
-        <td>{{ row.server }}</td>
+        <td>
+          <span class="name-flag">
+            {% if face.flag %}<img class="flag-img" src="{{ face.flag }}" alt="{{ face.title }}" title="{{ face.title }}">{% endif %}
+            {{ face.name }}
+          </span>
+        </td>
         <td>{% if row.ok %}доступен{% elif row.reason %}{{ reason_label(row.reason) }}{% else %}—{% endif %}</td>
         <td>{% if row.ok and row.median_ms is not none %}{{ row.median_ms }} мс{% else %}—{% endif %}</td>
       </tr>

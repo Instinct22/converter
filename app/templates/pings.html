@@ -24,7 +24,12 @@
       <tbody>
         {% for item in nodes %}
         <tr onclick="location.href='/pings/node/{{ item.node.id }}'" style="cursor:pointer">
-          <td>{{ item.node.clash_prefix() }}</td>
+          <td>
+            <span class="name-flag">
+              {% if item.node.flag_image() %}<img class="flag-img" src="{{ item.node.flag_image() }}" alt="{{ item.node.flag_title() }}" title="{{ item.node.flag_title() }}">{% endif %}
+              {{ (item.node.clash_name or item.node.name)|trim }}
+            </span>
+          </td>
           <td>{% if item.reports %}{{ item.fail_rate }}%{% else %}—{% endif %}</td>
           <td>{{ item.reports }}</td>
           <td>{% if item.median is not none %}{{ item.median }} мс{% else %}—{% endif %}</td>
@@ -44,12 +49,13 @@
   {% if clients %}
   <div class="table-scroll">
     <table>
-      <thead><tr><th>Клиент</th><th>Доступно</th><th>Недоступно</th><th>Платформа</th><th>Был</th></tr></thead>
+      <thead><tr><th>Клиент</th><th>Версия</th><th>Доступно</th><th>Недоступно</th><th>Платформа</th><th>Был</th></tr></thead>
       <tbody>
         {% for client, report in clients %}
         {% set tally = counts(report) %}
         <tr onclick="location.href='/pings/client/{{ client.id }}'" style="cursor:pointer">
           <td>{{ client.name }}</td>
+          <td class="mono">{{ report.app_version or '—' }}</td>
           <td>{{ tally.available }}</td>
           <td>{{ tally.unavailable }}</td>
           <td>{{ report.platform or '—' }}</td>
