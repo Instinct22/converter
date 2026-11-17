@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.client_pings import (
+    as_moscow,
+    availability_counts,
     ingest_report,
     node_day,
     node_reasons,
@@ -62,8 +64,7 @@ def pings_page(request: Request, session: SessionDep):
         return redir
     nodes = recent_nodes(session)
     clients = recent_clients(session)
-    reporting = [item for item in nodes if item['reports']]
-    worst = next((item['node'].name for item in reporting if item['fail_rate'] >= 20), '')
+    blocked = sum(1 for _, report in clients if availability_counts(report)['unavailable'])
     return templates.TemplateResponse(
         'pings.html',
         _ctx(
@@ -73,7 +74,9 @@ def pings_page(request: Request, session: SessionDep):
             clients=clients,
             report_count=sum(item['reports'] for item in nodes),
             client_count=len(clients),
-            worst=worst,
+            blocked=blocked,
+            counts=availability_counts,
+            as_moscow=as_moscow,
             reason_label=reason_label,
         ),
     )
@@ -120,6 +123,8 @@ def ping_client_page(request: Request, client_id: int, session: SessionDep):
             client=client,
             report=report,
             servers=report_servers(report),
+            counts=availability_counts(report),
+            as_moscow=as_moscow,
             reason_label=reason_label,
         ),
     )

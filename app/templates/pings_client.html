@@ -5,20 +5,19 @@
 <div class="page-head">
   <div>
     <h1>{{ client.name }}</h1>
-    <p class="lede">Последний отчёт: {{ report.platform or 'платформа не названа' }}, приложение {{ report.app_version or '—' }}{% if report.exit_server %}, выход {{ report.exit_server }}{% endif %}.</p>
+    <p class="lede">{{ counts.available }} из {{ counts.available + counts.unavailable }} доступны. {{ report.platform or 'платформа не названа' }}, приложение {{ report.app_version or '—' }}, был {{ as_moscow(report.seen_at) }}.</p>
   </div>
 </div>
 <div class="card">
   <h2>Серверы</h2>
   <table>
-    <thead><tr><th>Сервер</th><th>Пинг</th><th>Живых имён</th><th>Отказов</th></tr></thead>
+    <thead><tr><th>Туннель</th><th>Доступность</th><th>Задержка</th></tr></thead>
     <tbody>
       {% for row in servers %}
       <tr>
         <td>{{ row.server }}</td>
-        <td>{% if row.median_ms is not none %}{{ row.median_ms }} мс{% elif row.reason %}{{ reason_label(row.reason) }}{% else %}—{% endif %}</td>
-        <td>{{ row.ok }}</td>
-        <td>{{ row.failed }}</td>
+        <td>{% if row.ok %}доступен{% elif row.reason %}{{ reason_label(row.reason) }}{% else %}—{% endif %}</td>
+        <td>{% if row.ok and row.median_ms is not none %}{{ row.median_ms }} мс{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

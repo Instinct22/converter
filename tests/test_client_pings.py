@@ -8,6 +8,8 @@ from sqlmodel import Session, SQLModel, select
 
 from app.client_pings import (
     _recent,
+    as_moscow,
+    availability_counts,
     ingest_report,
     normalize_server,
     percentile,
@@ -16,7 +18,7 @@ from app.client_pings import (
 )
 from app.database import get_session
 from app.main import app
-from app.models import Client, Node, NodePingHour
+from app.models import Client, ClientPingReport, Node, NodePingHour
 
 
 def _memory():
@@ -199,3 +201,17 @@ def test_http_report_uses_the_subscription_token():
             assert rows[0]['median'] == 180
     finally:
         app.dependency_overrides.pop(get_session, None)
+
+
+def test_a_report_counts_open_tunnels_and_shows_moscow_time():
+    report = ClientPingReport(
+        client_id=1,
+        servers_json=json.dumps(
+            [
+                {'server': 'Finland', 'ok': 1, 'failed': 0, 'median_ms': 40},
+                {'server': 'Sweden', 'ok': 0, 'failed': 3, 'reason': 'handshake'},
+            ]
+        ),
+    )
+    assert availability_counts(report) == {'available': 1, 'unavailable': 1}
+    assert as_moscow(datetime(2026, 11, 16, 21, 8, tzinfo=timezone.utc)) == '17.11 00:08'

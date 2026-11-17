@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from sqlmodel import Session, select
@@ -31,6 +32,7 @@ _REASONS = {
 }
 _recent: dict[str, datetime] = {}
 _GAP = timedelta(seconds=20)
+_MOSCOW = ZoneInfo('Europe/Moscow')
 
 
 def normalize_server(label: str) -> str:
@@ -326,6 +328,27 @@ def recent_clients(session: Session) -> list[tuple[Client, ClientPingReport]]:
         if client is not None:
             paired.append((client, report))
     return paired
+
+
+def as_moscow(moment: datetime) -> str:
+    return _aware(moment).astimezone(_MOSCOW).strftime('%d.%m %H:%M')
+
+
+def availability_counts(report: ClientPingReport) -> dict[str, int]:
+    available = 0
+    unavailable = 0
+    for row in report_servers(report):
+        ok = row.get('ok') or 0
+        failed = row.get('failed') or 0
+        if isinstance(ok, bool) or not isinstance(ok, int):
+            ok = 0
+        if isinstance(failed, bool) or not isinstance(failed, int):
+            failed = 0
+        if ok > 0:
+            available += 1
+        elif failed > 0:
+            unavailable += 1
+    return {'available': available, 'unavailable': unavailable}
 
 
 def report_servers(report: ClientPingReport) -> list[dict[str, Any]]:
