@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.deps import SessionDep, require_admin
@@ -130,6 +131,19 @@ class ClientIn(BaseModel):
     traffic_gb: int = 0
     limit_ip: int = 0
     note: str = ''
+    cabinet_account_id: str | None = None
+
+    @field_validator('cabinet_account_id')
+    @classmethod
+    def clean_cabinet_account_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if len(value) > 64 or not value.replace('-', '').replace('_', '').isalnum():
+            raise ValueError('cabinet_account_id: буквы, цифры, дефис и подчёркивание, до 64 символов')
+        return value
 
 
 class ClientPatch(BaseModel):
@@ -707,9 +721,37 @@ def list_clients(session: SessionDep) -> list[dict]:
     return [_client_out(session, c, settings.public_base_url) for c in rows]
 
 
+def _client_by_cabinet(session: Session, account_id: str) -> Client | None:
+    return session.exec(
+        select(Client).where(Client.cabinet_account_id == account_id)
+    ).first()
+
+
+def _client_payload(session: Session, client: Client, *, created: bool, logs: list[str]) -> dict:
+    from app.settings import settings
+
+    return {
+        'client': _client_out(session, client, settings.public_base_url),
+        'logs': logs,
+        'created': created,
+    }
+
+
+@router.get('/clients/by-cabinet/{account_id}')
+def get_client_by_cabinet(account_id: str, session: SessionDep) -> dict:
+    client = _client_by_cabinet(session, account_id)
+    if client is None:
+        raise HTTPException(404, 'client not found')
+    return _client_payload(session, client, created=False, logs=[])
+
+
 @router.post('/clients')
 def create_client(body: ClientIn, session: SessionDep) -> dict:
-    from app.settings import settings
+    account_id = body.cabinet_account_id
+    if account_id:
+        existing = _client_by_cabinet(session, account_id)
+        if existing is not None:
+            return _client_payload(session, existing, created=False, logs=[])
 
     slug_base = slugify(body.name)
     slug = slug_base
@@ -727,12 +769,21 @@ def create_client(body: ClientIn, session: SessionDep) -> dict:
         limit_ip=body.limit_ip,
         note=body.note,
         enable=True,
+        cabinet_account_id=account_id,
     )
     session.add(client)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if account_id:
+            existing = _client_by_cabinet(session, account_id)
+            if existing is not None:
+                return _client_payload(session, existing, created=False, logs=[])
+        raise
     session.refresh(client)
     logs = provision_client(session, client)
-    return {'client': _client_out(session, client, settings.public_base_url), 'logs': logs}
+    return _client_payload(session, client, created=True, logs=logs)
 
 
 @router.patch('/clients/{client_id}')

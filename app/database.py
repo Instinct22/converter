@@ -96,11 +96,24 @@ NODEINBOUND_COLUMNS = {
 }
 
 
+def _ensure_cabinet_account() -> None:
+    _ensure_columns('client', {'cabinet_account_id': 'TEXT'})
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                'CREATE UNIQUE INDEX IF NOT EXISTS uq_client_cabinet_account '
+                'ON client(cabinet_account_id) '
+                'WHERE cabinet_account_id IS NOT NULL'
+            )
+        )
+
+
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_columns('inboundtemplate', {**LEGACY_TEMPLATE_COLUMNS, **TEMPLATE_COLUMNS})
     _ensure_columns('node', NODE_COLUMNS)
     _ensure_columns('nodeinbound', NODEINBOUND_COLUMNS)
+    _ensure_cabinet_account()
 
 
 def get_session() -> Generator[Session, None, None]:

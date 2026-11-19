@@ -166,6 +166,9 @@ class Client(SQLModel, table=True):
     traffic_limit_bytes: int = 0
     limit_ip: int = 0
     note: str = ''
+    # Номер аккаунта кабинета. Повторный запрос с тем же значением
+    # возвращает этого клиента, а не создаёт второго.
+    cabinet_account_id: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=utcnow)
 
 
