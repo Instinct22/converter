@@ -5,28 +5,79 @@
 <div class="page-head">
   <div>
     <h1>{{ client.name }}</h1>
-    <p class="lede">{{ counts.available }} из {{ counts.available + counts.unavailable }} доступны. {{ report.platform or 'платформа не названа' }}, приложение {{ report.app_version or '—' }}, был {{ as_moscow(report.seen_at) }}.</p>
+    <p class="lede">{{ counts.available }} из {{ counts.available + counts.unavailable }} доступны. {{ report.platform or 'платформа не названа' }}, приложение {{ report.app_version or '—' }}, был {{ as_moscow(report.seen_at) }}. Заголовки колонок сортируют строки.</p>
+  </div>
+</div>
+{% if chart.rows %}
+<div class="card">
+  <h2>Задержка</h2>
+  {% if chart.latency %}
+  <p class="sub">Последняя книга. Длина полосы — относительно самого медленного сервера в ней. Нажмите строку — сутки этого сервера.</p>
+  <div class="ping-chart">
+    {% for row in chart.latency %}
+    <a class="ping-line" {% if row.href %}href="{{ row.href }}"{% endif %} title="{{ row.status.label }}">
+      <span class="ping-line__name">
+        {% if row.face.flag %}<img class="flag-img" src="{{ row.face.flag }}" alt="{{ row.face.title }}" title="{{ row.face.title }}">{% endif %}
+        <span>{{ row.face.name }}</span>
+      </span>
+      <span class="ping-track"><span class="ping-fill" style="width: {{ row.latency_pct }}%"></span></span>
+      <span class="ping-line__val">{{ row.median }} мс</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="sub">Успешных замеров в этой книге нет.</p>
+  {% endif %}
+</div>
+<div class="card">
+  <h2>Успешные пробы</h2>
+  <p class="sub">Доля проб, которые открыли туннель. Пустая красная полоса — не открылся ни один.</p>
+  <div class="ping-chart">
+    {% for row in chart.rows %}
+    <a class="ping-line" {% if row.href %}href="{{ row.href }}"{% endif %} title="{{ row.status.label }}">
+      <span class="ping-line__name">
+        {% if row.face.flag %}<img class="flag-img" src="{{ row.face.flag }}" alt="{{ row.face.title }}" title="{{ row.face.title }}">{% endif %}
+        <span>{{ row.face.name }}</span>
+      </span>
+      <span class="ping-track {% if row.rate == 0 %}is-empty{% endif %}"><span class="ping-fill {{ row.rate_tone }}" style="width: {{ row.rate }}%"></span></span>
+      <span class="ping-line__val">{{ row.ok }} / {{ row.ok + row.failed }}</span>
+    </a>
+    {% endfor %}
   </div>
 </div>
 <div class="card">
   <h2>Серверы</h2>
-  <table>
-    <thead><tr><th>Туннель</th><th>Доступность</th><th>Задержка</th></tr></thead>
-    <tbody>
-      {% for row in servers %}
-      {% set face = server_face(row.server) %}
-      <tr>
-        <td>
-          <span class="name-flag">
-            {% if face.flag %}<img class="flag-img" src="{{ face.flag }}" alt="{{ face.title }}" title="{{ face.title }}">{% endif %}
-            {{ face.name }}
-          </span>
-        </td>
-        <td>{% if row.ok %}доступен{% elif row.reason %}{{ reason_label(row.reason) }}{% else %}—{% endif %}</td>
-        <td>{% if row.ok and row.median_ms is not none %}{{ row.median_ms }} мс{% else %}—{% endif %}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-scroll">
+    <table class="ping-table">
+      <thead>
+        <tr>
+          <th><button class="sort-btn" type="button" data-sort="name">Туннель</button></th>
+          <th><button class="sort-btn" type="button" data-sort="status">Доступность</button></th>
+          <th><button class="sort-btn" type="button" data-sort="median">Задержка</button></th>
+          <th><button class="sort-btn" type="button" data-sort="rate" title="Доля успешных проб">Пробы</button></th>
+        </tr>
+      </thead>
+      <tbody data-sortable>
+        {% for row in chart.rows %}
+        <tr class="{% if row.href %}click-row{% endif %}" {% if row.href %}onclick="location.href='{{ row.href }}'"{% endif %} data-name="{{ row.face.name }}" data-status="{{ row.status.sort }}" data-median="{{ row.median if row.median is not none else -1 }}" data-rate="{{ row.rate }}">
+          <td>
+            <span class="name-flag">
+              {% if row.face.flag %}<img class="flag-img" src="{{ row.face.flag }}" alt="{{ row.face.title }}" title="{{ row.face.title }}">{% endif %}
+              {{ row.face.name }}
+            </span>
+          </td>
+          <td><span class="badge {{ row.status.tone }}">{{ row.status.label }}</span></td>
+          <td>{% if row.median is not none %}{{ row.median }} мс{% else %}—{% endif %}</td>
+          <td>{{ row.ok }} / {{ row.ok + row.failed }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
+{% else %}
+<div class="card">
+  <p class="sub">В книге нет серверов.</p>
+</div>
+{% endif %}
 {% endblock %}

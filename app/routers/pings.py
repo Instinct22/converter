@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
-from sqlmodel import select
 
 from app.client_pings import (
     as_moscow,
     availability_counts,
+    client_server_chart,
+    epoch,
     ingest_report,
     node_day,
     node_reasons,
+    node_reporters,
     reason_label,
     recent_clients,
     recent_nodes,
-    report_servers,
-    server_faces,
+    reporter_buckets,
 )
 from app.deps import SessionDep
 from app.models import Client, ClientPingReport, Node
@@ -79,6 +80,7 @@ def pings_page(request: Request, session: SessionDep):
             blocked=blocked,
             counts=availability_counts,
             as_moscow=as_moscow,
+            epoch=epoch,
             reason_label=reason_label,
         ),
     )
@@ -95,6 +97,7 @@ def ping_node_page(request: Request, node_id: int, session: SessionDep):
     peak = max((item['median'] or 0) for item in series) or 1
     reasons = [(reason_label(key), count) for key, count in node_reasons(session, node_id)]
     median = next((item['median'] for item in reversed(series) if item['median'] is not None), None)
+    reporters = node_reporters(session, node_id)
     return templates.TemplateResponse(
         'pings_node.html',
         _ctx(
@@ -105,6 +108,9 @@ def ping_node_page(request: Request, node_id: int, session: SessionDep):
             peak=peak,
             reasons=reasons,
             median=median,
+            reporters=reporters,
+            buckets=reporter_buckets(reporters),
+            as_moscow=as_moscow,
         ),
     )
 
@@ -124,10 +130,8 @@ def ping_client_page(request: Request, client_id: int, session: SessionDep):
             page='pings',
             client=client,
             report=report,
-            servers=report_servers(report),
-            server_face=server_faces(list(session.exec(select(Node)).all())),
+            chart=client_server_chart(session, report),
             counts=availability_counts(report),
             as_moscow=as_moscow,
-            reason_label=reason_label,
         ),
     )

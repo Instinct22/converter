@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>С клиентов</h1>
-    <p class="lede">Какие туннели открываются у клиента. «Из РФ» на обзоре — это по-прежнему проверка самого мастера.</p>
+    <p class="lede">Какие туннели открываются у клиента. «Из РФ» на обзоре — это по-прежнему проверка самого мастера. Заголовки колонок сортируют строки.</p>
   </div>
 </div>
 
@@ -16,14 +16,21 @@
 
 <div class="card">
   <h2>Серверы</h2>
-  <p class="sub">Нажмите строку — сутки этой ноды.</p>
+  <p class="sub">Нажмите строку — сутки этой ноды и кто прислал отчёт.</p>
   {% if nodes %}
   <div class="table-scroll">
-    <table>
-      <thead><tr><th>Сервер</th><th>Недоступно</th><th>Отчётов</th><th>Задержка</th></tr></thead>
-      <tbody>
+    <table class="ping-table">
+      <thead>
+        <tr>
+          <th><button class="sort-btn" type="button" data-sort="name">Сервер</button></th>
+          <th><button class="sort-btn" type="button" data-sort="fail" title="Доля книг, в которых сервер не открылся">Недоступно</button></th>
+          <th><button class="sort-btn" type="button" data-sort="reports">Отчётов</button></th>
+          <th><button class="sort-btn" type="button" data-sort="median" title="Медиана успешных замеров">Задержка</button></th>
+        </tr>
+      </thead>
+      <tbody data-sortable>
         {% for item in nodes %}
-        <tr onclick="location.href='/pings/node/{{ item.node.id }}'" style="cursor:pointer">
+        <tr class="click-row" onclick="location.href='/pings/node/{{ item.node.id }}'" data-name="{{ (item.node.clash_name or item.node.name)|trim }}" data-fail="{{ item.fail_rate if item.reports else -1 }}" data-reports="{{ item.reports }}" data-median="{{ item.median if item.median is not none else -1 }}">
           <td>
             <span class="name-flag">
               {% if item.node.flag_image() %}<img class="flag-img" src="{{ item.node.flag_image() }}" alt="{{ item.node.flag_title() }}" title="{{ item.node.flag_title() }}">{% endif %}
@@ -45,15 +52,24 @@
 
 <div class="card">
   <h2>Клиенты</h2>
-  <p class="sub">Последний отчёт каждого. Нажмите имя.</p>
+  <p class="sub">Последний отчёт каждого. Нажмите строку — графики по серверам.</p>
   {% if clients %}
   <div class="table-scroll">
-    <table>
-      <thead><tr><th>Клиент</th><th>Версия</th><th>Доступно</th><th>Недоступно</th><th>Платформа</th><th>Был</th></tr></thead>
-      <tbody>
+    <table class="ping-table">
+      <thead>
+        <tr>
+          <th><button class="sort-btn" type="button" data-sort="name">Клиент</button></th>
+          <th><button class="sort-btn" type="button" data-sort="version">Версия</button></th>
+          <th><button class="sort-btn" type="button" data-sort="ok">Доступно</button></th>
+          <th><button class="sort-btn" type="button" data-sort="down">Недоступно</button></th>
+          <th><button class="sort-btn" type="button" data-sort="platform">Платформа</button></th>
+          <th><button class="sort-btn" type="button" data-sort="seen">Был</button></th>
+        </tr>
+      </thead>
+      <tbody data-sortable>
         {% for client, report in clients %}
         {% set tally = counts(report) %}
-        <tr onclick="location.href='/pings/client/{{ client.id }}'" style="cursor:pointer">
+        <tr class="click-row" onclick="location.href='/pings/client/{{ client.id }}'" data-name="{{ client.name }}" data-version="{{ report.app_version }}" data-ok="{{ tally.available }}" data-down="{{ tally.unavailable }}" data-platform="{{ report.platform }}" data-seen="{{ epoch(report.seen_at) }}">
           <td>{{ client.name }}</td>
           <td class="mono">{{ report.app_version or '—' }}</td>
           <td>{{ tally.available }}</td>

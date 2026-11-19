@@ -201,7 +201,11 @@ function applyDestSni(input, meta, data, opts) {
   if (!opts || opts.toast !== false) toast('Подставили ' + names.length + ' SNI с цели');
 }
 
-document.addEventListener('DOMContentLoaded', () => bindFlagPicker(document));
+document.addEventListener('DOMContentLoaded', () => {
+  bindFlagPicker(document);
+  document.querySelectorAll('tbody[data-sortable]').forEach((body) => bindSort(body));
+  bindReportFilters();
+});
 
 function sortValue(row, key) {
   const raw = row.dataset[key] ?? '';
@@ -237,6 +241,7 @@ function bindSort(list) {
     });
     rows.forEach((row) => list.appendChild(row));
   }
+  const textSort = { name: true, host: true, tunnel: true, platform: true, version: true, status: true };
   buttons.forEach((btn) => btn.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -244,12 +249,29 @@ function bindSort(list) {
     if (key === next) dir *= -1;
     else {
       key = next;
-      dir = next === 'name' || next === 'host' ? 1 : -1;
+      dir = textSort[next] ? 1 : -1;
     }
     marks();
     resort();
   }));
   return { resort };
+}
+
+function bindReportFilters() {
+  const chips = document.querySelectorAll('[data-status-filter]');
+  if (!chips.length) return;
+  const rows = document.querySelectorAll('[data-status-row]');
+  chips.forEach((chip) => chip.addEventListener('click', () => {
+    const key = chip.dataset.statusFilter || 'all';
+    chips.forEach((item) => {
+      const on = item === chip;
+      item.classList.toggle('on', on);
+      item.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    rows.forEach((row) => {
+      row.hidden = key !== 'all' && row.dataset.key !== key;
+    });
+  }));
 }
 
 function applyClientPresence(clients) {

@@ -379,16 +379,67 @@ def as_moscow(moment: datetime) -> str:
     return _aware(moment).astimezone(_MOSCOW).strftime('%d.%m %H:%M')
 
 
+def epoch(moment: datetime) -> int:
+    return int(_aware(moment).timestamp())
+
+
+def _probe_counts(row: dict[str, Any]) -> tuple[int, int]:
+    ok = row.get('ok') or 0
+    failed = row.get('failed') or 0
+    if isinstance(ok, bool) or not isinstance(ok, int):
+        ok = 0
+    if isinstance(failed, bool) or not isinstance(failed, int):
+        failed = 0
+    return ok, failed
+
+
+def _median_ms(row: dict[str, Any]) -> int | None:
+    value = row.get('median_ms')
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _stored_time(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return _aware(value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return _aware(datetime.fromisoformat(value.replace('Z', '+00:00')))
+    except ValueError:
+        return None
+
+
+def classify_server(row: dict[str, Any]) -> dict[str, Any]:
+    """Как туннель выглядел в одной книге: открылся, открылся с отказами или нет."""
+    ok, failed = _probe_counts(row)
+    reason = str(row.get('reason') or '')
+    if ok > 0 and failed == 0:
+        label, tone, rank, key = 'доступен', 'ok', 0, 'ok'
+    elif ok > 0:
+        detail = reason_label(reason) if reason else ''
+        label = f'с отказами · {detail}' if detail else 'с отказами'
+        tone, rank, key = 'warn', 1, 'partial:' + (reason or 'error')
+    else:
+        label = reason_label(reason) if reason else 'недоступен'
+        tone, rank, key = 'bad', 2, 'down:' + (reason or 'error')
+    return {'key': key, 'label': label, 'tone': tone, 'rank': rank, 'sort': f'{rank} {label}'}
+
+
+def _rate_tone(rate: int) -> str:
+    if rate >= 100:
+        return 'ok'
+    if rate <= 0:
+        return 'bad'
+    return 'warn'
+
+
 def availability_counts(report: ClientPingReport) -> dict[str, int]:
     available = 0
     unavailable = 0
     for row in report_servers(report):
-        ok = row.get('ok') or 0
-        failed = row.get('failed') or 0
-        if isinstance(ok, bool) or not isinstance(ok, int):
-            ok = 0
-        if isinstance(failed, bool) or not isinstance(failed, int):
-            failed = 0
+        ok, failed = _probe_counts(row)
         if ok > 0:
             available += 1
         elif failed > 0:
@@ -404,6 +455,104 @@ def report_servers(report: ClientPingReport) -> list[dict[str, Any]]:
     if not isinstance(loaded, list):
         return []
     return [item for item in loaded if isinstance(item, dict)]
+
+
+def node_reporters(session: Session, node_id: int) -> list[dict[str, Any]]:
+    """Последняя книга каждого клиента, в которой встретился этот сервер.
+
+    В книге может быть несколько туннелей одной ноды — каждая строка отдельно.
+    """
+    nodes = list(session.exec(select(Node)).all())
+    index = _node_index(nodes)
+    face = server_faces(nodes)
+    reports = session.exec(select(ClientPingReport).order_by(ClientPingReport.seen_at.desc())).all()
+    found: list[dict[str, Any]] = []
+    for report in reports:
+        client = session.get(Client, report.client_id)
+        if client is None:
+            continue
+        seen = _aware(report.seen_at)
+        exit_node = _match_node(report.exit_server, index)
+        for row in report_servers(report):
+            label = str(row.get('server') or '')
+            matched = _match_node(label, index)
+            if matched is None or matched.id != node_id:
+                continue
+            ok, failed = _probe_counts(row)
+            measured = _stored_time(row.get('at')) or seen
+            found.append(
+                {
+                    'client': client,
+                    'face': face(label),
+                    'status': classify_server(row),
+                    'measured': measured,
+                    'seen': seen,
+                    'measured_ts': int(measured.timestamp()),
+                    'seen_ts': int(seen.timestamp()),
+                    'median': _median_ms(row),
+                    'ok': ok,
+                    'failed': failed,
+                    'platform': report.platform,
+                    'app_version': report.app_version,
+                    'exit_here': exit_node is not None and exit_node.id == node_id,
+                }
+            )
+    found.sort(key=lambda item: item['measured'], reverse=True)
+    return found
+
+
+def reporter_buckets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        status = row['status']
+        bucket = grouped.get(status['key'])
+        if bucket is None:
+            bucket = {
+                'key': status['key'],
+                'label': status['label'],
+                'tone': status['tone'],
+                'rank': status['rank'],
+                'count': 0,
+            }
+            grouped[status['key']] = bucket
+        bucket['count'] += 1
+    return sorted(grouped.values(), key=lambda item: (item['rank'], -item['count'], item['label']))
+
+
+def client_server_chart(session: Session, report: ClientPingReport) -> dict[str, Any]:
+    """Полосы последней книги: задержка и доля успешных проб по каждому туннелю."""
+    nodes = list(session.exec(select(Node)).all())
+    index = _node_index(nodes)
+    face = server_faces(nodes)
+    drafted: list[dict[str, Any]] = []
+    medians: list[int] = []
+    for row in report_servers(report):
+        label = str(row.get('server') or '')
+        ok, failed = _probe_counts(row)
+        median = _median_ms(row)
+        total = ok + failed
+        rate = round(100 * ok / total) if total else 0
+        matched = _match_node(label, index)
+        if median is not None:
+            medians.append(median)
+        drafted.append(
+            {
+                'face': face(label),
+                'status': classify_server(row),
+                'median': median,
+                'ok': ok,
+                'failed': failed,
+                'rate': rate,
+                'rate_tone': _rate_tone(rate),
+                'href': f'/pings/node/{matched.id}' if matched is not None and matched.id is not None else '',
+            }
+        )
+    peak = max(medians) if medians else 1
+    for item in drafted:
+        median = item['median']
+        item['latency_pct'] = max(4, round(100 * median / peak)) if isinstance(median, int) else 0
+    latency = sorted((item for item in drafted if item['median'] is not None), key=lambda item: item['median'], reverse=True)
+    return {'rows': drafted, 'latency': latency}
 
 
 def purge_old_ping_hours(session: Session, now: datetime | None = None) -> None:

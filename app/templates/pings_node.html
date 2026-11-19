@@ -5,7 +5,7 @@
 <div class="page-head">
   <div>
     <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}">{% endif %}{{ (node.clash_name or node.name)|trim }}</h1>
-    <p class="lede">Сутки по отчётам клиентов. Это не проверка мастера «Из РФ»: порт может отвечать мастеру, пока рукопожатие у людей ломается.</p>
+    <p class="lede">Сутки по всем книгам и последняя книга каждого, кто проверял этот сервер. Заголовки колонок сортируют строки.</p>
   </div>
 </div>
 <div class="card">
@@ -18,15 +18,75 @@
   </div>
 </div>
 <div class="card">
+  <h2>Кто прислал</h2>
+  {% if reporters %}
+  <p class="sub">Последняя книга каждого клиента, где есть этот сервер. Кнопка статуса оставляет только его.</p>
+  <div class="status-picks">
+    <button class="status-pick on" type="button" data-status-filter="all" aria-pressed="true">Все <span class="n">{{ reporters|length }}</span></button>
+    {% for bucket in buckets %}
+    <button class="status-pick" type="button" data-status-filter="{{ bucket.key }}" aria-pressed="false">
+      <i class="status-dot {{ bucket.tone }}"></i>{{ bucket.label }} <span class="n">{{ bucket.count }}</span>
+    </button>
+    {% endfor %}
+  </div>
+  <div class="table-scroll">
+    <table class="ping-table">
+      <thead>
+        <tr>
+          <th><button class="sort-btn" type="button" data-sort="name">Клиент</button></th>
+          <th><button class="sort-btn" type="button" data-sort="tunnel">Туннель</button></th>
+          <th><button class="sort-btn" type="button" data-sort="status">Статус</button></th>
+          <th><button class="sort-btn" type="button" data-sort="measured" title="Когда клиент измерил этот сервер">Замер</button></th>
+          <th><button class="sort-btn" type="button" data-sort="seen" title="Когда книга пришла на мастер">Пришла</button></th>
+          <th><button class="sort-btn" type="button" data-sort="median">Задержка</button></th>
+          <th><button class="sort-btn" type="button" data-sort="ok">Успешно</button></th>
+          <th><button class="sort-btn" type="button" data-sort="failed">Отказы</button></th>
+          <th><button class="sort-btn" type="button" data-sort="platform">Платформа</button></th>
+          <th><button class="sort-btn" type="button" data-sort="version">Версия</button></th>
+          <th><button class="sort-btn" type="button" data-sort="exit" title="Клиент сидел на этом сервере, когда отправлял книгу">Выход</button></th>
+        </tr>
+      </thead>
+      <tbody data-sortable>
+        {% for item in reporters %}
+        <tr class="click-row" data-status-row data-key="{{ item.status.key }}" onclick="location.href='/pings/client/{{ item.client.id }}'" data-name="{{ item.client.name }}" data-tunnel="{{ item.face.name }}" data-status="{{ item.status.sort }}" data-measured="{{ item.measured_ts }}" data-seen="{{ item.seen_ts }}" data-median="{{ item.median if item.median is not none else -1 }}" data-ok="{{ item.ok }}" data-failed="{{ item.failed }}" data-platform="{{ item.platform }}" data-version="{{ item.app_version }}" data-exit="{{ 1 if item.exit_here else 0 }}">
+          <td>{{ item.client.name }}</td>
+          <td>{{ item.face.name }}</td>
+          <td><span class="badge {{ item.status.tone }}">{{ item.status.label }}</span></td>
+          <td>{{ as_moscow(item.measured) }}</td>
+          <td>{{ as_moscow(item.seen) }}</td>
+          <td>{% if item.median is not none %}{{ item.median }} мс{% else %}—{% endif %}</td>
+          <td>{{ item.ok }}</td>
+          <td>{{ item.failed }}</td>
+          <td>{{ item.platform or '—' }}</td>
+          <td class="mono">{{ item.app_version or '—' }}</td>
+          <td>{% if item.exit_here %}да{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="sub">По этому серверу ещё не было книг.</p>
+  {% endif %}
+</div>
+<div class="card">
   <h2>Почему не ответили</h2>
   {% if reasons %}
-  <table>
-    <tbody>
-      {% for label, count in reasons %}
-      <tr><td>{{ label }}</td><td>{{ count }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-scroll">
+    <table class="ping-table">
+      <thead>
+        <tr>
+          <th><button class="sort-btn" type="button" data-sort="name">Причина</button></th>
+          <th><button class="sort-btn" type="button" data-sort="count">Сколько</button></th>
+        </tr>
+      </thead>
+      <tbody data-sortable>
+        {% for label, count in reasons %}
+        <tr data-name="{{ label }}" data-count="{{ count }}"><td>{{ label }}</td><td>{{ count }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
   {% else %}
   <p class="sub">Отказов за сутки нет.</p>
   {% endif %}
