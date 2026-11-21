@@ -56,7 +56,7 @@
             <span class="status-dot {{ '' if n.is_grafana() else ('bad' if n.last_error else ('ok' if n.last_sync_at else '')) }}" data-dot></span>
             <span class="name-flag">
               {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
-              {% if n.is_grafana() %}<img class="grafana-mark" src="/static/grafana.svg" alt="Grafana" title="Grafana">{% endif %}
+              {% if n.is_grafana() %}<img class="grafana-mark" src="/static/grafana.svg?v=2" alt="Grafana" title="Grafana">{% endif %}
               <strong>{{ n.name }}</strong>
               {% if n.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
               {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>{% endif %}
