@@ -220,7 +220,10 @@ def protection_page(request: Request, session: SessionDep):
     from app.reachability import inbound_ports
 
     ensure_fleet_key()
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    nodes = [
+        node for node in session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+        if not node.is_grafana()
+    ]
     protecting = sum(1 for node in nodes if node.fail2ban_state == 'protecting')
     port_views = {
         node.id: display_ports(node, inbound_ports(session, int(node.id)))
@@ -272,7 +275,10 @@ def templates_page(request: Request, session: SessionDep):
     if (redir := _need_admin(request)):
         return redir
     rows = session.exec(select(InboundTemplate)).all()
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    nodes = [
+        node for node in session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+        if not node.is_grafana()
+    ]
     scan_nodes = [
         {'id': node.id, 'name': node.name, 'enabled': bool(node.enabled)}
         for node in nodes

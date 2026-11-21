@@ -57,6 +57,11 @@
       </div>
 
       <div id="source-install" hidden>
+        <div class="step-label">3 · Что поставить</div>
+        <div class="chips" id="install-kind">
+          <label class="chip"><input type="radio" name="install_kind" value="xui" checked> 3x-ui</label>
+          <label class="chip"><input type="radio" name="install_kind" value="grafana"> Grafana</label>
+        </div>
         <div class="form-grid" style="margin-top:12px">
           <div class="field">
             <label>IP сервера</label>
@@ -69,7 +74,7 @@
           <div class="field span-2">
             <label>SSH-пароль</label>
             <input name="ssh_password" type="password" autocomplete="new-password">
-            <span class="hint">Пусто, если публичный ключ Master уже добавлен у хостера. Иначе пароль нужен один раз: после проверки входа по ключу он стирается, парольный SSH выключается. Сертификат выпускается на IP, порт 80 открыт. Если на машине уже стоит x-ui, установка остановится и пароль панели не сменит.</span>
+            <span class="hint" id="install-hint">Пусто, если публичный ключ Master уже добавлен у хостера. Иначе пароль нужен один раз: после проверки входа по ключу он стирается, парольный SSH выключается. Сертификат выпускается на IP, порт 80 открыт. Если на машине уже стоит x-ui, установка остановится и пароль панели не сменит.</span>
           </div>
         </div>
       </div>

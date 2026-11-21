@@ -51,21 +51,31 @@
         {% set xflag = (update_flags.get(n.id, {}) or {}).get('xray', '') %}
         {% set pstate = n.update_state if n.update_kind == 'panel' else '' %}
         {% set xstate = n.update_state if n.update_kind == 'xray' else '' %}
-        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-xui="{{ n.xui_version or '' }}" data-xray="{{ n.xray_version or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
+        <article class="monitor-row monitor-cols nodes-cols" data-node="{{ n.id }}" data-kind="{{ n.install_kind or 'xui' }}" data-name="{{ n.name }}" data-host="{{ n.public_host or '' }}" data-xui="{{ n.xui_version or '' }}" data-xray="{{ n.xray_version or '' }}" data-ports="{{ inbound_counts.get(n.id, 0) }}" data-cpu="-1" data-fw="{{ 1 if n.firewall_on else 0 }}" data-rf="{{ -1 if (n.is_grafana() or not n.enabled or n.rf_checked_at is none) else (1 if n.rf_ok else 0) }}">
           <div class="monitor-main">
-            <span class="status-dot {{ 'bad' if n.last_error else ('ok' if n.last_sync_at else '') }}" data-dot></span>
+            <span class="status-dot {{ '' if n.is_grafana() else ('bad' if n.last_error else ('ok' if n.last_sync_at else '')) }}" data-dot></span>
             <span class="name-flag">
               {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
+              {% if n.is_grafana() %}<img class="grafana-mark" src="/static/grafana.svg" alt="Grafana" title="Grafana">{% endif %}
               <strong>{{ n.name }}</strong>
               {% if n.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
               {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>{% endif %}
             </span>
           </div>
+          {% if n.is_grafana() %}
+          <span></span>
+          <span></span>
+          <span></span>
+          {% else %}
           <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if pflag == 'update' and not pstate }} {{ 'is-current' if pflag == 'current' and not pstate }} {{ 'is-running' if pstate == 'running' }} {{ 'is-failed' if pstate == 'failed' }}" data-xui-ver data-latest="{{ n.panel_latest_version }}" title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Обновление панели выполняется' if pstate == 'running' else ('Обновление панели не завершилось — проверьте ноду вручную' if pstate == 'failed' else ('Доступно обновление панели до ' + n.panel_latest_version if pflag == 'update' else ('Актуальная версия панели' if pflag == 'current' else 'Панель 3x-ui на сервере')))) }}"><span class="ver-num">{{ n.xui_version or '—' }}</span>{% if pstate == 'running' %}<span class="ver-spin" title="обновление панели выполняется">…</span>{% elif pstate == 'failed' %}<span class="ver-fail" title="обновление панели не завершилось — проверьте ноду вручную">!</span>{% elif pflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="panel" data-cur="{{ n.xui_version or '' }}" data-latest="{{ n.panel_latest_version }}" title="Обновить панель до {{ n.panel_latest_version }}">↑</button>{% endif %}</span>
           <span class="ver-tag {{ 'is-empty' if not n.xray_version }} {{ 'has-update' if xflag == 'update' and not xstate }} {{ 'is-current' if xflag == 'current' and not xstate }} {{ 'is-running' if xstate == 'running' }} {{ 'is-failed' if xstate == 'failed' }}" data-xray-ver data-latest="{{ n.xray_latest_version }}" title="{{ 'Версию ядра снять не удалось' if not n.xray_version else ('Обновление ядра выполняется' if xstate == 'running' else ('Обновление ядра не завершилось — проверьте ноду вручную' if xstate == 'failed' else ('Доступно обновление ядра до ' + n.xray_latest_version if xflag == 'update' else ('Актуальная версия ядра' if xflag == 'current' else 'Ядро Xray на сервере')))) }}"><span class="ver-num">{{ n.xray_version or '—' }}</span>{% if xstate == 'running' %}<span class="ver-spin" title="обновление ядра выполняется">…</span>{% elif xstate == 'failed' %}<span class="ver-fail" title="обновление ядра не завершилось — проверьте ноду вручную">!</span>{% elif xflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="xray" data-cur="{{ n.xray_version or '' }}" data-latest="{{ n.xray_latest_version }}" title="Обновить ядро до {{ n.xray_latest_version }}">↑</button>{% endif %}</span>
           <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
+          {% endif %}
           <span class="mono">{{ n.public_host or '—' }}</span>
           <div class="node-tpl">
+            {% if n.install_kind == 'grafana' %}
+            <span class="hint">в подписку не входит</span>
+            {% else %}
             {% set picked = node_templates.get(n.id, []) if node_templates is defined else [] %}
             <div class="tpl-dropdown" data-node-id="{{ n.id }}">
               <button type="button" class="tpl-dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
@@ -128,14 +138,19 @@
                 </div>
               </div>
             </div>
+            {% endif %}
           </div>
           <span class="hint" data-live>—</span>
           <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
           <div class="node-clash">
+            {% if n.install_kind == 'grafana' %}
+            <span class="hint">—</span>
+            {% else %}
             <label class="switch" title="Нода участвует в подписке: выключите — сервер исчезнет из выдачи">
               <input type="checkbox" data-enable="{{ n.id }}" {% if n.enabled %}checked{% endif %}>
               <span></span>
             </label>
+            {% endif %}
           </div>
           <div class="monitor-actions">
             <a class="btn small secondary" href="/nodes/{{ n.id }}">Настройки</a>
@@ -253,12 +268,13 @@
 <script>
 async function loadOverview() {
   const data = await XUI.api('/api/overview');
-  const online = (data.nodes || []).filter((n) => n.online).length;
+  const fleet = (data.nodes || []).filter((n) => n.install_kind !== 'grafana');
+  const online = fleet.filter((n) => n.online).length;
   const el = document.getElementById('stat-online');
-  if (el) el.textContent = online + ' / ' + (data.nodes || []).length;
+  if (el) el.textContent = online + ' / ' + fleet.length;
   (data.nodes || []).forEach((n) => {
     const row = document.querySelector('[data-node="' + n.id + '"]');
-    if (!row) return;
+    if (!row || n.install_kind === 'grafana') return;
     const dot = row.querySelector('[data-dot]');
     if (dot) {
       dot.classList.remove('ok', 'bad');

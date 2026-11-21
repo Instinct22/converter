@@ -329,7 +329,7 @@ function sinceLabel(iso) {
 }
 
 function applyNodeRf(row, node) {
-  if (!row || !node) return;
+  if (!row || !node || node.install_kind === 'grafana') return;
   const label = row.querySelector('[data-rf-label]');
   if (node.enabled === false) {
     row.dataset.rf = '-1';
@@ -419,7 +419,7 @@ function renderVerIcon(el, node, kind, current, latest, state) {
 // two columns refresh on every overview poll. Empty means "this panel release
 // does not report it" — we keep the last known value in the DB instead of blanking.
 function applyNodeVersions(row, node) {
-  if (!row || !node) return;
+  if (!row || !node || node.install_kind === 'grafana') return;
   const put = (key, value, latest, checkedAt, label, kind) => {
     row.dataset[key] = String(value || '');
     const el = row.querySelector('[data-' + key + '-ver]');
@@ -1130,18 +1130,32 @@ function initNodeForm() {
   if (!nodeForm || nodeForm.dataset.nfBound) return;
   nodeForm.dataset.nfBound = '1';
 
+  function installKind() {
+    const picked = nodeForm.querySelector('input[name=install_kind]:checked');
+    return picked ? picked.value : 'xui';
+  }
+
   function applyNodeSource() {
     const install = nodeForm.source.value === 'install';
+    const grafana = install && installKind() === 'grafana';
     document.getElementById('source-existing').hidden = install;
     document.getElementById('source-install').hidden = !install;
     nodeForm.panel_url.required = !install;
     nodeForm.api_token.required = !install;
     nodeForm.host.required = install;
     nodeForm.ssh_password.required = false;
-    document.getElementById('node-submit').textContent = install ? 'Поставить 3x-ui' : 'Подключить';
+    const hint = document.getElementById('install-hint');
+    if (hint) {
+      hint.textContent = grafana
+        ? 'Пароль SSH нужен один раз, если ключа Master на сервере ещё нет. Ставятся Grafana, база метрик и сертификат Let’s Encrypt на IP. В подписку этот сервер не входит.'
+        : 'Пусто, если публичный ключ Master уже добавлен у хостера. Иначе пароль нужен один раз: после проверки входа по ключу он стирается, парольный SSH выключается. Сертификат выпускается на IP, порт 80 открыт. Если на машине уже стоит x-ui, установка остановится и пароль панели не сменит.';
+    }
+    document.getElementById('node-submit').textContent = install
+      ? (grafana ? 'Поставить Grafana' : 'Поставить 3x-ui')
+      : 'Подключить';
   }
 
-  nodeForm.querySelectorAll('input[name=source]').forEach((input) => {
+  nodeForm.querySelectorAll('input[name=source], input[name=install_kind]').forEach((input) => {
     input.addEventListener('change', applyNodeSource);
   });
 
@@ -1159,8 +1173,10 @@ function initNodeForm() {
       name: f.name.value,
       clash_name: f.clash_name.value,
     };
+    const grafana = install && installKind() === 'grafana';
     if (install) {
       payload.install = true;
+      payload.install_kind = grafana ? 'grafana' : 'xui';
       payload.host = f.host.value.trim();
       payload.ssh_user = f.ssh_user.value.trim();
       payload.ssh_password = f.ssh_password.value;
@@ -1172,7 +1188,7 @@ function initNodeForm() {
       await withBusy(btn, async () => {
         const data = await api('/api/nodes', 'POST', payload);
         if (data.logs && data.logs.length) showLog(document.getElementById('node-log'), data.logs);
-        toast(install ? 'Сервер в списке, 3x-ui ставится' : 'Сервер добавлен');
+        toast(grafana ? 'Сервер в списке, Grafana ставится' : (install ? 'Сервер в списке, 3x-ui ставится' : 'Сервер добавлен'));
       });
       setTimeout(() => location.reload(), install ? 700 : 400);
     } catch (err) {}

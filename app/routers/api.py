@@ -54,6 +54,7 @@ class NodeIn(BaseModel):
     panel_url: str = ''
     api_token: str = ''
     install: bool = False
+    install_kind: str = 'xui'
     host: str = ''
     ssh_user: str = 'root'
     ssh_port: int = 22
@@ -198,6 +199,7 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'update_kind': node.update_kind or '',
         'update_target_version': node.update_target_version or '',
         'install_state': node.install_state or '',
+        'install_kind': node.install_kind or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
     if include_install:
@@ -254,6 +256,9 @@ def clear_install_log(node_id: int, session: SessionDep) -> dict:
 def create_node(body: NodeIn, session: SessionDep) -> dict:
     if body.install:
         try:
+            from app.xui_install import install_product
+
+            kind = install_product(body.install_kind)
             node = prepare_install(
                 session,
                 flag=body.flag,
@@ -263,14 +268,24 @@ def create_node(body: NodeIn, session: SessionDep) -> dict:
                 ssh_user=body.ssh_user,
                 ssh_password=body.ssh_password,
                 ssh_port=body.ssh_port,
+                kind=kind,
             )
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         if node.id is not None:
-            start_install(node.id)
+            if kind == 'grafana':
+                from app.grafana_host import start_grafana_install
+
+                start_grafana_install(node.id)
+            else:
+                start_install(node.id)
+        if kind == 'grafana':
+            note = 'Сервер в списке. Grafana ставится, журнал — на карточке сервера.'
+        else:
+            note = 'Сервер в списке. 3x-ui ставится, журнал — на карточке сервера.'
         return {
             'node': _node_out(node, session),
-            'logs': ['Сервер в списке. 3x-ui ставится, журнал — на карточке сервера.'],
+            'logs': [note],
         }
     token = body.api_token.strip()
     if not token:
@@ -440,6 +455,8 @@ def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
                 data['public_host'] = public_host_from_url(data['panel_url'])
     if (node.install_state or '') == 'installing':
         data.pop('api_token', None)
+    if data.get('enabled') is True and (node.install_kind or '') == 'grafana':
+        raise HTTPException(400, 'Grafana не входит в подписку')
     template_ids = data.pop('template_ids', None)
     for key, value in data.items():
         setattr(node, key, value)
@@ -1086,13 +1103,16 @@ def _guard_nodes(session: SessionDep, install: bool) -> dict:
     from app.database import engine
     from app.util import run_parallel
 
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    nodes = [
+        node for node in session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+        if not node.is_grafana()
+    ]
     node_ids = [node.id for node in nodes if node.id is not None]
 
     def run(node_id: int):
         with Session(engine) as local:
             node = local.get(Node, node_id)
-            if node is None:
+            if node is None or node.is_grafana():
                 return [], None
             logs = sync_node_guard(node, local, install=install)
             return logs, guard_snapshot(node)
@@ -1156,13 +1176,16 @@ def adopt_protection(session: SessionDep) -> dict:
     from app.ssh_access import adopt_node as adopt_ssh
     from app.util import run_parallel
 
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    nodes = [
+        node for node in session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+        if not node.is_grafana()
+    ]
     node_ids = [node.id for node in nodes if node.id is not None]
 
     def run(node_id: int):
         with Session(engine) as local:
             node = local.get(Node, node_id)
-            if node is None:
+            if node is None or node.is_grafana():
                 return [], None
             result = adopt_ssh(node, local)
             return result.logs, {'id': node.id, 'ssh_auth': node.ssh_auth or result.auth}
@@ -1188,13 +1211,16 @@ def sync_ports(session: SessionDep) -> dict:
     from app.provision import disable_node_subscription
     from app.util import run_parallel
 
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    nodes = [
+        node for node in session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+        if not node.is_grafana()
+    ]
     node_ids = [node.id for node in nodes if node.id is not None]
 
     def run(node_id: int):
         with Session(engine) as local:
             node = local.get(Node, node_id)
-            if node is None:
+            if node is None or node.is_grafana():
                 return [], None
             logs: list[str] = []
             try:

@@ -60,6 +60,8 @@ class Node(SQLModel, table=True):
     install_state: str = ''
     install_log: str = ''
     install_ssl: str = ''
+    # xui — панель 3x-ui; grafana — отдельный сервер мониторинга, в подписку не входит.
+    install_kind: str = ''
     created_at: datetime = Field(default_factory=utcnow)
 
     def clash_prefix(self) -> str:
@@ -77,6 +79,9 @@ class Node(SQLModel, table=True):
 
     def flag_title(self) -> str:
         return country_name(self.flag)
+
+    def is_grafana(self) -> bool:
+        return (self.install_kind or '') == 'grafana'
 
 
 class InboundTemplate(SQLModel, table=True):

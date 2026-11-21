@@ -176,6 +176,13 @@ def parse_master_lines(text: str) -> dict[str, str]:
     return found
 
 
+def install_product(kind: str) -> str:
+    value = (kind or 'xui').strip().lower()
+    if value not in {'xui', 'grafana'}:
+        raise ValueError('На чистый VPS можно поставить 3x-ui или Grafana')
+    return value
+
+
 def prepare_install(
     session: Session,
     *,
@@ -186,6 +193,7 @@ def prepare_install(
     ssh_user: str,
     ssh_password: str,
     ssh_port: int,
+    kind: str = 'xui',
 ) -> Node:
     from app.flags import to_iso
 
@@ -203,6 +211,11 @@ def prepare_install(
     taken = session.exec(select(Node).where(Node.public_host == address)).first()
     if taken is not None:
         raise ValueError(f'Сервер {taken.name} уже использует этот IP')
+    product = install_product(kind)
+    if product == 'grafana':
+        opening = 'Ставлю Grafana. Это несколько минут. Адрес и пароль появятся здесь, когда установщик закончит.'
+    else:
+        opening = 'Ставлю 3x-ui. Это несколько минут. Логин панели появится здесь, когда установщик закончит.'
     node = Node(
         flag=to_iso(flag) or (flag or '').strip(),
         name=title,
@@ -217,7 +230,8 @@ def prepare_install(
         ssh_auth='password' if password else 'key',
         install_state='installing',
         install_ssl='ip',
-        install_log='Ставлю 3x-ui. Это несколько минут. Логин панели появится здесь, когда установщик закончит.',
+        install_kind=product,
+        install_log=opening,
     )
     session.add(node)
     session.commit()

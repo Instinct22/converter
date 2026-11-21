@@ -1,5 +1,6 @@
 .env
 scripts/add_vps.env
+scripts/grafana.env
 data/
 /docker-publish.yml
 test11

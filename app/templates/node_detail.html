@@ -5,7 +5,7 @@
 <div class="page-head">
   <div>
     <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
-    <p class="lede">URL панели и токен. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре». Подписку клиент забирает с Master.</p>
+    <p class="lede">{% if node.install_kind == 'grafana' %}Адрес Grafana и пароль входа лежат в журнале установки. Этот сервер в подписку не входит.{% else %}URL панели и токен. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре». Подписку клиент забирает с Master.{% endif %}</p>
   </div>
   <div class="row">
     <button class="btn secondary" id="test" type="button" {% if node.install_state == 'installing' %}disabled{% endif %}>Проверить связь</button>
@@ -16,13 +16,15 @@
 
 {% if node.install_state == 'installing' or node.install_state == 'failed' or node.install_log %}
 <div class="card" id="install-card">
-  <h2>Установка 3x-ui
+  <h2>Установка {% if node.install_kind == 'grafana' %}Grafana{% else %}3x-ui{% endif %}
     {% if node.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
     {% elif node.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>
     {% else %}<span class="fw-tag on">готово</span>{% endif %}
   </h2>
   <p class="sub">
-    {% if node.install_state == 'installing' %}
+    {% if node.install_kind == 'grafana' %}
+    {% if node.install_state == 'installing' %}Grafana ещё ставится. Адрес, пароль и токен записи появятся в журнале.{% else %}Адрес, пароль и токен записи показаны в журнале.{% endif %}
+    {% elif node.install_state == 'installing' %}
     Панели ещё нет. SSH уже сохранён ниже, в блоке «Файрвол». Повторная установка на стоящий x-ui не запускается.
     {% else %}
     Логин и пароль панели показаны в журнале один раз. API Token лежит здесь же: его можно показать и скопировать. Пустое поле в карточке ниже его не затирает.
