@@ -314,6 +314,7 @@ chmod 644 __ROOT__/docker-compose.yml __ROOT__/provisioning/datasources/victoria
 chmod 600 __ROOT__/.env __ROOT__/Caddyfile __ROOT__/write.token
 chmod 700 __ROOT__
 cd __ROOT__
+echo "Записываю конфиг"
 echo "Поднимаю контейнеры"
 if ! docker compose up -d --remove-orphans >/tmp/grafana-compose.log 2>&1; then
   echo "GRAFANA_ERROR=контейнеры не поднялись"
@@ -327,8 +328,12 @@ site=__SITE__
 echo "Жду сертификат Let's Encrypt"
 login_code=000
 for _try in $(seq 1 40); do
+  if [ $((_try % 4)) -eq 1 ]; then
+    echo "Сертификат Let's Encrypt ещё не готов, попытка $_try"
+  fi
   login_code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 8 --resolve "$site:443:127.0.0.1" "https://$site/login" || true)
   if [ "$login_code" = "200" ]; then
+    echo "Страница входа открылась"
     break
   fi
   sleep 3
@@ -540,6 +545,21 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
             from app.ssh_access import AUTH_BOTH, AUTH_KEY, PRIVATE_PATH, resolved_auth
 
             use_key = resolved_auth(node) in {AUTH_KEY, AUTH_BOTH} and not (node.ssh_password or '').strip()
+            node.install_log = _clip((node.install_log or '').rstrip() + '\nЗахожу по SSH')
+            session.add(node)
+            session.commit()
+
+            def _progress(line: str) -> None:
+                text = (line or '').strip()
+                if not text or text.startswith('GRAFANA_') or text.startswith('MASTER_'):
+                    return
+                folded = text.casefold()
+                if 'парол' in folded or 'токен' in folded:
+                    return
+                node.install_log = _clip((node.install_log or '').rstrip() + '\n' + text)
+                session.add(node)
+                session.commit()
+
             code, output = run_ssh(
                 host,
                 user,
@@ -548,6 +568,7 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
                 node.ssh_password,
                 port=int(node.ssh_port or 22),
                 prefer_key=use_key,
+                on_line=_progress,
             )
         else:
             code, output = runner(

@@ -58,8 +58,9 @@
               {% if n.flag_image() %}<img class="flag-img" src="{{ n.flag_image() }}" alt="{{ n.flag_title() }}" title="{{ n.flag_title() }}">{% endif %}
               {% if n.is_grafana() %}<img class="grafana-mark" src="/static/grafana.svg?v=2" alt="Grafana" title="Grafana">{% endif %}
               <strong>{{ n.name }}</strong>
-              {% if n.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
-              {% elif n.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>{% endif %}
+              {% if n.install_state == 'installing' %}<span class="fw-tag warn" data-install-badge>ставится</span>
+              {% elif n.install_state == 'failed' %}<span class="fw-tag bad" data-install-badge>ошибка</span>
+              {% elif n.is_grafana() and n.install_state == 'done' %}<span class="fw-tag on" data-install-badge>готово</span>{% endif %}
             </span>
           </div>
           {% if n.is_grafana() %}
@@ -140,7 +141,7 @@
             </div>
             {% endif %}
           </div>
-          <span class="hint" data-live>—</span>
+          <span class="hint" data-live {% if n.is_grafana() %}data-install-step{% endif %}>{% if n.is_grafana() %}{{ n.install_step() or '—' }}{% else %}—{% endif %}</span>
           <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
           <div class="node-clash">
             {% if n.install_kind == 'grafana' %}
@@ -274,7 +275,19 @@ async function loadOverview() {
   if (el) el.textContent = online + ' / ' + fleet.length;
   (data.nodes || []).forEach((n) => {
     const row = document.querySelector('[data-node="' + n.id + '"]');
-    if (!row || n.install_kind === 'grafana') return;
+    if (!row) return;
+    if (n.install_kind === 'grafana') {
+      const step = row.querySelector('[data-install-step]');
+      if (step) step.textContent = n.install_step || '—';
+      const badge = row.querySelector('[data-install-badge]');
+      if (badge) {
+        const failed = n.install_state === 'failed';
+        const running = n.install_state === 'installing';
+        badge.textContent = failed ? 'ошибка' : (running ? 'ставится' : 'готово');
+        badge.className = 'fw-tag ' + (failed ? 'bad' : (running ? 'warn' : 'on'));
+      }
+      return;
+    }
     const dot = row.querySelector('[data-dot]');
     if (dot) {
       dot.classList.remove('ok', 'bad');
@@ -312,6 +325,8 @@ async function loadOverview() {
   XUI.applyClientPresence(data.clients);
   nodeSort.resort();
   clientSort.resort();
+  const pending = (data.nodes || []).some((n) => n.install_kind === 'grafana' && n.install_state === 'installing');
+  if (pending) setTimeout(() => loadOverview().catch(() => {}), 4000);
 }
 
 document.getElementById('refresh-overview')?.addEventListener('click', async (e) => {

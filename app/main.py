@@ -24,6 +24,9 @@ async def lifespan(_app: FastAPI):
 
     ensure_fleet_key()
     with Session(engine) as session:
+        from app.xui_install import interrupt_abandoned_installs
+
+        interrupt_abandoned_installs(session)
         seed_if_empty(session)
         from app.provision import ensure_default_node_templates
 

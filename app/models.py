@@ -83,6 +83,18 @@ class Node(SQLModel, table=True):
     def is_grafana(self) -> bool:
         return (self.install_kind or '') == 'grafana'
 
+    def install_step(self) -> str:
+        """Последняя строка журнала, которую можно показать в списке. Без пароля и токена."""
+        for raw in reversed((self.install_log or '').splitlines()):
+            line = raw.strip()
+            if not line or line.startswith('GRAFANA_') or line.startswith('MASTER_'):
+                continue
+            folded = line.casefold()
+            if 'парол' in folded or 'токен' in folded:
+                continue
+            return line[:180]
+        return ''
+
 
 class InboundTemplate(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

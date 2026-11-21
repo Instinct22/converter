@@ -149,15 +149,16 @@ def run_ssh(
     *,
     port: int = 22,
     prefer_key: bool = False,
+    on_line=None,
 ) -> tuple[int, str]:
     from app.ssh_access import run_remote
 
     use_key = bool(key) and (prefer_key or not password)
     try:
         if use_key:
-            code, out, err = run_remote(host, user, port, script, key_path=key, timeout=900)
+            code, out, err = run_remote(host, user, port, script, key_path=key, timeout=900, on_line=on_line)
         elif password:
-            code, out, err = run_remote(host, user, port, script, password=password, timeout=900)
+            code, out, err = run_remote(host, user, port, script, password=password, timeout=900, on_line=on_line)
         else:
             raise RuntimeError('Нет SSH-ключа и пароля')
     except RuntimeError:
@@ -369,6 +370,20 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
         node.install_log = _clip(node.install_log + '\n' + extra)
         session.add(node)
         session.commit()
+
+
+def interrupt_abandoned_installs(session: Session) -> None:
+    """Поток установки живёт только в процессе мастера. После перезапуска он уже мёртв."""
+    rows = session.exec(select(Node).where(Node.install_state == 'installing')).all()
+    if not rows:
+        return
+    note = 'Установка прервалась: мастер перезапустился. Скрипт на сервере мог остановиться посередине.'
+    for node in rows:
+        node.install_state = 'failed'
+        node.last_error = 'установка прервалась перезапуском'
+        node.install_log = _clip((node.install_log or '').rstrip() + '\n' + note)
+        session.add(node)
+    session.commit()
 
 
 def start_install(node_id: int) -> None:

@@ -82,6 +82,7 @@ def test_remote_script_installs_guard_and_keeps_volumes():
     assert '[recidive]' in script
     assert '198.51.100.10' in script
     assert 'rm -rf /data/caddy/certificates/local' in script
+    assert 'Сертификат Let\'s Encrypt ещё не готов' in script
     assert 'docker compose restart caddy </dev/null' in script
     assert "curl -fsS" in script
     assert 'ufw --force enable' in script
@@ -136,6 +137,17 @@ def _memory() -> Session:
     engine = create_engine('sqlite://')
     SQLModel.metadata.create_all(engine)
     return Session(engine)
+
+
+def test_install_step_skips_the_password_and_the_token():
+    from app.models import Node
+
+    node = Node(
+        name='Grafana',
+        panel_url='',
+        install_log='Ставлю Grafana\nЗахожу по SSH\nПароль: secret\nТокен записи: abc',
+    )
+    assert node.install_step() == 'Захожу по SSH'
 
 
 def test_clean_vps_can_prepare_grafana_without_putting_it_in_the_pool():

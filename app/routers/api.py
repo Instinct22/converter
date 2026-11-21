@@ -200,6 +200,7 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'update_target_version': node.update_target_version or '',
         'install_state': node.install_state or '',
         'install_kind': node.install_kind or '',
+        'install_step': node.install_step(),
         'clash_sub_base': node_clash_sub_base(node),
     }
     if include_install:

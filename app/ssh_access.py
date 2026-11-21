@@ -162,16 +162,34 @@ def run_remote(
     password: str = '',
     key_path: str = '',
     timeout: int = 30,
+    on_line=None,
 ) -> tuple[int, str, str]:
     client = _connect_host(host, user, port, password=password, key_path=key_path, timeout=timeout)
     try:
         stdin, stdout, stderr = client.exec_command('bash -s', timeout=timeout)
         stdin.write(script)
         stdin.channel.shutdown_write()
-        out = stdout.read().decode('utf-8', 'replace')
-        err = stderr.read().decode('utf-8', 'replace')
+        err_box: list[str] = []
+
+        def _drain_err() -> None:
+            err_box.append(stderr.read().decode('utf-8', 'replace'))
+
+        import threading
+
+        drain = threading.Thread(target=_drain_err, daemon=True)
+        drain.start()
+        chunks: list[str] = []
+        while True:
+            raw = stdout.readline()
+            if not raw:
+                break
+            text = raw.decode('utf-8', 'replace') if isinstance(raw, bytes) else raw
+            chunks.append(text)
+            if on_line is not None:
+                on_line(text.rstrip('\n'))
+        drain.join(timeout=5)
         code = stdout.channel.recv_exit_status()
-        return code, out, err
+        return code, ''.join(chunks), err_box[0] if err_box else ''
     finally:
         client.close()
 
