@@ -1144,6 +1144,13 @@ function initNodeForm() {
     nodeForm.api_token.required = !install;
     nodeForm.host.required = install;
     nodeForm.ssh_password.required = false;
+    nodeForm.clash_name.required = !grafana;
+    const flagBox = document.getElementById('node-flag');
+    const clashField = document.getElementById('clash-field');
+    const identity = document.getElementById('node-identity-label');
+    if (flagBox) flagBox.hidden = grafana;
+    if (clashField) clashField.hidden = grafana;
+    if (identity) identity.textContent = grafana ? '1 · Название' : '1 · Флаг и имена';
     const hint = document.getElementById('install-hint');
     if (hint) {
       hint.textContent = grafana
@@ -1162,18 +1169,18 @@ function initNodeForm() {
   nodeForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const f = event.target;
-    if (!f.flag.value) {
+    const install = f.source.value === 'install';
+    const grafana = install && installKind() === 'grafana';
+    if (!grafana && !f.flag.value) {
       toast('Выберите флаг', 'err');
       return;
     }
-    const install = f.source.value === 'install';
     const btn = f.querySelector('button[type=submit]');
     const payload = {
       flag: f.flag.value,
       name: f.name.value,
       clash_name: f.clash_name.value,
     };
-    const grafana = install && installKind() === 'grafana';
     if (install) {
       payload.install = true;
       payload.install_kind = grafana ? 'grafana' : 'xui';

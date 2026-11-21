@@ -12,16 +12,18 @@
       <button class="btn ghost small" type="button" data-close="add-node">Закрыть</button>
     </div>
     <form id="node-form">
-      <div class="step-label">1 · Флаг и имена</div>
-      <input type="hidden" name="flag" required>
-      <div class="flags" data-flags="flag"></div>
+      <div class="step-label" id="node-identity-label">1 · Флаг и имена</div>
+      <div id="node-flag">
+        <input type="hidden" name="flag">
+        <div class="flags" data-flags="flag"></div>
+      </div>
       <div class="form-grid" style="margin-top:12px">
         <div class="field">
           <label>Название</label>
           <input name="name" required placeholder="Italy Serv">
           <span class="hint">Как видно вам в Master</span>
         </div>
-        <div class="field">
+        <div class="field" id="clash-field">
           <label>Имя в Clash</label>
           <input name="clash_name" required placeholder="Italy-Serv">
           <span class="hint">Флаг подставится сам: 🇮🇹 Italy-Serv</span>
