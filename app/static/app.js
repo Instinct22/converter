@@ -1,4 +1,4 @@
-﻿function detailMessage(detail) {
+function detailMessage(detail) {
   if (!detail) return 'Ошибка запроса';
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) return detail.map((x) => x.msg || JSON.stringify(x)).join('; ');
@@ -205,6 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindFlagPicker(document);
   document.querySelectorAll('tbody[data-sortable]').forEach((body) => bindSort(body));
   bindReportFilters();
+  mountSitePage();
 });
 
 function sortValue(row, key) {
@@ -444,6 +445,270 @@ function applyNodeVersions(row, node) {
   };
   put('xui', node.xui_version || '', node.panel_latest_version || '', node.version_checked_at, 'Панель 3x-ui на сервере', 'panel');
   put('xray', node.xray_version || '', node.xray_latest_version || '', node.version_checked_at, 'Ядро Xray на сервере', 'xray');
+}
+
+function formatRps(value) {
+  const number = Number(value || 0);
+  if (number <= 0) return '0';
+  if (number >= 10) return number.toFixed(1);
+  if (number >= 1) return number.toFixed(2);
+  return number.toFixed(3);
+}
+
+function moscowParts(epoch) {
+  const shifted = new Date((Number(epoch) + 3 * 3600) * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    dd: pad(shifted.getUTCDate()),
+    mo: pad(shifted.getUTCMonth() + 1),
+    hh: pad(shifted.getUTCHours()),
+    mm: pad(shifted.getUTCMinutes()),
+  };
+}
+
+function axisTime(epoch, span) {
+  const part = moscowParts(epoch);
+  if (span === '7d') return part.dd + '.' + part.mo;
+  return part.hh + ':' + part.mm;
+}
+
+function tipTime(epoch) {
+  const part = moscowParts(epoch);
+  return part.dd + '.' + part.mo + ' ' + part.hh + ':' + part.mm;
+}
+
+function niceCeiling(value, integer) {
+  if (value <= 0) return 1;
+  if (integer) return Math.max(1, Math.ceil(value * 1.25));
+  const padded = value * 1.15;
+  const pow = Math.pow(10, Math.floor(Math.log10(padded)));
+  const scaled = padded / pow;
+  const step = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+function drawGraf(panel, model) {
+  const plot = panel.querySelector('[data-graf-plot]');
+  const legend = panel.querySelector('[data-graf-legend]');
+  const empty = panel.querySelector('[data-graf-empty]');
+  const now = panel.querySelector('[data-graf-now]');
+  const avg = panel.querySelector('[data-graf-avg]');
+  if (now) now.textContent = model.now;
+  if (avg) avg.textContent = model.avg;
+  if (!plot) return;
+  plot.querySelectorAll('svg, .graf-tip').forEach((node) => node.remove());
+  if (empty) empty.hidden = !model.empty;
+  legend.innerHTML = '';
+  if (model.empty || !model.times.length) {
+    model.series.forEach((series) => {
+      const key = document.createElement('span');
+      key.className = 'graf-key';
+      key.innerHTML = '<i class="graf-swatch" style="background:' + series.color + '"></i>' + series.name;
+      legend.appendChild(key);
+    });
+    return;
+  }
+  const width = Math.max(280, Math.round(plot.clientWidth || 640));
+  const height = 240;
+  const pad = { l: 52, r: 12, t: 10, b: 26 };
+  const max = niceCeiling(Math.max(...model.series.flatMap((series) => series.values), 0), model.integer);
+  const innerW = width - pad.l - pad.r;
+  const innerH = height - pad.t - pad.b;
+  const xOf = (index) => {
+    if (model.times.length <= 1) return pad.l + innerW / 2;
+    return pad.l + (innerW * index) / (model.times.length - 1);
+  };
+  const yOf = (value) => pad.t + innerH - (Number(value) / max) * innerH;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+  svg.setAttribute('width', String(width));
+  svg.setAttribute('height', String(height));
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  svg.appendChild(defs);
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const value = (max * tick) / 4;
+    const y = yOf(value);
+    const grid = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    grid.setAttribute('x1', String(pad.l));
+    grid.setAttribute('x2', String(width - pad.r));
+    grid.setAttribute('y1', String(y));
+    grid.setAttribute('y2', String(y));
+    grid.setAttribute('stroke', 'rgba(204,204,220,0.15)');
+    grid.setAttribute('stroke-dasharray', '4 4');
+    svg.appendChild(grid);
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', String(pad.l - 8));
+    label.setAttribute('y', String(y + 4));
+    label.setAttribute('text-anchor', 'end');
+    label.setAttribute('fill', '#8e8ea0');
+    label.setAttribute('font-size', '11');
+    label.textContent = model.integer ? String(Math.round(value)) : formatRps(value);
+    svg.appendChild(label);
+  }
+  const labelStep = Math.max(1, Math.ceil(model.times.length / (width < 520 ? 4 : 6)));
+  model.times.forEach((epoch, index) => {
+    if (index % labelStep !== 0 && index !== model.times.length - 1) return;
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', String(xOf(index)));
+    label.setAttribute('y', String(height - 6));
+    label.setAttribute('text-anchor', index === 0 ? 'start' : 'middle');
+    label.setAttribute('fill', '#8e8ea0');
+    label.setAttribute('font-size', '11');
+    label.textContent = axisTime(epoch, model.span);
+    svg.appendChild(label);
+  });
+  model.series.forEach((series, seriesIndex) => {
+    const grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+    const gradId = 'graf-' + model.key + '-' + seriesIndex;
+    grad.setAttribute('id', gradId);
+    grad.setAttribute('x1', '0');
+    grad.setAttribute('y1', '0');
+    grad.setAttribute('x2', '0');
+    grad.setAttribute('y2', '1');
+    [['0', '0.35'], ['1', '0']].forEach((pair) => {
+      const stop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+      stop.setAttribute('offset', pair[0]);
+      stop.setAttribute('stop-color', series.color);
+      stop.setAttribute('stop-opacity', pair[1]);
+      grad.appendChild(stop);
+    });
+    defs.appendChild(grad);
+    const base = yOf(0);
+    const line = series.values.map((value, index) => (index ? 'L' : 'M') + xOf(index).toFixed(1) + ' ' + yOf(value).toFixed(1)).join(' ');
+    const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    area.setAttribute('d', line + ' L ' + xOf(series.values.length - 1).toFixed(1) + ' ' + base.toFixed(1) + ' L ' + xOf(0).toFixed(1) + ' ' + base.toFixed(1) + ' Z');
+    area.setAttribute('fill', 'url(#' + gradId + ')');
+    svg.appendChild(area);
+    const stroke = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    stroke.setAttribute('d', line);
+    stroke.setAttribute('fill', 'none');
+    stroke.setAttribute('stroke', series.color);
+    stroke.setAttribute('stroke-width', '2');
+    svg.appendChild(stroke);
+  });
+  const cross = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  cross.setAttribute('y1', String(pad.t));
+  cross.setAttribute('y2', String(height - pad.b));
+  cross.setAttribute('stroke', 'rgba(204,204,220,0.45)');
+  cross.setAttribute('visibility', 'hidden');
+  svg.appendChild(cross);
+  plot.appendChild(svg);
+  const tip = document.createElement('div');
+  tip.className = 'graf-tip';
+  tip.hidden = true;
+  plot.appendChild(tip);
+  model.series.forEach((series) => {
+    const key = document.createElement('span');
+    key.className = 'graf-key';
+    key.dataset.legend = series.name;
+    key.innerHTML = '<i class="graf-swatch" style="background:' + series.color + '"></i><span></span>';
+    legend.appendChild(key);
+  });
+  const paintLegend = (index) => {
+    model.series.forEach((series) => {
+      const key = legend.querySelector('[data-legend="' + series.name + '"] span');
+      if (!key) return;
+      const value = series.values[index];
+      key.textContent = series.name + ' ' + (model.integer ? String(value) : formatRps(value));
+    });
+  };
+  paintLegend(model.times.length - 1);
+  const showAt = (clientX) => {
+    const box = svg.getBoundingClientRect();
+    const rel = (clientX - box.left) / box.width;
+    let nearest = 0;
+    let best = Infinity;
+    model.times.forEach((_, index) => {
+      const dist = Math.abs(xOf(index) / width - rel);
+      if (dist < best) {
+        best = dist;
+        nearest = index;
+      }
+    });
+    const x = xOf(nearest);
+    cross.setAttribute('x1', String(x));
+    cross.setAttribute('x2', String(x));
+    cross.setAttribute('visibility', 'visible');
+    const rows = model.series.map((series) => {
+      const value = model.integer ? String(series.values[nearest]) : formatRps(series.values[nearest]);
+      return '<div><i class="graf-swatch" style="background:' + series.color + '"></i> ' + series.name + ' ' + value + '</div>';
+    }).join('');
+    tip.innerHTML = '<strong>' + tipTime(model.times[nearest]) + '</strong>' + rows;
+    tip.hidden = false;
+    const local = clientX - plot.getBoundingClientRect().left;
+    const tipWidth = tip.offsetWidth || 140;
+    tip.style.left = Math.max(8, Math.min(local + 12, plot.clientWidth - tipWidth - 8)) + 'px';
+    tip.style.top = '8px';
+    paintLegend(nearest);
+  };
+  plot.onpointermove = (event) => showAt(event.clientX);
+  plot.onpointerleave = () => {
+    cross.setAttribute('visibility', 'hidden');
+    tip.hidden = true;
+    paintLegend(model.times.length - 1);
+  };
+  plot._graf = model;
+}
+
+function mountSitePage() {
+  const node = document.getElementById('site-series');
+  if (!node || node.dataset.bound) return;
+  node.dataset.bound = '1';
+  let payload = JSON.parse(node.textContent || '{}');
+  const panels = {
+    rps: document.querySelector('[data-graf="rps"]'),
+    people: document.querySelector('[data-graf="people"]'),
+  };
+  const show = (data) => {
+    payload = data;
+    document.querySelectorAll('[data-span]').forEach((btn) => {
+      btn.classList.toggle('on', btn.dataset.span === data.span);
+    });
+    const quiet = !data.collecting && !data.samples;
+    drawGraf(panels.rps, {
+      key: 'rps',
+      integer: false,
+      empty: quiet,
+      now: data.rps.now_label,
+      avg: 'среднее ' + data.rps.avg_label,
+      span: data.span,
+      times: (data.rps.points || []).map((point) => point.t),
+      series: [
+        { name: 'Все запросы', color: '#5794F2', values: (data.rps.points || []).map((point) => point.all) },
+        { name: 'Без ботов', color: '#73BF69', values: (data.rps.points || []).map((point) => point.human) },
+      ],
+    });
+    drawGraf(panels.people, {
+      key: 'people',
+      integer: true,
+      empty: quiet,
+      now: String(data.people.new),
+      avg: 'на сайте ' + data.people.unique,
+      span: data.span,
+      times: (data.people.points || []).map((point) => point.t),
+      series: [
+        { name: 'На сайте', color: '#73BF69', values: (data.people.points || []).map((point) => point.active) },
+        { name: 'Впервые', color: '#F2CC0C', values: (data.people.points || []).map((point) => point.new) },
+      ],
+    });
+  };
+  show(payload);
+  document.querySelectorAll('[data-span]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        show(await api('/api/site?span=' + btn.dataset.span));
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
+  });
+  window.addEventListener('resize', () => show(payload));
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      show(await api('/api/site?span=' + (payload.span || '24h')));
+    } catch (err) {}
+  }, 30000);
 }
 
 function watchPresence(after) {

@@ -883,6 +883,16 @@ def put_config(body: ConfigIn, session: SessionDep) -> dict:
     return doc.model_dump()
 
 
+@router.get('/site')
+def site_metrics(session: SessionDep, span: str = '24h') -> dict:
+    from app.site_traffic import RANGES, ingest_access_log, site_series
+
+    if span not in RANGES:
+        raise HTTPException(400, 'unknown span')
+    ingest_access_log(session)
+    return site_series(session, span)
+
+
 @router.get('/stats')
 def stats(session: SessionDep) -> dict:
     nodes = session.exec(select(Node)).all()

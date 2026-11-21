@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Сайт — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Сайт</h1>
+    <p class="lede">Запросы в секунду на aegis-gate.ru и приток живых людей. В живые входят обычные браузеры. Пустой агент, сканеры и известные роботы остаются только в общей линии.</p>
+    <div class="graf-ranges">
+      <button class="graf-range" type="button" data-span="1h">1ч</button>
+      <button class="graf-range" type="button" data-span="6h">6ч</button>
+      <button class="graf-range on" type="button" data-span="24h">24ч</button>
+      <button class="graf-range" type="button" data-span="7d">7д</button>
+    </div>
+  </div>
+</div>
+
+<section class="graf" data-graf="rps">
+  <header class="graf-head">
+    <div>
+      <h2>Запросы в секунду</h2>
+      <p class="graf-sub">aegis-gate.ru · сейчас</p>
+    </div>
+    <div class="graf-stat">
+      <div class="graf-value"><span data-graf-now>{{ series.rps.now_label }}</span><small> запр/с</small></div>
+      <div class="graf-avg" data-graf-avg>среднее {{ series.rps.avg_label }}</div>
+    </div>
+  </header>
+  <div class="graf-plot" data-graf-plot>
+    <p class="graf-empty" data-graf-empty hidden>Журнал Caddy ещё пуст. После выкладки доступы начнут копиться, и линия появится сама.</p>
+  </div>
+  <div class="graf-legend" data-graf-legend></div>
+</section>
+
+<section class="graf" data-graf="people">
+  <header class="graf-head">
+    <div>
+      <h2>Приток живых</h2>
+      <p class="graf-sub">новый адрес и браузер за выбранный срок</p>
+    </div>
+    <div class="graf-stat">
+      <div class="graf-value"><span data-graf-now>{{ series.people.new }}</span><small> впервые</small></div>
+      <div class="graf-avg" data-graf-avg>на сайте {{ series.people.unique }}</div>
+    </div>
+  </header>
+  <div class="graf-plot" data-graf-plot>
+    <p class="graf-empty" data-graf-empty hidden>Журнал Caddy ещё пуст. После выкладки доступы начнут копиться, и линия появится сама.</p>
+  </div>
+  <div class="graf-legend" data-graf-legend></div>
+</section>
+<script id="site-series" type="application/json">{{ series|script_json }}</script>
+{% endblock %}

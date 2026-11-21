@@ -206,6 +206,39 @@ class ClientPingReport(SQLModel, table=True):
     servers_json: str = '[]'
 
 
+class SiteMinute(SQLModel, table=True):
+    """Минута запросов к aegis-gate.ru. IP сюда не пишется."""
+
+    __tablename__ = 'site_minute'
+    minute: int = Field(primary_key=True)
+    requests: int = 0
+    human_requests: int = 0
+
+
+class SiteSeen(SQLModel, table=True):
+    """Живой браузер на странице в эту минуту. visitor — хеш адреса и семейства браузера."""
+
+    __tablename__ = 'site_seen'
+    minute: int = Field(primary_key=True)
+    visitor: str = Field(primary_key=True)
+
+
+class SiteFirst(SQLModel, table=True):
+    """Первый заход этого посетителя. По нему считается приток."""
+
+    __tablename__ = 'site_first'
+    visitor: str = Field(primary_key=True)
+    minute: int = Field(index=True)
+
+
+class SiteLogCursor(SQLModel, table=True):
+    """Смещение в файле журнала Caddy. Ключ — inode, чтобы ротация не задвоила строки."""
+
+    __tablename__ = 'site_log_cursor'
+    file_key: str = Field(primary_key=True)
+    offset: int = 0
+
+
 class NodePingHour(SQLModel, table=True):
     """Час наблюдений клиентов по одной ноде.
 

@@ -7,6 +7,7 @@ from app.models import Node
 from app.node_updates import check_updates, reconcile_update
 from app.overview import probe_nodes, store_versions
 from app.provision import disable_expired
+from app.site_traffic import ingest_access_log
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.xui import XuiError
 
@@ -57,9 +58,15 @@ def _refresh_rf(session: Session, nodes: list[Node]) -> None:
     session.commit()
 
 
+def _site_job() -> None:
+    with Session(engine) as session:
+        ingest_access_log(session)
+
+
 def start_scheduler() -> None:
     if scheduler.running:
         return
     scheduler.add_job(_job, 'interval', minutes=10, id='expire-clients', replace_existing=True)
+    scheduler.add_job(_site_job, 'interval', seconds=30, id='site-access', replace_existing=True)
     scheduler.start()
 

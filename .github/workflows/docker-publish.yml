@@ -278,6 +278,8 @@ jobs:
             if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
               printf '%s\n' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             fi
+            mkdir -p data/caddy-access
+            chmod 777 data/caddy-access
             docker compose pull
             docker compose up -d --force-recreate --remove-orphans
             docker compose ps

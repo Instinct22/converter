@@ -15,6 +15,7 @@ from app.provision import node_template_ids, split_csv
 from app.routers.updates import release_groups
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
+from app.site_traffic import ingest_access_log, site_series
 from app.xui import version_equal, version_newer
 
 
@@ -171,6 +172,22 @@ def dashboard(request: Request, session: SessionDep):
             update_flags=update_flags,
         ),
     )
+
+
+@router.get('/site', response_class=HTMLResponse)
+def site_page(request: Request, session: SessionDep):
+    if (redir := _need_admin(request)):
+        return redir
+    ingest_access_log(session)
+    return templates.TemplateResponse(
+        'site.html',
+        _ctx(request, page='site', series=site_series(session, '24h')),
+    )
+
+
+@router.get('/users')
+def users_page():
+    return RedirectResponse('/site', status_code=302)
 
 
 @router.get('/nodes')

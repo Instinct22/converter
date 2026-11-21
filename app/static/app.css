@@ -1020,6 +1020,42 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
 .status-pick .status-dot { width: 8px; height: 8px; box-shadow: none; }
 .status-dot.warn { background: var(--warn); box-shadow: 0 0 0 4px var(--warn-soft); }
 .status-pick .status-dot.warn { box-shadow: none; }
+.graf-ranges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.graf-range {
+  appearance: none; border: 1px solid rgba(204, 204, 220, 0.2);
+  background: #181b1f; color: #ccccdc; border-radius: 2px;
+  padding: 6px 10px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.graf-range.on { background: #2c3238; color: #fff; border-color: transparent; }
+.graf {
+  background: #111217; border: 1px solid rgba(204, 204, 220, 0.12);
+  border-radius: 2px; padding: 8px 12px 10px; margin-top: 12px;
+}
+.graf-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.graf h2 { margin: 0; font-size: 14px; font-weight: 500; color: #ccccdc; }
+.graf-sub { margin: 2px 0 0; color: #8e8ea0; font-size: 12px; }
+.graf-stat { text-align: right; }
+.graf-value { font-size: 28px; line-height: 1; font-weight: 500; color: #73bf69; font-variant-numeric: tabular-nums; }
+.graf[data-graf="rps"] .graf-value { color: #5794f2; }
+.graf[data-graf="people"] .graf-value { color: #f2cc0c; }
+@media (max-width: 720px) {
+  .page-head:has(.graf-ranges) { flex-direction: column; }
+}
+.graf-value small { font-size: 13px; color: #8e8ea0; font-weight: 400; }
+.graf-avg { margin-top: 4px; color: #8e8ea0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.graf-plot { position: relative; height: 240px; margin-top: 8px; }
+.graf-plot svg { display: block; width: 100%; height: 240px; }
+.graf-empty { margin: 72px 12px 0; color: #8e8ea0; font-size: 13px; line-height: 1.45; }
+.graf-tip {
+  position: absolute; z-index: 2; pointer-events: none;
+  background: #181b1f; border: 1px solid rgba(204, 204, 220, 0.2);
+  border-radius: 2px; padding: 6px 8px; color: #ccccdc;
+  font-size: 12px; line-height: 1.45; white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.graf-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; }
+.graf-key { display: inline-flex; align-items: center; gap: 6px; color: #ccccdc; font-size: 12px; }
+.graf-swatch { width: 14px; height: 4px; border-radius: 1px; }
 .ping-chart { display: flex; flex-direction: column; gap: 4px; }
 .ping-line {
   display: grid;
