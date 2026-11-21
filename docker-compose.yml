@@ -18,6 +18,7 @@ services:
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/caddy-sites:/etc/caddy/sites:ro
+      # Журнал запросов aegis-gate.ru. Вкладка «Сайт» читает его из data/.
       - ./data/caddy-access:/var/log/caddy-access
       - caddy_data:/data
       - caddy_config:/config
