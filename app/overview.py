@@ -92,6 +92,7 @@ def probe_node(node: Node) -> dict[str, Any]:
             out['client_rows'] = client_rows_from_inbounds(remote)
             try:
                 out['online_emails'] = xui.onlines()
+                out['presence_valid'] = True
             except XuiError:
                 if xui.unreachable:
                     raise

@@ -19,7 +19,9 @@ def _job() -> None:
         purge_old_ping_hours(session)
         disable_expired(session)
         nodes = session.exec(select(Node).where(Node.enabled.is_(True))).all()
+        from app.fleet_metrics import save_presence
         probes = probe_nodes(nodes)
+        save_presence(nodes, probes)
         for node in nodes:
             probe = probes.get(node.id or 0) or {}
             if probe.get('online'):
@@ -40,7 +42,11 @@ def _job() -> None:
                 pass
             session.add(node)
         session.commit()
-        _refresh_rf(session, nodes)
+
+
+def _rf_job():
+    with Session(engine) as session:
+        _refresh_rf(session, session.exec(select(Node).where(Node.enabled.is_(True))).all())
 
 
 def _refresh_rf(session: Session, nodes: list[Node]) -> None:
@@ -49,7 +55,9 @@ def _refresh_rf(session: Session, nodes: list[Node]) -> None:
     ports_by_node = {
         int(node.id): inbound_ports(session, int(node.id)) for node in enabled
     }
+    from app.fleet_metrics import save_snapshot
     views = probe_nodes_rf(enabled, ports_by_node)
+    save_snapshot(enabled, views)
     for node in nodes:
         view = views.get(node.id or 0)
         if view:
@@ -67,6 +75,7 @@ def start_scheduler() -> None:
     if scheduler.running:
         return
     scheduler.add_job(_job, 'interval', minutes=10, id='expire-clients', replace_existing=True)
+    scheduler.add_job(_rf_job, 'interval', minutes=1, id='rf-monitor', coalesce=True, max_instances=1)
     scheduler.add_job(_site_job, 'interval', seconds=30, id='site-access', replace_existing=True)
     scheduler.start()
 

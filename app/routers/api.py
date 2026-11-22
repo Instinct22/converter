@@ -955,7 +955,6 @@ def overview(session: SessionDep) -> dict:
         for node in nodes
     }
     probes = probe_nodes([node for node in nodes if node.enabled])
-    rf_views = _probe_rf(session, nodes)
     node_out = []
     for node in nodes:
         if not node.enabled:
@@ -976,7 +975,6 @@ def overview(session: SessionDep) -> dict:
             )
             continue
         probe = probes.get(node.id or 0) or {}
-        rf = rf_views.get(node.id or 0) or {}
         online = bool(probe.get('online'))
         if online:
             node.last_error = ''
@@ -1005,7 +1003,6 @@ def overview(session: SessionDep) -> dict:
                 'udp': st.get('udp'),
                 'inbound_count': probe.get('inbound_count') or inbound_counts.get(node.id, 0),
                 'probe_error': probe.get('error') or '',
-                'rf_ports': rf.get('ports') or [],
             }
         )
     session.commit()
@@ -1028,59 +1025,6 @@ def overview(session: SessionDep) -> dict:
             }
         )
     return {'nodes': node_out, 'clients': client_out}
-
-
-@router.post('/reachability')
-def reachability(session: SessionDep) -> dict:
-    """TCP-пробы портов нод прямо с мастера: доходит ли сервер до клиентов из РФ."""
-    nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-    rf_views = _probe_rf(session, nodes, force=True)
-    return {
-        'nodes': [
-            {
-                'id': node.id,
-                'rf_ok': bool(node.rf_ok),
-                'rf_note': node.rf_note or '',
-                'rf_checked_at': _as_utc(node.rf_checked_at).isoformat() if node.rf_checked_at else None,
-                'rf_ports': (rf_views.get(node.id or 0) or {}).get('ports') or [],
-            }
-            for node in nodes
-        ]
-    }
-
-
-def _probe_rf(session: SessionDep, nodes: list[Node], force: bool = False) -> dict[int, dict]:
-    """Проверить порты входов нод из России и сохранить результат в ноде.
-
-    Освежаются только устаревшие записи: TCP-проба с таймаутом 4 с на каждый
-    порт, гонять её на каждой загрузке дашборда незачем — планировщик обновляет
-    каждые 10 минут, а кнопка «Проверить из РФ» зовёт с force=True.
-    """
-    fresh_after = datetime.now(timezone.utc) - timedelta(minutes=RF_TTL_MINUTES)
-    targets = [
-        node
-        for node in nodes
-        if node.id
-        and node.enabled
-        and (
-            force
-            or node.rf_checked_at is None
-            or _as_utc(node.rf_checked_at) < fresh_after
-        )
-    ]
-    if not targets:
-        return {}
-    ports_by_node = {
-        int(node.id): inbound_ports(session, int(node.id)) for node in targets
-    }
-    views = probe_nodes_rf(targets, ports_by_node)
-    for node in targets:
-        view = views.get(node.id or 0)
-        if view:
-            store_rf_view(node, view)
-            session.add(node)
-    session.commit()
-    return views
 
 
 def _as_utc(value: datetime) -> datetime:

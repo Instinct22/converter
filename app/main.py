@@ -79,6 +79,9 @@ app.add_middleware(
     path='/',
 )
 app.mount('/static', StaticFiles(directory=str(ROOT / 'app' / 'static')), name='static')
+from app.fleet_metrics import router as metrics_router
+
+app.include_router(metrics_router)
 app.include_router(api.router)
 app.include_router(ui.router)
 app.include_router(sub.router)

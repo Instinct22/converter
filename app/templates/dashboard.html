@@ -23,7 +23,9 @@
       </div>
       <div class="fold-tools" onclick="event.stopPropagation()">
         <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
-        <button class="btn secondary" type="button" id="check-rf" title="Мастер стоит в России: проверяем TCP-соединения к портам входов каждой ноды. Так видно, доходит ли сервер до клиентов из РФ.">Проверить из РФ</button>
+        {% for monitor in nodes if monitor.is_grafana() and monitor.panel_url %}
+        <a class="btn secondary" href="{{ monitor.panel_url }}/d/master-connectivity">Доступность в Grafana</a>
+        {% endfor %}
         {% if nodes %}
         <button class="btn secondary" type="button" data-refresh-all>Сверить все</button>
         {% endif %}
@@ -38,7 +40,7 @@
         <button class="sort-btn" type="button" data-sort="name">Сервер</button>
         <button class="sort-btn sort-ver" type="button" data-sort="xui" title="Версия панели 3x-ui на сервере">3x-ui</button>
         <button class="sort-btn sort-ver" type="button" data-sort="xray" title="Версия ядра Xray на сервере">Xray</button>
-        <button class="sort-btn sort-rf" type="button" data-sort="rf" title="Проверка TCP по портам входов прямо с мастера. Мастер стоит в России — это и есть доступность для клиентов из РФ.">Из РФ</button>
+        <button class="sort-btn sort-rf" type="button" data-sort="rf" title="Проверка TCP по портам входов прямо с мастера. Последний результат плановой TCP-пробы. История в Grafana.">Из РФ</button>
         <button class="sort-btn" type="button" data-sort="host">Адрес</button>
         <button class="sort-btn" type="button" data-sort="ports">Входы</button>
         <button class="sort-btn" type="button" data-sort="cpu">Состояние</button>
@@ -337,15 +339,6 @@ async function loadOverview() {
 document.getElementById('refresh-overview')?.addEventListener('click', async (e) => {
   try {
     await XUI.withBusy(e.currentTarget, loadOverview);
-  } catch (err) {}
-});
-document.getElementById('check-rf')?.addEventListener('click', async (e) => {
-  try {
-    await XUI.withBusy(e.currentTarget, async () => {
-      await XUI.api('/api/reachability', 'POST', {});
-      await loadOverview();
-    });
-    XUI.toast('Проверка из России выполнена');
   } catch (err) {}
 });
 document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('change', async () => {

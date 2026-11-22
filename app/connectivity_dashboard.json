@@ -1,0 +1,417 @@
+{
+  "dashboard": {
+    "uid": "master-connectivity",
+    "title": "Доступность и сеть",
+    "schemaVersion": 39,
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Порты подписки из РФ",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_rf_tcp_success and on() (time() - master_rf_checked_seconds < 150)",
+            "legendFormat": "{{node}} :{{port}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "max": 1,
+            "custom": {
+              "lineInterpolation": "stepAfter",
+              "spanNulls": false
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "1 — TCP-проба успешна, 0 — ошибка или аномальная задержка. Точка наблюдения — мастер в РФ. Пропуск означает отсутствие свежего измерения."
+      },
+      {
+        "id": 2,
+        "title": "Время TCP-соединения из РФ",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_rf_tcp_duration_ms and on() (time() - master_rf_checked_seconds < 150)",
+            "legendFormat": "{{node}} :{{port}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Только успешные соединения."
+      },
+      {
+        "id": 11,
+        "title": "Активные учётные записи 3x-ui",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_active_accounts and on() (time() - master_presence_checked_seconds < 720)",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Снимок онлайн-аккаунтов панели раз в десять минут. Один аккаунт может быть активен на нескольких серверах."
+      },
+      {
+        "id": 3,
+        "title": "Успешные проверки клиентов",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "100 * (1 - master_client_failures_hour / (master_client_reports_hour > 0))",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Доля успешных отчётов приложений с начала часа UTC. При отсутствии отчётов линия отсутствует."
+      },
+      {
+        "id": 4,
+        "title": "Объём выборки клиентов",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_client_reports_hour",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Число проверок с начала часа, один клиент может прислать несколько."
+      },
+      {
+        "id": 5,
+        "title": "Задержка у клиентов · p90",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_client_p90_ms",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "90-й процентиль сохранённых медиан успешных отчётов текущего часа."
+      },
+      {
+        "id": 6,
+        "title": "Свежесть пробы Master",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 24,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "time() - master_rf_checked_seconds",
+            "legendFormat": "Возраст измерения"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Обычный интервал проверки — одна минута."
+      },
+      {
+        "id": 7,
+        "title": "Повторные передачи TCP",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 24,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "100 * rate(node_netstat_Tcp_RetransSegs{job=\"node\"}[5m]) / (rate(node_netstat_Tcp_OutSegs{job=\"node\"}[5m]) > 0)",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Доля повторно отправленных сегментов на хосте за пять минут."
+      },
+      {
+        "id": 8,
+        "title": "Отброшенные пакеты при приёме",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 32,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "sum by (node,instance) (rate(node_network_receive_drop_total{job=\"node\",device!=\"lo\"}[5m]))",
+            "legendFormat": "{{node}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "pps"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Сумма по интерфейсам хоста за пять минут."
+      },
+      {
+        "id": 9,
+        "title": "Скорость приёма по интерфейсам",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 32,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "rate(node_network_receive_bytes_total{job=\"node\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m])",
+            "legendFormat": "{{node}} · {{device}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Bps"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Интерфейсы показаны отдельно, включая туннели."
+      },
+      {
+        "id": 10,
+        "title": "Скорость передачи по интерфейсам",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 40,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "rate(node_network_transmit_bytes_total{job=\"node\",device!~\"lo|veth.*|docker.*|br-.*\"}[5m])",
+            "legendFormat": "{{node}} · {{device}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "Bps"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Средняя скорость за пять минут."
+      }
+    ]
+  },
+  "overwrite": true
+}

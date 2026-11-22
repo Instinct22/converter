@@ -281,7 +281,11 @@ def dashboard_script(site: str) -> str:
 
     if not _DOMAIN.fullmatch(site):
         ipaddress.ip_address(site)
-    payload = Path(__file__).with_name('node_dashboard.json').read_text(encoding='utf8')
+    return '\n'.join(_dashboard_import(site, Path(__file__).with_name(filename).read_text(encoding='utf8'))
+                     for filename in ('node_dashboard.json', 'connectivity_dashboard.json'))
+
+
+def _dashboard_import(site, payload):
     return f"""(
 cd /opt/grafana
 user=$(sed -n 's/^GF_SECURITY_ADMIN_USER=//p' .env)
