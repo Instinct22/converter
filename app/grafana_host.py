@@ -275,6 +275,24 @@ datasources:
 '''
 
 
+def dashboard_script(site: str) -> str:
+    """Загрузить управляемый дашборд через локальный Caddy с проверкой TLS."""
+    import ipaddress
+
+    if not _DOMAIN.fullmatch(site):
+        ipaddress.ip_address(site)
+    payload = Path(__file__).with_name('node_dashboard.json').read_text(encoding='utf8')
+    return f"""(
+cd /opt/grafana
+user=$(sed -n 's/^GF_SECURITY_ADMIN_USER=//p' .env)
+pass=$(sed -n 's/^GF_SECURITY_ADMIN_PASSWORD=//p' .env)
+curl -fsS --max-time 30 --resolve '{site}:443:127.0.0.1' -u "$user:$pass" -H 'Content-Type: application/json' --data-binary @- 'https://{site}/api/dashboards/db' >/dev/null <<'DASHBOARD_JSON'
+{payload.rstrip()}
+DASHBOARD_JSON
+)
+"""
+
+
 def env_text(spec: GrafanaHost) -> str:
     _check(spec)
     return (
@@ -386,12 +404,14 @@ __GUARD__
 echo GRAFANA_URL=__ORIGIN__
 echo GRAFANA_USER=__USER__
 echo GRAFANA_WRITE=__WRITE__
+__DASHBOARD__
 echo GRAFANA_READY=1
 '''
     return (
         script.replace('__DOCKER__', _docker_install())
         .replace('__ROOT__', ROOT_DIR)
         .replace('__FILES__', puts)
+        .replace('__DASHBOARD__', dashboard_script(site_host(spec)))
         .replace('__SITE__', shlex.quote(site_host(spec)))
         .replace('__UFW__', _ufw(spec.ssh_port).rstrip())
         .replace('__GUARD__', _guard(spec).rstrip())
@@ -592,6 +612,9 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
         return
     node.panel_url = normalize_panel_url(url)
     node.public_host = host
+    from app.exporters import remember_grafana_target
+
+    remember_grafana_target(session, node.panel_url.rstrip('/') + '/api/v1/write', spec.write_token)
     node.install_state = 'done'
     node.enabled = False
     node.last_error = ''

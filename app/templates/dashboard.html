@@ -27,6 +27,7 @@
         {% if nodes %}
         <button class="btn secondary" type="button" data-refresh-all>Сверить все</button>
         {% endif %}
+        <button class="btn secondary" type="button" id="install-exporters" title="node_exporter на каждом сервере шлёт метрики на Grafana">Поставить агенты</button>
         <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
         <span class="fold-chev" aria-hidden="true"></span>
       </div>
@@ -141,7 +142,7 @@
             </div>
             {% endif %}
           </div>
-          <span class="hint" data-live {% if n.is_grafana() %}data-install-step{% endif %}>{% if n.is_grafana() %}{{ n.install_step() or '—' }}{% else %}—{% endif %}</span>
+          <div><span class="hint" data-live {% if n.is_grafana() %}data-install-step{% endif %}>{% if n.is_grafana() %}{{ n.install_step() or '—' }}{% else %}—{% endif %}</span><div class="hint" data-agent>{{ n.exporter_note or "" }}</div></div>
           <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
           <div class="node-clash">
             {% if n.install_kind == 'grafana' %}
@@ -276,6 +277,8 @@ async function loadOverview() {
   (data.nodes || []).forEach((n) => {
     const row = document.querySelector('[data-node="' + n.id + '"]');
     if (!row) return;
+    const agent = row.querySelector('[data-agent]');
+    if (agent) agent.textContent = n.exporter_note ? 'Агент: ' + n.exporter_note : '';
     if (n.install_kind === 'grafana') {
       const step = row.querySelector('[data-install-step]');
       if (step) step.textContent = n.install_step || '—';
@@ -325,7 +328,9 @@ async function loadOverview() {
   XUI.applyClientPresence(data.clients);
   nodeSort.resort();
   clientSort.resort();
-  const pending = (data.nodes || []).some((n) => n.install_kind === 'grafana' && n.install_state === 'installing');
+  const pending = (data.nodes || []).some((n) =>
+    (n.install_kind === 'grafana' && n.install_state === 'installing') || n.exporter_state === 'installing'
+  );
   if (pending) setTimeout(() => loadOverview().catch(() => {}), 4000);
 }
 
@@ -405,6 +410,14 @@ document.getElementById('upd-confirm')?.addEventListener('click', async (e) => {
   XUI.toast('Обновление запущено — ждём возврата ноды');
   loadOverview().catch(() => {});
   startUpdPoll();
+});
+document.getElementById('install-exporters')?.addEventListener('click', async (e) => {
+  try {
+    const data = await XUI.withBusy(e.currentTarget, () => XUI.api('/api/exporters', 'POST', {}));
+    XUI.showLog(document.getElementById('node-action-log'), data.logs || []);
+    XUI.toast(data.logs && data.logs[0] ? data.logs[0] : 'Ставлю экспортёры');
+    loadOverview().catch(() => {});
+  } catch (err) {}
 });
 loadOverview().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());

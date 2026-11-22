@@ -405,3 +405,15 @@ def _install_thread(node_id: int) -> None:
             node = session.get(Node, node_id)
             if node is not None and (node.install_state or '') == 'installing':
                 _fail(session, node, f'Установка прервалась: {exc}')
+                return
+        node = session.get(Node, node_id)
+        if node is not None and (node.install_state or '') == 'done':
+            try:
+                from app.exporters import apply_exporter
+
+                apply_exporter(session, node_id)
+            except Exception as exc:
+                node.exporter_state = 'failed'
+                node.exporter_note = str(exc)[:240]
+                session.add(node)
+                session.commit()

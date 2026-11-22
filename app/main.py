@@ -26,6 +26,14 @@ async def lifespan(_app: FastAPI):
     with Session(engine) as session:
         from app.xui_install import interrupt_abandoned_installs
 
+        from sqlmodel import select
+        from app.models import Node
+
+        for node in session.exec(select(Node).where(Node.exporter_state == 'installing')):
+            node.exporter_state = 'failed'
+            node.exporter_note = 'Мастер перезапущен. Повторите установку агентов.'
+            session.add(node)
+        session.commit()
         interrupt_abandoned_installs(session)
         seed_if_empty(session)
         from app.provision import ensure_default_node_templates

@@ -201,6 +201,8 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'install_state': node.install_state or '',
         'install_kind': node.install_kind or '',
         'install_step': node.install_step(),
+        'exporter_state': node.exporter_state or '',
+        'exporter_note': node.exporter_note or '',
         'clash_sub_base': node_clash_sub_base(node),
     }
     if include_install:
@@ -251,6 +253,20 @@ def clear_install_log(node_id: int, session: SessionDep) -> dict:
     session.commit()
     session.refresh(node)
     return _node_out(node, session, include_install=True)
+
+
+@router.post('/exporters')
+def install_exporters(session: SessionDep) -> dict:
+    from app.exporters import start_exporters
+
+    try:
+        count = start_exporters(session)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        'ok': True,
+        'logs': [f'Ставлю экспортёры на {count} серверах. Шаг виден в колонке «Состояние».'],
+    }
 
 
 @router.post('/nodes')

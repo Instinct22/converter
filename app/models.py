@@ -62,6 +62,9 @@ class Node(SQLModel, table=True):
     install_ssl: str = ''
     # xui — панель 3x-ui; grafana — отдельный сервер мониторинга, в подписку не входит.
     install_kind: str = ''
+    # node_exporter + vmagent: '' | installing | done | failed
+    exporter_state: str = ''
+    exporter_note: str = ''
     created_at: datetime = Field(default_factory=utcnow)
 
     def clash_prefix(self) -> str:

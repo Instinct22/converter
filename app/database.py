@@ -40,6 +40,8 @@ NODE_COLUMNS = {
     'install_log': "TEXT DEFAULT ''",
     'install_ssl': "TEXT DEFAULT ''",
     'install_kind': "TEXT DEFAULT ''",
+    'exporter_state': "TEXT DEFAULT ''",
+    'exporter_note': "TEXT DEFAULT ''",
     'rf_ok': 'INTEGER DEFAULT 0',
     'rf_note': "TEXT DEFAULT ''",
     'rf_checked_at': 'TIMESTAMP',
