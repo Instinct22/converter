@@ -50,25 +50,7 @@ def grafana_target(session: Session) -> tuple[str, str]:
     return found
 
 
-def master_scrape_job(token: str) -> str:
-    from urllib.parse import urlsplit
-    from app.settings import settings
-    from app.fleet_metrics import scrape_key
-
-    parsed = urlsplit(settings.public_base_url)
-    if parsed.scheme != 'https' or not parsed.hostname:
-        raise ValueError('Для сбора метрик Master нужен публичный HTTPS URL')
-    return f"""  - job_name: master-fleet
-    scheme: https
-    metrics_path: /monitoring/master.prom
-    authorization:
-      credentials: {scrape_key(token)}
-    static_configs:
-      - targets: [{json.dumps(parsed.netloc)}]
-"""
-
-
-def exporter_script(*, host: str, name: str, write_url: str, token: str, extra_job: str = '') -> str:
+def exporter_script(*, host: str, name: str, write_url: str, token: str) -> str:
     if not re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]+)?/api/v1/write', write_url):
         raise ValueError('Некорректный HTTPS-адрес VictoriaMetrics')
     label = json.dumps((name or host)[:80], ensure_ascii=True)
@@ -129,7 +111,7 @@ scrape_configs:
           node: {label}
           host: {address}
           instance: {address}
-{extra_job}EOF
+EOF
 cat > /etc/systemd/system/vmagent.service <<'EOF'
 [Unit]
 Description=vmagent
@@ -191,7 +173,6 @@ def apply_exporter(session: Session, node_id: int, runner=None) -> str:
         host, user, port = _target(node)
         script = exporter_script(
             host=host, name=node.name or '', write_url=url, token=token,
-            extra_job=master_scrape_job(token) if node.is_grafana() else '',
         )
         if node.is_grafana():
             from app.grafana_host import dashboard_script

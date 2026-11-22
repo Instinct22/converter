@@ -9,6 +9,17 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 
+  master-metrics:
+    image: ${XUI_MASTER_IMAGE:-liiiiiiiiis/converter:latest}
+    command: ["python", "-m", "app.master_agent"]
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - master-metrics-queue:/queue
+    depends_on:
+      - xui-master
+    restart: unless-stopped
+
   caddy:
     image: caddy:2
     ports:
@@ -35,5 +46,6 @@ networks:
     name: edge
 
 volumes:
+  master-metrics-queue:
   caddy_data:
   caddy_config:
