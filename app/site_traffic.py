@@ -16,6 +16,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from sqlalchemy import func
 from sqlmodel import Session, delete, select
 
 from app.models import SiteFirst, SiteLogCursor, SiteMinute, SiteSeen
@@ -258,6 +259,35 @@ def _purge(session: Session, now: int) -> None:
     cutoff = now - KEEP_SECONDS
     session.exec(delete(SiteMinute).where(SiteMinute.minute < cutoff))
     session.exec(delete(SiteSeen).where(SiteSeen.minute < cutoff))
+
+
+def site_metrics(session: Session, now: int) -> list[str]:
+    """Завершённые минуты из тех же агрегатов, что на вкладке «Сайт»."""
+    end = now - now % 60
+    start = end - 300
+    log = LOG_DIR / 'aegis.log'
+    try:
+        cursor = session.get(SiteLogCursor, _file_key(log))
+        lag = max(0, log.stat().st_size - (cursor.offset if cursor else 0))
+    except OSError:
+        return ['master_site_log_available 0']
+    lines = ['master_site_log_available 1', f'master_site_log_unread_bytes {lag}']
+    requests, browsers = session.exec(
+        select(func.sum(SiteMinute.requests), func.sum(SiteMinute.human_requests))
+        .where(SiteMinute.minute >= start, SiteMinute.minute < end)
+    ).one()
+    lines.extend([
+        f'master_site_requests_per_second {(requests or 0) / 300}',
+        f'master_site_browser_requests_per_second {(browsers or 0) / 300}',
+    ])
+    active = session.exec(select(func.count(func.distinct(SiteSeen.visitor))).where(
+        SiteSeen.minute >= start, SiteSeen.minute < end)).one()
+    lines.append(f'master_site_active_visitors_5m {active}')
+    for seconds, window in ((300, '5m'), (86400, '24h')):
+        fresh = session.exec(select(func.count()).select_from(SiteFirst).where(
+            SiteFirst.minute >= end - seconds, SiteFirst.minute < end)).one()
+        lines.append(f'master_site_new_visitors{{window="{window}"}} {fresh}')
+    return lines
 
 
 def site_series(session: Session, span: str, now: datetime | None = None) -> dict:

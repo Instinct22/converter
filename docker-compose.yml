@@ -9,7 +9,20 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 
+  master-host:
+    image: prom/node-exporter:v1.13.1
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+    volumes:
+      - /:/host:ro,rslave
+    networks: [monitoring]
+    restart: unless-stopped
+
   master-metrics:
+    networks: [default, monitoring]
     image: ${XUI_MASTER_IMAGE:-liiiiiiiiis/converter:latest}
     command: ["python", "-m", "app.master_agent"]
     env_file: .env
@@ -41,6 +54,8 @@ services:
     restart: unless-stopped
 
 networks:
+  monitoring:
+    internal: true
   edge:
     external: true
     name: edge

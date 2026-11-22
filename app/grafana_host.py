@@ -282,7 +282,7 @@ def dashboard_script(site: str) -> str:
     if not _DOMAIN.fullmatch(site):
         ipaddress.ip_address(site)
     return '\n'.join(_dashboard_import(site, Path(__file__).with_name(filename).read_text(encoding='utf8'))
-                     for filename in ('node_dashboard.json', 'connectivity_dashboard.json'))
+                     for filename in ('node_dashboard.json', 'connectivity_dashboard.json', 'site_dashboard.json'))
 
 
 def _dashboard_import(site, payload):

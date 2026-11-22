@@ -57,7 +57,8 @@ def metrics(request: Request, session: SessionDep):
     if not hmac.compare_digest(request.headers.get('Authorization', '').encode(),
                                ('Bearer ' + scrape_key(token)).encode()):
         raise HTTPException(401)
-    lines = snapshot + presence_snapshot
+    from app.site_traffic import site_metrics
+    lines = snapshot + presence_snapshot + site_metrics(session, int(datetime.now(timezone.utc).timestamp()))
     hour = floor_hour(datetime.now(timezone.utc))
     rows = session.exec(select(NodePingHour, Node).join(Node).where(NodePingHour.hour == hour)).all()
     for row, node in rows:

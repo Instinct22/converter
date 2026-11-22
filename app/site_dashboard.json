@@ -1,0 +1,323 @@
+{
+  "dashboard": {
+    "uid": "master-site",
+    "title": "Master и посещаемость сайта",
+    "schemaVersion": 39,
+    "refresh": "30s",
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Запросы к aegis-gate.ru",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_site_requests_per_second",
+            "legendFormat": "Все запросы"
+          },
+          {
+            "refId": "B",
+            "expr": "master_site_browser_requests_per_second",
+            "legendFormat": "Браузерные запросы"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Среднее за пять завершённых минут. Общий RPS включает ботов и статику."
+      },
+      {
+        "id": 2,
+        "title": "Посетители сайта",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_site_active_visitors_5m",
+            "legendFormat": "Заходили"
+          },
+          {
+            "refId": "B",
+            "expr": "master_site_new_visitors{window=\"5m\"}",
+            "legendFormat": "Впервые"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Уникальные посетители страниц за пять завершённых минут. Новый — впервые замеченная комбинация IP и семейства браузера."
+      },
+      {
+        "id": 3,
+        "title": "Новые посетители за последние 24 часа",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_site_new_visitors{window=\"24h\"}",
+            "legendFormat": "Новые посетители"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Скользящее окно по первому наблюдению. Количество людей оценивается приближённо."
+      },
+      {
+        "id": 4,
+        "title": "Сбор данных",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 8,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_site_log_available",
+            "legendFormat": "Лог сайта"
+          },
+          {
+            "refId": "B",
+            "expr": "up{job=\"master-fleet\"}",
+            "legendFormat": "Метрики Master"
+          },
+          {
+            "refId": "C",
+            "expr": "up{job=\"master-host\"}",
+            "legendFormat": "Хост Master"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "1 — источник доступен, 0 — ошибка. Разрыв означает отсутствие измерений."
+      },
+      {
+        "id": 5,
+        "title": "CPU Master",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "100*(1-avg(rate(node_cpu_seconds_total{job=\"master-host\",mode=\"idle\"}[5m])))",
+            "legendFormat": "CPU"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Занятость CPU за пять минут."
+      },
+      {
+        "id": 6,
+        "title": "Память Master",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 16,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "100*(1-node_memory_MemAvailable_bytes{job=\"master-host\"}/node_memory_MemTotal_bytes{job=\"master-host\"})",
+            "legendFormat": "RAM"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Использовано с учётом доступной памяти Linux."
+      },
+      {
+        "id": 7,
+        "title": "Корневой раздел Master",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 0,
+          "y": 24,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "100*(1-node_filesystem_avail_bytes{job=\"master-host\",mountpoint=\"/\"}/node_filesystem_size_bytes{job=\"master-host\",mountpoint=\"/\"})",
+            "legendFormat": "Диск"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Использование корневой файловой системы хоста."
+      },
+      {
+        "id": 8,
+        "title": "Очередь чтения журнала сайта",
+        "type": "timeseries",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "gridPos": {
+          "x": 12,
+          "y": 24,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [
+          {
+            "refId": "A",
+            "expr": "master_site_log_unread_bytes",
+            "legendFormat": "Непрочитано"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "desc",
+            "hideZeros": false
+          }
+        },
+        "description": "Байты в активном логе Caddy после последней обработанной позиции. Длительный рост означает запаздывание статистики."
+      }
+    ]
+  },
+  "overwrite": true
+}

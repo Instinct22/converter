@@ -18,6 +18,11 @@ def main():
     config.write_text("""global:
   scrape_interval: 15s
 scrape_configs:
+  - job_name: master-host
+    static_configs:
+      - targets: ['master-host:9100']
+        labels:
+          node: Master
   - job_name: master-fleet
     metrics_path: /monitoring/master.prom
     bearer_token_file: /tmp/master-read-token
