@@ -410,14 +410,45 @@ rules:
   # Base filters
   - RULE-SET,adlist@domain,REJECT
   - RULE-SET,xray-block@classical,REJECT
+  # Master app routes
+  - DOMAIN,telega.io,Reality pool fallback
+  - PROCESS-NAME,ru.oneme.app,DIRECT
+  - DOMAIN-SUFFIX,max.ru,DIRECT
+  - DOMAIN-SUFFIX,oneme.ru,DIRECT
+  - PROCESS-NAME,ru.sberbankmobile,DIRECT
+  - PROCESS-NAME,com.idamob.tinkoff.android,DIRECT
+  - PROCESS-NAME,ru.vtb24.mobilebanking.android,DIRECT
+  - PROCESS-NAME,ru.alfabank.mobile.android,DIRECT
+  - PROCESS-NAME,ru.nspk.mirpay,DIRECT
+  - PROCESS-NAME,ru.rostel,DIRECT
+  - PROCESS-NAME,ru.mts.mymts,DIRECT
+  - PROCESS-NAME,ru.megafon.mlk,DIRECT
+  - PROCESS-NAME,com.wildberries.ru,DIRECT
+  - PROCESS-NAME,ru.ozon.app.android,DIRECT
+  - PROCESS-NAME,com.avito.android,DIRECT
+  - PROCESS-NAME,ru.goods.marketplace,DIRECT
+  - PROCESS-NAME,ru.sbcs.store,DIRECT
+  - PROCESS-NAME,ru.beru.android,DIRECT
+  - PROCESS-NAME,ru.foodfox.client,DIRECT
+  - PROCESS-NAME,ru.yandex.taxi,DIRECT
+  - PROCESS-NAME,ru.yandex.yandexmaps,DIRECT
+  - PROCESS-NAME,ru.dublgis.dgismobile,DIRECT
+  - PROCESS-NAME,ru.kinopoisk,DIRECT
+  - PROCESS-NAME,ru.yandex.music,DIRECT
+  - PROCESS-NAME,com.vkontakte.android,DIRECT
+  - PROCESS-NAME,com.vk.vkvideo,DIRECT
+  - PROCESS-NAME,com.uma.musicvk,DIRECT
+  - PROCESS-NAME,ru.ok.android,DIRECT
+  - PROCESS-NAME,ru.rutube.app,DIRECT
+  - PROCESS-NAME,ru.zen.android,DIRECT
+  - PROCESS-NAME,ru.mail.mailapp,DIRECT
+  - PROCESS-NAME,ru.vk.store,DIRECT
+  # End Master app routes
   - RULE-SET,category-ai@domain,AI
   - RULE-SET,youtube@domain,YouTube
   - OR,((RULE-SET,telegram@domain),(RULE-SET,telegram@ipcidr,no-resolve)),Telegram
 
   # Custom overrides
-  - PROCESS-NAME,ru.oneme.app,Custom local
-  - DOMAIN-SUFFIX,max.ru,Custom local
-  - DOMAIN-SUFFIX,oneme.ru,Custom local
   - RULE-SET,custom-apps-local@classical,Custom local
   - RULE-SET,custom-apps-proxy@classical,Custom proxy
   - RULE-SET,custom-local-domains,Custom local

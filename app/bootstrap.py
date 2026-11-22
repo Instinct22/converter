@@ -8,32 +8,28 @@ from app.models import ConfigDoc, InboundTemplate, utcnow
 DEFAULT_YAML = Path(__file__).parent / 'default_mihomo.yaml'
 
 _FALLBACK_DIRECT = re.compile(r'\n[ \t]*proxies:\n[ \t]*- DIRECT(?=\n)')
-_CUSTOM_MARKER = '# Custom overrides'
-_CUSTOM_RULES = (
+_APP_START = '  # Master app routes'
+_APP_END = '  # End Master app routes'
+_APP_ANCHOR = '  - RULE-SET,category-ai@domain,AI'
+_LEGACY_MAX = {
     '  - PROCESS-NAME,ru.oneme.app,Custom local',
     '  - DOMAIN-SUFFIX,max.ru,Custom local',
     '  - DOMAIN-SUFFIX,oneme.ru,Custom local',
-)
+}
 
 
 def ensure_custom_overrides(text: str) -> str:
-    """Правила MAX сразу под комментарием, не затирая остальной шаблон."""
-    if not text or _CUSTOM_MARKER not in text:
+    """Миграция штатного шаблона с сохранением остальных правил администратора."""
+    lines = text.splitlines()
+    if _APP_START in lines or _APP_ANCHOR not in lines or '  # Custom overrides' not in lines:
         return text
-    missing = [rule for rule in _CUSTOM_RULES if rule not in text]
-    if not missing:
-        return text
-    lines = text.splitlines(keepends=True)
-    out: list[str] = []
-    inserted = False
-    for line in lines:
-        out.append(line)
-        if inserted or _CUSTOM_MARKER not in line:
-            continue
-        newline = '\r\n' if line.endswith('\r\n') else '\n'
-        out.extend(rule + newline for rule in missing)
-        inserted = True
-    return ''.join(out)
+    source = DEFAULT_YAML.read_text(encoding='utf-8').splitlines()
+    block = source[source.index(_APP_START):source.index(_APP_END) + 1]
+    lines = [line for line in lines if line not in _LEGACY_MAX]
+    pos = lines.index(_APP_ANCHOR)
+    lines[pos:pos] = block
+    newline = '\r\n' if '\r\n' in text else '\n'
+    return newline.join(lines) + (newline if text.endswith('\n') else '')
 
 
 _PROBE_LINE = re.compile(

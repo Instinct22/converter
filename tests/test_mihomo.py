@@ -73,21 +73,23 @@ def test_strip_probe_schedule_removes_fallback_timer():
     assert 'interval: 86400' in fixed
 
 
-def test_custom_overrides_stay_under_the_marker_and_are_not_duplicated():
+def test_app_route_migration_preserves_other_rules_and_priority():
     from app.bootstrap import ensure_custom_overrides
 
     raw = SAMPLE.read_text(encoding='utf-8')
-    head, tail = raw.split('  # Custom overrides\n', 1)
-    assert tail.startswith('  - PROCESS-NAME,ru.oneme.app,Custom local\n')
-    assert '  - DOMAIN-SUFFIX,max.ru,Custom local\n' in tail[:240]
-    assert '  - DOMAIN-SUFFIX,oneme.ru,Custom local\n' in tail[:240]
-    old = head + '  # Custom overrides\n' + tail.split('\n', 3)[3]
-    fixed = ensure_custom_overrides(old)
-    block = fixed.split('  # Custom overrides\n', 1)[1].split('\n', 3)
-    assert block[0] == '  - PROCESS-NAME,ru.oneme.app,Custom local'
-    assert block[1] == '  - DOMAIN-SUFFIX,max.ru,Custom local'
-    assert block[2] == '  - DOMAIN-SUFFIX,oneme.ru,Custom local'
-    assert ensure_custom_overrides(fixed) == fixed
+    start = raw.index('  # Master app routes')
+    end = raw.index('  # End Master app routes\n') + len('  # End Master app routes\n')
+    old = (raw[:start] + raw[end:]).replace('  # Custom overrides\n',
+        '  # Custom overrides\n  - PROCESS-NAME,ru.oneme.app,Custom local\n'
+        '  - DOMAIN-SUFFIX,max.ru,Custom local\n  - DOMAIN-SUFFIX,oneme.ru,Custom local\n')
+    assert ensure_custom_overrides(old) == raw
+    assert ensure_custom_overrides(raw) == raw
+    block = raw[start:end]
+    assert block.count('PROCESS-NAME,') == 29
+    assert 'com.yandex.browser' not in block and 'DOMAIN-SUFFIX,telega.io' not in block
+    assert raw.index('xray-block@classical,REJECT') < start < raw.index('category-ai@domain,AI')
+    assert block.index('DOMAIN,telega.io,Reality pool fallback') < block.index('PROCESS-NAME')
+    assert all(line.endswith(',DIRECT') for line in block.splitlines() if 'PROCESS-NAME,' in line)
 
 
 def test_replace_pool_and_providers():
