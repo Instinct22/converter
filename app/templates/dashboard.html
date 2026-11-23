@@ -214,7 +214,7 @@
         <button class="sort-btn" type="button" data-sort="used">Трафик</button>
         <button class="sort-btn" type="button" data-sort="days">Срок</button>
         <button class="sort-btn" type="button" data-sort="online">Сеть</button>
-        <button class="sort-btn" type="button" data-sort="seen">Был в сети<span class="th-hint">МСК</span></button>
+        <button class="sort-btn" type="button" data-sort="seen">Был в сети</button>
         <span></span>
       </div>
       <div class="monitor" id="client-monitor">
@@ -225,7 +225,8 @@
             <strong>{{ c.name }}</strong>
           </div>
           <span data-traffic>трафик…</span>
-          <span class="hint" data-expire>{{ expire_label(c) }}</span>
+          {% set left = days_left(c) %}
+          <span class="term term-{{ 'closed' if is_expired(c) else 'unlimited' if left == '∞' else 'urgent' if left|int <= 3 else 'soon' if left|int <= 7 else 'active' }}" data-expire>{{ expire_label(c) }}</span>
           <span class="hint" data-online>—</span>
           <span class="hint" data-last-online title="Последняя активность по данным 3x-ui">{{ c.last_online | moscow_epoch }}</span>
           <div class="monitor-actions client-actions">
