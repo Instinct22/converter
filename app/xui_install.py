@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import secrets
 import shlex
 import string
@@ -18,7 +19,8 @@ from app.activity import worker_state
 from app.models import Node
 from app.xui import normalize_panel_url, public_host_from_url
 
-INSTALL_URL = 'https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh'
+INSTALL_URL = 'https://raw.githubusercontent.com/mhsanaei/3x-ui/728c2fb94f5f3c67d330353fa86d47a69df3bee9/install.sh'
+INSTALL_SHA256 = 'cb28d4fe277c9ee3c1b06c3a4fb0daeda033db24645a1ec8c6921a38571d3eec'
 DEFAULT_PUBLIC_PORTS = (443, 8443)
 _LOG_LIMIT = 12000
 
@@ -89,6 +91,10 @@ fi
 installer=$(mktemp)
 if ! curl -fsSL {shlex.quote(INSTALL_URL)} -o "$installer"; then
   echo "MASTER_ERROR=не скачался установщик 3x-ui"
+  exit 1
+fi
+if ! printf '%s  %s\\n' {INSTALL_SHA256} "$installer" | sha256sum -c -; then
+  echo "MASTER_ERROR=контрольная сумма установщика 3x-ui не совпала"
   exit 1
 fi
 if ! bash "$installer"; then
@@ -215,7 +221,7 @@ def prepare_install(
         raise ValueError(f'Сервер {taken.name} уже использует этот IP')
     product = install_product(kind)
     if product == 'grafana':
-        opening = 'Ставлю Grafana. Это несколько минут. Адрес и пароль появятся здесь, когда установщик закончит.'
+        opening = 'Ставлю Grafana. Это несколько минут. После установки реквизиты можно будет получить в карточке сервера.'
     else:
         opening = 'Ставлю 3x-ui. Это несколько минут. Логин панели появится здесь, когда установщик закончит.'
     node = Node(
@@ -237,6 +243,11 @@ def prepare_install(
     )
     session.add(node)
     session.flush()
+    if product == 'xui':
+        from app.models import InboundTemplate, NodeTemplateAssignment
+        for tid in session.exec(select(InboundTemplate.id).where(InboundTemplate.enabled.is_(True))):
+            if session.get(NodeTemplateAssignment, (node.id, tid)) is None:
+                session.add(NodeTemplateAssignment(node_id=node.id, template_id=tid))
     worker_state(session, node, 'install', 'Установка ' + product, 'running', 'Сервер добавлен в очередь')
     session.commit()
     session.refresh(node)
@@ -255,17 +266,6 @@ def _with_adopt(logs: list[str], message: str) -> str:
     return _clip(head or body)
 
 
-def _visible_output(output: str) -> str:
-    lines: list[str] = []
-    for line in (output or '').splitlines():
-        if line.startswith('MASTER_'):
-            continue
-        text = line.strip()
-        if text:
-            lines.append(text)
-    return '\n'.join(lines[-40:])
-
-
 def _fail(session: Session, node: Node, message: str) -> None:
     worker_state(session, node, 'install', 'Установка сервера', 'error', message)
     node.install_state = 'failed'
@@ -275,19 +275,47 @@ def _fail(session: Session, node: Node, message: str) -> None:
     session.commit()
 
 
-def _success_log(output: str, creds: dict[str, str]) -> str:
-    parts = [item for item in (_visible_output(output),) if item]
-    parts.append(
-        '\n'.join(
-            [
-                f"Панель: {creds.get('MASTER_URL') or ''}",
-                f"Логин: {creds.get('MASTER_USER') or ''}",
-                f"Пароль: {creds.get('MASTER_PASS') or ''}",
-                'API Token сохранён в Master.',
-            ]
-        )
-    )
-    return _clip('\n'.join(parts))
+def credential_key(node_id: int) -> str:
+    return f'install_credentials/{node_id}'
+
+
+def save_install_credentials(session, node, username, password, write_token='') -> None:
+    from app.models import AppSetting
+
+    if password or write_token:
+        session.merge(AppSetting(key=credential_key(node.id), value=json.dumps({
+            'username': username, 'password': password, 'write_token': write_token,
+        })))
+
+
+def migrate_install_logs(session) -> None:
+    """Preserve the operator's pending handoff before removing old credential logs."""
+    from app.exporters import grafana_target
+
+    rows = session.exec(select(Node).where(Node.install_log.contains('Пароль:') |
+                                          Node.install_log.contains('Токен записи:'))).all()
+    if any(node.is_grafana() for node in rows):
+        try:
+            grafana_target(session)
+        except ValueError:
+            pass  # An unfinished install need not have a metrics destination.
+    for node in rows:
+        labels, kept = {}, []
+        for line in node.install_log.splitlines():
+            key, colon, value = line.partition(':')
+            if colon and key in {'Логин', 'Пароль', 'Токен записи'}:
+                labels[key] = value.strip()
+            else:
+                kept.append(line)
+        if labels.get('Пароль') or labels.get('Токен записи'):
+            save_install_credentials(session, node, labels.get('Логин', ''), labels.get('Пароль', ''),
+                                     labels.get('Токен записи', ''))
+            log = '\n'.join(kept + ['Реквизиты установки доступны отдельно.'])
+            for secret in (labels.get('Пароль'), labels.get('Токен записи'), node.api_token, node.ssh_password):
+                if secret:
+                    log = log.replace(secret, '***')
+            node.install_log = log
+    session.commit()
 
 
 def apply_install_result(session: Session, node_id: int, runner=None) -> None:
@@ -346,21 +374,33 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
     if code != 0 or creds.get('MASTER_ERROR') or not url or not token:
         message = (creds.get('MASTER_ERROR') or '').strip()
         if not message:
-            visible = _visible_output(output)
-            message = visible or f'установщик завершился с кодом {code}'
+            message = f'установщик завершился с кодом {code}'
+        for secret in (creds.get('MASTER_PASS'), token, node.ssh_password):
+            if secret:
+                message = message.replace(secret, '***')
         _fail(session, node, _with_adopt(adopt_logs, message))
         return
     node.panel_url = normalize_panel_url(url)
     node.api_token = token
     node.public_host = public_host_from_url(node.panel_url) or host
-    worker_state(session, node, 'install', 'Установка 3x-ui', 'ok', 'Панель установлена')
+    from app.xui import XuiError, require_panel_transport
+    try:
+        require_panel_transport(node.panel_url)
+        node.enabled = True
+        node.last_error = ''
+    except XuiError as exc:
+        node.enabled = False
+        node.last_error = str(exc)
+    worker_state(session, node, 'install', 'Установка 3x-ui', 'ok' if node.enabled else 'warning',
+                 node.last_error or 'Панель установлена')
     node.install_state = 'done'
-    node.enabled = True
-    node.last_error = ''
-    node.install_log = _with_adopt(adopt_logs, _success_log(output, creds))
+    save_install_credentials(session, node, creds.get('MASTER_USER', ''), creds.get('MASTER_PASS', ''))
+    node.install_log = _with_adopt(adopt_logs, node.last_error or 'Панель установлена.')
     session.add(node)
     session.commit()
     session.refresh(node)
+    if not node.enabled:
+        return
     try:
         from app.firewall import sync_node_firewall
         from app.provision import disable_node_subscription

@@ -140,7 +140,7 @@ def probe_node(node: Node, refresh_versions: bool | None = None) -> dict[str, An
     return out
 
 
-def probe_presence(node: Node) -> dict[str, Any]:
+def probe_presence(node: Node, include_online: bool = True) -> dict[str, Any]:
     """Кто в сети и сколько трафика потратил. Без статуса Xray и загрузки CPU."""
     out: dict[str, Any] = {
         'id': node.id,
@@ -152,20 +152,21 @@ def probe_presence(node: Node) -> dict[str, Any]:
     try:
         with XuiClient(node, timeout=5.0) as xui:
             out['client_rows'] = client_rows_from_inbounds(xui.inbounds())
-            out['online_emails'] = xui.onlines()
+            if include_online:
+                out['online_emails'] = xui.onlines()
         out['online'] = True
     except Exception as exc:
         out['error'] = str(exc)
     return out
 
 
-def probe_nodes_presence(nodes: list[Node]) -> dict[int, dict[str, Any]]:
+def probe_nodes_presence(nodes: list[Node], *, include_online: bool = True) -> dict[int, dict[str, Any]]:
     result: dict[int, dict[str, Any]] = {}
     if not nodes:
         return result
     workers = min(8, len(nodes))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futs = {pool.submit(probe_presence, node): node.id for node in nodes if node.id}
+        futs = {pool.submit(probe_presence, node, include_online): node.id for node in nodes if node.id}
         for fut in as_completed(futs):
             node_id = futs[fut]
             try:

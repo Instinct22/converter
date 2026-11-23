@@ -471,9 +471,11 @@ def _docker_install() -> str:
 fi
 if ! command -v docker >/dev/null 2>&1; then
   echo "Ставлю Docker"
-  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-  sh /tmp/get-docker.sh
-  rm -f /tmp/get-docker.sh
+  installer=$(mktemp)
+  curl -fsSL https://raw.githubusercontent.com/docker/docker-install/6937af6a110f3e5935f3116242eb079505cd56f0/install.sh -o "$installer"
+  echo "77f623a9f23857ebc45a50e37696fc406e3a60bda4ef17399444f792ecf8895d  $installer" | sha256sum -c -
+  sh "$installer"
+  rm -f "$installer"
 fi
 if command -v systemctl >/dev/null 2>&1; then
   systemctl enable docker >/dev/null 2>&1 || true
@@ -530,7 +532,7 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
     """Поставить Grafana на карточку чистого VPS. В подписку сервер не включается."""
     from app.settings import settings
     from app.xui import normalize_panel_url
-    from app.xui_install import _clip, _fail, _visible_output, _with_adopt, run_ssh
+    from app.xui_install import _clip, _fail, _with_adopt, run_ssh, save_install_credentials
 
     from app.models import Node
 
@@ -574,7 +576,7 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
             session.commit()
 
             def _progress(line: str) -> None:
-                text = (line or '').strip()
+                text = redact((line or '').strip(), [spec.admin_password, spec.write_token, node.ssh_password])
                 if not text or text.startswith('GRAFANA_') or text.startswith('MASTER_'):
                     return
                 folded = text.casefold()
@@ -611,7 +613,7 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
     if code != 0 or markers.get('GRAFANA_ERROR') or markers.get('GRAFANA_READY') != '1' or not url:
         message = (markers.get('GRAFANA_ERROR') or '').strip()
         if not message:
-            message = _visible_output(output) or f'установщик завершился с кодом {code}'
+            message = f'установщик завершился с кодом {code}'
         _fail(session, node, _with_adopt(adopt_logs, redact(message, [spec.admin_password, spec.write_token])))
         return
     node.panel_url = normalize_panel_url(url)
@@ -626,22 +628,8 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
     node.last_error = ''
     node.firewall_on = True
     node.firewall_note = 'ufw и fail2ban'
-    node.install_log = _clip(
-        _with_adopt(
-            adopt_logs,
-            '\n'.join(
-                [
-                    _visible_output(output),
-                    f'Grafana: {node.panel_url}',
-                    'Логин: admin',
-                    f'Пароль: {spec.admin_password}',
-                    f"Приём метрик: {markers.get('GRAFANA_WRITE') or write_url(spec)}",
-                    f'Токен записи: {spec.write_token}',
-                    'В подписку сервер не входит.',
-                ]
-            ),
-        )
-    )
+    save_install_credentials(session, node, spec.admin_user, spec.admin_password, spec.write_token)
+    node.install_log = _with_adopt(adopt_logs, 'Grafana установлена.')
     session.add(node)
     session.commit()
 

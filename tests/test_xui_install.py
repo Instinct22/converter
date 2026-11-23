@@ -116,11 +116,23 @@ def test_finished_install_keeps_the_token_and_shows_the_password_once(monkeypatc
             assert ports == set()
             return ['Netherlands-01: файрвол — 22, 80, 2096, 23456']
 
+        monkeypatch.setattr('app.provision.disable_node_subscription', lambda node: 'ok')
         monkeypatch.setattr('app.firewall.sync_node_firewall', firewall)
         apply_install_result(session, node.id, runner=runner)
         session.refresh(node)
         assert node.api_token == 'secret-token'
-        assert 'panelpass' in node.install_log
+        from app.routers.api import take_install_credentials
+        import json
+        import pytest
+        from fastapi import HTTPException
+
+        assert 'panelpass' not in node.install_log
+        handoff = take_install_credentials(node.id, session)
+        assert json.loads(handoff.body)['password'] == 'panelpass'
+        assert handoff.headers['cache-control'] == 'no-store'
+        with pytest.raises(HTTPException) as error:
+            take_install_credentials(node.id, session)
+        assert error.value.status_code == 404
         assert 'secret-token' not in node.install_log
         assert 'файрвол' in node.install_log
         assert node.enabled is True

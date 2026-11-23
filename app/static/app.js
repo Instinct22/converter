@@ -1112,7 +1112,11 @@ function initClientControls(scope, logId) {
     btn.addEventListener('click', async () => {
       if (!confirm('Удалить человека с серверов и из Master? Ссылка сразу перестанет открываться.')) return;
       try {
-        await withBusy(btn, () => api('/api/clients/' + btn.dataset.del, 'DELETE'));
+        const result = await withBusy(btn, () => api('/api/clients/' + btn.dataset.del, 'DELETE'));
+        if (!result.ok) {
+          toast((result.logs || []).join(' · ') || 'Повторите удаление', 'err');
+          return;
+        }
         location.reload();
       } catch (err) {
         toast(err.message, 'err');

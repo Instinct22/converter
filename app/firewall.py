@@ -10,16 +10,11 @@ from __future__ import annotations
 import shlex
 from urllib.parse import urlparse
 
+from app.reachability import panel_port
+
 from app.models import Node
 
 _KEEP = {22, 80}
-
-
-def panel_port(node: Node) -> int | None:
-    parsed = urlparse((node.panel_url or '').strip())
-    if parsed.port:
-        return int(parsed.port)
-    return None
 
 
 def protected_ports(node: Node) -> set[int]:

@@ -65,6 +65,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python for release tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Test before publishing
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip check
+          python -m pytest -q
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -106,6 +118,9 @@ jobs:
           cache-to: type=gha,mode=max,scope=converter
 
   deploy:
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     needs: build
     if: |
       github.event_name == 'push' &&
@@ -265,6 +280,9 @@ jobs:
               escaped=$(printf '%s' "$val" | sed "s/'/'\\\\''/g")
               printf "%s='%s'\n" "$key" "$escaped"
             }
+            sha='${{ github.sha }}'
+            export XUI_MASTER_IMAGE="${XUI_MASTER_IMAGE%:*}:sha-$(printf '%.7s' "$sha")"
+            trap 'rm -f .env.candidate' EXIT
             {
               env_line XUI_MASTER_IMAGE "$XUI_MASTER_IMAGE"
               env_line HOST 0.0.0.0
@@ -274,13 +292,15 @@ jobs:
               env_line SUB_PATH "$SUB_PATH"
               env_line ADMIN_USERNAME "${ADMIN_USERNAME:-admin}"
               env_line ADMIN_PASSWORD "$ADMIN_PASSWORD"
-            } > .env
+            } > .env.candidate
             if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
               printf '%s\n' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             fi
             mkdir -p data/caddy-access
             chmod 777 data/caddy-access
-            docker compose pull
+            XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate pull
+            XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate run --rm -T --no-deps xui-master python -m app.preflight
+            mv -f .env.candidate .env
             docker compose up -d --force-recreate --remove-orphans
             docker compose ps
             if ! docker compose ps --status running 2>/dev/null | grep -q xui-master; then

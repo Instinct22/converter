@@ -2,8 +2,7 @@
 """Поставить 3x-ui на новый VPS и завести его в Master.
 
 Официальный установщик
-https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh
-в репозитории Master не лежит. У него есть тихий режим: без TTY и с
+закреплён по версии и SHA-256 в app/xui_install.py. У него есть тихий режим: без TTY и с
 XUI_NONINTERACTIVE=1 он не задаёт вопросы, а берёт XUI_USERNAME,
 XUI_PASSWORD, XUI_PANEL_PORT, XUI_WEB_BASE_PATH, XUI_DB_TYPE, XUI_SSL_MODE.
 
@@ -21,6 +20,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 import urllib.error
 import urllib.parse
@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.ssh_access import PRIVATE_PATH, ensure_fleet_key  # noqa: E402
+from app.ssh_access import HostIdentityError, PRIVATE_PATH, ensure_fleet_key  # noqa: E402
 from app.xui_install import (  # noqa: E402
     choose_panel_port as panel_port,
     parse_master_lines,
@@ -136,6 +136,14 @@ def main() -> None:
     if not re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', args.host):
         raise SystemExit('VPS_HOST должен быть IPv4')
 
+    from app.xui import XuiError, require_panel_transport
+    try:
+        require_panel_transport(args.master)
+        if args.ssl == 'none':
+            require_panel_transport(f'http://{args.host}')
+    except XuiError as exc:
+        raise SystemExit(str(exc)) from exc
+
     username = rand(12)
     password = rand(20)
     web_base = rand(18)
@@ -160,13 +168,14 @@ def main() -> None:
             code, output = run_ssh(
                 args.host, args.ssh_user, script, args.ssh_key, '', prefer_key=True,
             )
+        except HostIdentityError:
+            raise
         except RuntimeError:
             if not args.ssh_password:
                 raise
             code, output = run_ssh(args.host, args.ssh_user, script, '', args.ssh_password)
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
-    sys.stdout.write(output)
     if code != 0:
         raise SystemExit(code)
     creds = parse_master_lines(output)
@@ -177,6 +186,11 @@ def main() -> None:
     if not url or not token:
         raise SystemExit('Установщик не вернул URL или API Token')
 
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', prefix='xui-access-', suffix='.json',
+                                     delete=False) as handoff:
+        json.dump({'url': url, 'username': creds.get('MASTER_USER') or username,
+                   'password': creds.get('MASTER_PASS') or password, 'api_token': token}, handoff)
+    print('Реквизиты сохранены в личном временном файле:', handoff.name, flush=True)
     created = master.call(
         'POST',
         '/api/nodes',
@@ -220,9 +234,6 @@ def main() -> None:
     print()
     print('Панель 3x-ui')
     print('  URL:      ', url)
-    print('  Логин:    ', creds.get('MASTER_USER') or username)
-    print('  Пароль:   ', creds.get('MASTER_PASS') or password)
-    print('  API Token:', token)
     print('Панель открыта из интернета по этому URL.')
     print('Файрвол и fail2ban этот скрипт не трогает: их ставит Master.')
 

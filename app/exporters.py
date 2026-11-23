@@ -93,6 +93,11 @@ EOF
 echo "Ставлю vmagent {VMAGENT_VERSION}"
 tmp=$(mktemp -d)
 curl -fsSL -o "$tmp/vm.tgz" "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v{VMAGENT_VERSION}/vmutils-linux-$goarch-v{VMAGENT_VERSION}.tar.gz"
+case "$goarch" in
+  amd64) vm_sha=d71f7f00e07782531000620ec6c2a9d7ec83324f364dd1f36095ab378b5fb43b ;;
+  arm64) vm_sha=1a8e4ed55df2a59d5cd03056213f50d293d4fab029e38dd960597362d92cf176 ;;
+esac
+echo "$vm_sha  $tmp/vm.tgz" | sha256sum -c -
 tar -C "$tmp" -xzf "$tmp/vm.tgz"
 install -m 755 "$tmp/vmagent-prod" /usr/local/bin/vmagent-prod
 rm -rf "$tmp"

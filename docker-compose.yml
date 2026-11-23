@@ -4,7 +4,7 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     env_file:
-      - .env
+      - ${XUI_ENV_FILE:-.env}
     volumes:
       - ./data:/app/data
     restart: unless-stopped
@@ -25,7 +25,7 @@ services:
     networks: [default, monitoring]
     image: ${XUI_MASTER_IMAGE:-liiiiiiiiis/converter:latest}
     command: ["python", "-m", "app.master_agent"]
-    env_file: .env
+    env_file: ${XUI_ENV_FILE:-.env}
     volumes:
       - ./data:/app/data
       - master-metrics-queue:/queue

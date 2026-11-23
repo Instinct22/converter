@@ -226,7 +226,7 @@ def ingest_report(session: Session, token: str, payload: dict[str, Any], now: da
     index = _node_index(nodes)
     hour = floor_hour(moment)
     for row in parsed['servers']:
-        node = index.get(normalize_server(row['server']))
+        node = _match_node(row['server'], index)
         if node is None or node.id is None:
             continue
         _add_hour(session, node.id, hour, row)

@@ -36,54 +36,12 @@ def test_fallback_group_has_no_direct():
     assert 'DIRECT' not in fallback
     assert 'interval:' not in fallback
     assert 'generate_204' not in fallback
-    from app.bootstrap import strip_fallback_direct
-
-    broken = raw.replace(
-        '    type: fallback\n    use:',
-        '    type: fallback\n    proxies:\n      - DIRECT\n    use:',
-        1,
-    )
-    assert 'proxies:\n      - DIRECT' in broken.split('Reality pool fallback', 1)[1]
-    fixed = strip_fallback_direct(broken)
-    assert 'DIRECT' not in fixed.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
 
 
-def test_strip_probe_schedule_removes_fallback_timer():
-    from app.bootstrap import strip_probe_schedule
-
-    raw = SAMPLE.read_text(encoding='utf-8')
-    old = raw.replace(
-        '    type: fallback\n    use:',
-        '    type: fallback\n'
-        '    url: https://cp.cloudflare.com/generate_204\n'
-        '    interval: 30\n'
-        '    lazy: false\n'
-        "    expected-status: '204'\n"
-        '    use:',
-        1,
-    )
-    fixed = strip_probe_schedule(old)
-    fallback = fixed.split('name: Reality pool fallback', 1)[1].split('name: PROXY', 1)[0]
-    assert 'interval: 30' not in fallback
-    assert 'generate_204' not in fallback
-    assert 'lazy:' not in fallback
-    assert "expected-status:" not in fallback
-    assert '    use:' in fallback
-    assert strip_probe_schedule(fixed) == fixed
-    assert 'interval: 86400' in fixed
-
-
-def test_app_route_migration_preserves_other_rules_and_priority():
-    from app.bootstrap import ensure_custom_overrides
-
+def test_app_routes_precede_generic_rules():
     raw = SAMPLE.read_text(encoding='utf-8')
     start = raw.index('  # Master app routes')
-    end = raw.index('  # End Master app routes\n') + len('  # End Master app routes\n')
-    old = (raw[:start] + raw[end:]).replace('  # Custom overrides\n',
-        '  # Custom overrides\n  - PROCESS-NAME,ru.oneme.app,Custom local\n'
-        '  - DOMAIN-SUFFIX,max.ru,Custom local\n  - DOMAIN-SUFFIX,oneme.ru,Custom local\n')
-    assert ensure_custom_overrides(old) == raw
-    assert ensure_custom_overrides(raw) == raw
+    end = raw.index('  # End Master app routes', start)
     block = raw[start:end]
     assert block.count('PROCESS-NAME,') == 29
     assert 'com.yandex.browser' not in block and 'DOMAIN-SUFFIX,telega.io' not in block

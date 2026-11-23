@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from threading import Lock
+
+from sqlmodel import Session
+from starlette.concurrency import run_in_threadpool
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
@@ -24,6 +30,7 @@ from app.models import Client, ClientPingReport, Node
 from app.routers.ui import _ctx, templates
 
 router = APIRouter()
+_ingest_lock = Lock()
 
 
 def _admin(request: Request):
@@ -43,13 +50,23 @@ async def accept_report(token: str, request: Request, session: SessionDep) -> Re
 
 
 async def take_report(token: str, request: Request, session: SessionDep) -> Response:
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > 256 * 1024:
+            raise HTTPException(status_code=413, detail='report too large')
+        body.extend(chunk)
     try:
-        payload = await request.json()
-    except Exception as error:
+        payload = json.loads(body)
+    except (ValueError, UnicodeError, RecursionError) as error:
         raise HTTPException(status_code=400, detail='bad report') from error
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail='bad report')
-    result = ingest_report(session, token, payload)
+    bind = session.get_bind()
+    # The single Master process updates hourly aggregates by read/modify/write.
+    def ingest():
+        with _ingest_lock, Session(bind) as worker_session:
+            return ingest_report(worker_session, token, payload)
+    result = await run_in_threadpool(ingest)
     if result == 'unknown':
         raise HTTPException(status_code=404, detail='unknown subscription')
     if result == 'expired':
@@ -69,7 +86,7 @@ def pings_page(request: Request, session: SessionDep):
     clients = recent_clients(session)
     blocked = sum(1 for _, report in clients if availability_counts(report)['unavailable'])
     return templates.TemplateResponse(
-        'pings.html',
+        request, 'pings.html',
         _ctx(
             request,
             page='pings',
@@ -99,7 +116,7 @@ def ping_node_page(request: Request, node_id: int, session: SessionDep):
     median = next((item['median'] for item in reversed(series) if item['median'] is not None), None)
     reporters = node_reporters(session, node_id)
     return templates.TemplateResponse(
-        'pings_node.html',
+        request, 'pings_node.html',
         _ctx(
             request,
             page='pings',
@@ -124,7 +141,7 @@ def ping_client_page(request: Request, client_id: int, session: SessionDep):
     if client is None or report is None:
         raise HTTPException(status_code=404, detail='unknown client')
     return templates.TemplateResponse(
-        'pings_client.html',
+        request, 'pings_client.html',
         _ctx(
             request,
             page='pings',

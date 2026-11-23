@@ -22,7 +22,7 @@ def credentials_ok(username: str, password: str) -> bool:
         )
     except Exception:
         return False
-    return user_ok and pass_ok
+    return settings.admin_password.strip() not in {'', 'changeme'} and user_ok and pass_ok
 
 
 def request_authorized(request: Request) -> bool:

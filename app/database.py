@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import event, text
+from sqlalchemy import event, inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.settings import settings
@@ -87,38 +87,36 @@ LEGACY_TEMPLATE_COLUMNS = {
 }
 
 
-def _ensure_columns(table: str, columns: dict[str, str]) -> None:
-    with engine.begin() as conn:
-        existing = {row[1] for row in conn.execute(text(f'PRAGMA table_info({table})'))}
-        for name, decl in columns.items():
-            if name not in existing:
-                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {decl}'))
-
-
 NODEINBOUND_COLUMNS = {
     'snis_locked': 'INTEGER DEFAULT 0',
     'provider_label': "TEXT DEFAULT ''",
 }
 
 
-def _ensure_cabinet_account() -> None:
-    _ensure_columns('client', {'cabinet_account_id': 'TEXT', 'last_online': 'INTEGER DEFAULT 0'})
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                'CREATE UNIQUE INDEX IF NOT EXISTS uq_client_cabinet_account '
-                'ON client(cabinet_account_id) '
-                'WHERE cabinet_account_id IS NOT NULL'
-            )
-        )
+def _ensure_columns(conn, table: str, columns: dict[str, str]) -> None:
+    existing = {row[1] for row in conn.execute(text(f'PRAGMA table_info({table})'))}
+    for name, decl in columns.items():
+        if name not in existing:
+            conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {decl}'))
 
 
-def init_db() -> None:
-    SQLModel.metadata.create_all(engine)
-    _ensure_columns('inboundtemplate', {**LEGACY_TEMPLATE_COLUMNS, **TEMPLATE_COLUMNS})
-    _ensure_columns('node', NODE_COLUMNS)
-    _ensure_columns('nodeinbound', NODEINBOUND_COLUMNS)
-    _ensure_cabinet_account()
+def init_db(target_engine=None) -> None:
+    from app import models  # Register SQLModel tables before create_all.
+
+    with (target_engine or engine).begin() as conn:
+        # SQLite DDL and the legacy marker must survive or roll back together.
+        conn.exec_driver_sql('BEGIN IMMEDIATE')
+        old_tables = set(inspect(conn).get_table_names())
+        SQLModel.metadata.create_all(conn)
+        if 'node' in old_tables and 'nodetemplateassignment' not in old_tables:
+            conn.execute(models.AppSetting.__table__.insert().prefix_with('OR REPLACE').values(
+                key='migrate_node_template_assignments', value='pending'))
+        _ensure_columns(conn, 'inboundtemplate', {**LEGACY_TEMPLATE_COLUMNS, **TEMPLATE_COLUMNS})
+        _ensure_columns(conn, 'node', NODE_COLUMNS)
+        _ensure_columns(conn, 'nodeinbound', NODEINBOUND_COLUMNS)
+        _ensure_columns(conn, 'client', {'cabinet_account_id': 'TEXT', 'last_online': 'INTEGER DEFAULT 0'})
+        conn.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS uq_client_cabinet_account '
+                          'ON client(cabinet_account_id) WHERE cabinet_account_id IS NOT NULL'))
 
 
 def get_session() -> Generator[Session, None, None]:

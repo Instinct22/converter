@@ -5,7 +5,7 @@
 <div class="page-head">
   <div>
     <h1 class="name-flag">{% if node.flag_image() %}<img class="flag-img" src="{{ node.flag_image() }}" alt="{{ node.flag_title() }}" title="{{ node.flag_title() }}" style="width:28px;height:20px">{% endif %}{{ node.name }}</h1>
-    <p class="lede">{% if node.install_kind == 'grafana' %}Адрес Grafana и пароль входа лежат в журнале установки. Этот сервер в подписку не входит.{% else %}URL панели и токен. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре». Подписку клиент забирает с Master.{% endif %}</p>
+    <p class="lede">{% if node.install_kind == 'grafana' %}Адрес Grafana указан в карточке. Этот сервер в подписку не входит.{% else %}URL панели и токен. SNI и порты задаются во <a href="/templates">Входах</a> и привязываются к серверу в списке на «Обзоре». Подписку клиент забирает с Master.{% endif %}</p>
   </div>
   <div class="row">
     <button class="btn secondary" id="test" type="button" {% if node.install_state == 'installing' %}disabled{% endif %}>Проверить связь</button>
@@ -14,6 +14,10 @@
 </div>
 <pre class="log" id="log"></pre>
 
+{% if has_credentials %}
+<button id="take-credentials" class="btn secondary" type="button">Получить реквизиты один раз</button>
+<pre id="credentials" hidden></pre>
+{% endif %}
 {% if node.install_state == 'installing' or node.install_state == 'failed' or node.install_log %}
 <div class="card" id="install-card">
   <h2>Установка {% if node.install_kind == 'grafana' %}Grafana{% else %}3x-ui{% endif %}
@@ -21,20 +25,11 @@
     {% elif node.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>
     {% else %}<span class="fw-tag on">готово</span>{% endif %}
   </h2>
-  <p class="sub">
-    {% if node.install_kind == 'grafana' %}
-    {% if node.install_state == 'installing' %}Grafana ещё ставится. Адрес, пароль и токен записи появятся в журнале.{% else %}Адрес, пароль и токен записи показаны в журнале.{% endif %}
-    {% elif node.install_state == 'installing' %}
-    Панели ещё нет. SSH уже сохранён ниже, в блоке «Файрвол». Повторная установка на стоящий x-ui не запускается.
-    {% else %}
-    Логин и пароль панели показаны в журнале один раз. API Token лежит здесь же: его можно показать и скопировать. Пустое поле в карточке ниже его не затирает.
-    {% endif %}
-  </p>
   {% if node.api_token and node.install_state != 'installing' %}
   <div class="field">
     <label>API Token</label>
     <div class="secret-line">
-      <input id="install-token" type="password" readonly value="{{ node.api_token }}" autocomplete="off">
+      <input id="install-token" type="password" readonly placeholder="••••••••" autocomplete="off">
       <button class="btn secondary small" type="button" id="show-install-token">Показать</button>
       <button class="btn secondary small" type="button" id="copy-install-token">Копировать</button>
     </div>
@@ -66,7 +61,7 @@
       <div class="field span-2">
         <label>URL 3x-ui</label>
         <input name="panel_url" value="{{ node.panel_url }}" placeholder="{{ 'появится после установки' if not node.panel_url else '' }}" {% if node.install_state == 'installing' %}readonly{% endif %}>
-        <span class="hint">{% if node.install_state == 'installing' %}Адрес и токен появятся здесь, когда установщик закончит.{% else %}Пример: https://82.40.58.78:28879/l156n0rG5HBRse0B01{% endif %}</span>
+        <span class="hint">{% if node.install_state == 'installing' %}После установки здесь появится адрес панели.{% else %}Пример: https://82.40.58.78:28879/l156n0rG5HBRse0B01{% endif %}</span>
       </div>
       <div class="field span-2">
         <label>
@@ -79,7 +74,7 @@
         <span class="hint">{% if node.api_token %}Токен уже сохранён. Это поле пустое, пока не введёте новый.{% endif %}</span>
         {% if node.api_token %}
         <div class="secret-line" style="margin-top:8px">
-          <input id="saved-api-token" type="password" readonly value="{{ node.api_token }}" autocomplete="off">
+          <input id="saved-api-token" type="password" readonly placeholder="••••••••" autocomplete="off">
           <button class="btn secondary small" type="button" id="show-saved-token">Показать</button>
           <button class="btn secondary small" type="button" id="copy-saved-token">Копировать</button>
         </div>
@@ -153,15 +148,21 @@ armSecret(document.querySelector('#firewall [name="ssh_password"]'));
 
 function bindToken(inputId, showId, copyId) {
   const input = document.getElementById(inputId);
-  document.getElementById(showId)?.addEventListener('click', (event) => {
-    if (!input) return;
-    const open = input.type === 'password';
-    input.type = open ? 'text' : 'password';
-    event.currentTarget.textContent = open ? 'Скрыть' : 'Показать';
-  });
-  document.getElementById(copyId)?.addEventListener('click', () => {
-    if (input) XUI.copyText(input.value);
-  });
+  if (!input) return;
+  const show = document.getElementById(showId);
+  const fetchToken = async () => (await XUI.api('/api/nodes/' + id + '/panel-token', 'POST')).token;
+  show.onclick = async () => {
+    try {
+      const reveal = input.type === 'password';
+      input.value = reveal ? await XUI.withBusy(show, fetchToken) : '';
+      input.type = reveal ? 'text' : 'password';
+      show.textContent = reveal ? 'Скрыть' : 'Показать';
+    } catch (err) { XUI.toast(err.message, 'err'); }
+  };
+  document.getElementById(copyId).onclick = async () => {
+    try { XUI.copyText(input.value || await fetchToken()); }
+    catch (err) { XUI.toast(err.message, 'err'); }
+  };
 }
 bindToken('install-token', 'show-install-token', 'copy-install-token');
 bindToken('saved-api-token', 'show-saved-token', 'copy-saved-token');
@@ -183,6 +184,17 @@ document.getElementById('edit').onsubmit = async (e) => {
   } catch (err) { XUI.toast(err.message, 'err'); }
 };
 
+const takeCredentials = document.getElementById('take-credentials');
+if (takeCredentials) takeCredentials.onclick = async () => {
+  takeCredentials.disabled = true;
+  try {
+    const data = await XUI.api('/api/nodes/' + id + '/install-credentials', 'POST', {});
+    const output = document.getElementById('credentials');
+    output.textContent = ['Логин: ' + data.username, 'Пароль: ' + data.password,
+      data.write_token && 'Токен записи: ' + data.write_token].filter(Boolean).join('\n');
+    output.hidden = false;
+  } catch (err) { takeCredentials.disabled = false; XUI.toast(err.message, 'err'); }
+};
 const hideInstall = document.getElementById('hide-install-log');
 if (hideInstall) {
   hideInstall.onclick = async () => {

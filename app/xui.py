@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from typing import Any
@@ -24,6 +25,34 @@ def normalize_panel_url(url: str) -> str:
 def public_host_from_url(url: str) -> str:
     parsed = urlparse(normalize_panel_url(url))
     return parsed.hostname or ''
+
+
+def require_panel_transport(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme == 'https' and parsed.hostname:
+        return
+    if parsed.scheme == 'http':
+        if parsed.hostname == 'localhost':
+            return
+        try:
+            if ipaddress.ip_address(parsed.hostname or '').is_loopback:
+                return
+        except ValueError:
+            pass
+    raise XuiError('Для панели требуется HTTPS с доверенным сертификатом или локальный HTTP-туннель')
+
+
+def panel_tls_context():
+    import os
+    import ssl
+    import certifi
+    from app.settings import DATA_DIR
+
+    context = ssl.create_default_context(cafile=os.environ.get('SSL_CERT_FILE') or certifi.where())
+    additional = DATA_DIR / 'panel-ca.pem'
+    if additional.is_file():
+        context.load_verify_locations(cafile=str(additional))
+    return context
 
 
 def panel_timeout(read: float) -> httpx.Timeout:
@@ -85,6 +114,9 @@ class XuiClient:
     def __init__(self, node: Node, timeout: float = 12.0) -> None:
         self.node = node
         self.base = normalize_panel_url(node.panel_url)
+        require_panel_transport(self.base)
+        url = httpx.URL(self.base)
+        self.origin = (url.scheme, url.host, url.port)
         self.unreachable = False
         headers = {'Accept': 'application/json'}
         token = (node.api_token or '').strip()
@@ -92,11 +124,17 @@ class XuiClient:
             headers['Authorization'] = f'Bearer {token}'
         self.client = httpx.Client(
             timeout=panel_timeout(timeout),
-            verify=False,
+            verify=panel_tls_context(),
             follow_redirects=True,
+            event_hooks={'request': [self._check_destination]},
             headers=headers,
         )
         self._logged_in = bool(token)
+
+    def _check_destination(self, request: httpx.Request) -> None:
+        url = request.url
+        if (url.scheme, url.host, url.port) != self.origin:
+            raise XuiError('Панель перенаправляет запрос на другой адрес')
 
     def close(self) -> None:
         self.client.close()
@@ -173,15 +211,32 @@ class XuiClient:
 
     def update_settings(self, settings: dict[str, Any]) -> None:
         body = self.call('/panel/api/setting/update', settings)
-        if body.get('success') is False:
+        if not body.get('success'):
             raise XuiError(_xui_msg(body, 'настройки панели не сохранились'))
 
     def inbounds(self) -> list[dict[str, Any]]:
         for method, data in (('GET', None), ('POST', {})):
             body = self.call('/panel/api/inbounds/list', data=data, method=method)
             if body.get('success'):
-                obj = body.get('obj') or []
-                return obj if isinstance(obj, list) else []
+                rows = body.get('obj')
+                if not isinstance(rows, list):
+                    raise XuiError('Панель вернула некорректный список входов')
+                seen = set()
+                for row in rows:
+                    try:
+                        if not isinstance(row, dict):
+                            raise ValueError
+                        inbound_id = int(str(row['id']))
+                        port = int(str(row['port']))
+                        if inbound_id <= 0 or inbound_id in seen or not 1 <= port <= 65535:
+                            raise ValueError
+                        for key in ('settings', 'streamSettings'):
+                            if row.get(key) and not isinstance(as_obj(row[key]), dict):
+                                raise ValueError
+                        seen.add(inbound_id)
+                    except (KeyError, TypeError, ValueError) as exc:
+                        raise XuiError('Панель вернула повреждённую запись входа') from exc
+                return rows
         raise XuiError('inbounds/list failed')
 
     def add_inbound(self, spec: dict[str, Any]) -> dict[str, Any]:
@@ -190,18 +245,10 @@ class XuiClient:
             raise XuiError(body.get('msg') or 'add inbound failed')
         return body
 
-    def update_inbound(self, inbound_id: int, spec: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(spec)
-        payload['id'] = inbound_id
-        body = self.call(f'/panel/api/inbounds/update/{inbound_id}', payload)
-        if not body.get('success'):
-            raise XuiError(body.get('msg') or 'update inbound failed')
-        return body
-
     def del_inbound(self, inbound_id: int) -> dict[str, Any]:
         body = self.call(f'/panel/api/inbounds/del/{inbound_id}', {})
-        if body.get('success') is False:
-            raise XuiError(body.get('msg') or 'del inbound failed')
+        if not body.get('success'):
+            raise XuiError(_xui_msg(body, 'del inbound failed'))
         return body
 
     def restart_xray(self) -> dict[str, Any]:
@@ -334,23 +381,26 @@ class XuiClient:
         body = self.call('/panel/api/clients/list')
         if body.get('success'):
             obj = body.get('obj')
-            if isinstance(obj, list):
-                return [item for item in obj if isinstance(item, dict)]
             if isinstance(obj, dict):
-                rows = obj.get('clients') or obj.get('list') or []
-                if isinstance(rows, list):
-                    return [item for item in rows if isinstance(item, dict)]
-            return []
+                obj = obj.get('clients', obj.get('list'))
+            if not isinstance(obj, list) or not all(isinstance(row, dict) for row in obj):
+                raise XuiError('Панель вернула повреждённый список клиентов')
+            if any(not email_from_client_row(row) for row in obj):
+                raise XuiError('В списке клиентов панели отсутствует email')
+            return obj
         if not _is_missing_route(body):
             raise XuiError(_xui_msg(body, 'clients/list failed'))
         collected: list[dict[str, Any]] = []
         for inbound in self.inbounds():
-            settings = as_obj(inbound.get('settings')) or {}
-            if not isinstance(settings, dict):
-                continue
-            for item in settings.get('clients') or []:
-                if isinstance(item, dict):
-                    collected.append(item)
+            settings = as_obj(inbound.get('settings'))
+            if not isinstance(settings, dict) or not isinstance(settings.get('clients', []), list):
+                raise XuiError('Панель вернула повреждённые настройки клиентов')
+            if inbound.get('protocol') in {'vless', 'vmess', 'trojan'} and 'clients' not in settings:
+                raise XuiError('В настройках входа отсутствует список клиентов')
+            for item in settings.get('clients', []):
+                if not isinstance(item, dict) or not email_from_client_row(item):
+                    raise XuiError('Панель вернула повреждённую запись клиента')
+                collected.append({'client': item, 'legacy_inbound_id': inbound['id']})
         return collected
 
     def clients_by_sub(self, sub_id: str) -> list[dict[str, Any]]:
@@ -374,7 +424,9 @@ class XuiClient:
                 if _is_absent(msg):
                     return {'success': True, 'msg': 'already gone'}
                 raise XuiError(msg)
-        body = self.call(f'/panel/api/inbounds/{inbound_id}/delClient/{client_uuid}', {})
+        if not inbound_id:
+            raise XuiError('Панель требует ID входа для удаления клиента')
+        body = self.call(f'/panel/api/inbounds/{inbound_id}/delClient/{_path_id(client_uuid)}', {})
         if body.get('success'):
             return body
         if email:

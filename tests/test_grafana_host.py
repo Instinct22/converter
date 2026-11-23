@@ -1,4 +1,4 @@
-from pathlib import Path
+import json
 
 import yaml
 from fastapi import HTTPException
@@ -117,9 +117,8 @@ def test_rejects_a_weak_password_and_a_bad_address():
         raise AssertionError('bad address was accepted')
 
 
-def test_env_update_keeps_unrelated_lines_and_redacts_secrets():
-    path = Path('data') / 'grafana-env-test.env'
-    path.parent.mkdir(exist_ok=True)
+def test_env_update_keeps_unrelated_lines_and_redacts_secrets(tmp_path):
+    path = tmp_path / 'grafana-env-test.env'
     path.write_text('# comment\nGRAFANA_SSH_PASSWORD=keep-me\nGRAFANA_ADMIN_PASSWORD=\n', encoding='utf-8')
     try:
         update_env_file(path, {'GRAFANA_ADMIN_PASSWORD': 'Aa1-bbbbbbbbbbbb'})
@@ -187,8 +186,10 @@ def test_clean_vps_can_prepare_grafana_without_putting_it_in_the_pool():
         assert node.install_state == 'done'
         assert node.enabled is False
         assert node.panel_url == 'https://203.0.113.10'
-        assert 'Пароль:' in node.install_log
-        assert 'Токен записи:' in node.install_log
+        from app.routers.api import take_install_credentials
+        handoff = json.loads(take_install_credentials(node.id, session).body)
+        for field in ('password', 'write_token'):
+            assert handoff[field] and handoff[field] not in node.install_log
         try:
             patch_node(node.id, NodePatch(enabled=True), session)
         except HTTPException as exc:

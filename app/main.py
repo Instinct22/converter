@@ -19,12 +19,13 @@ from sqlmodel import Session
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    settings.validate_admin_password()
     init_db()
     from app.ssh_access import ensure_fleet_key
 
     ensure_fleet_key()
     with Session(engine) as session:
-        from app.xui_install import interrupt_abandoned_installs
+        from app.xui_install import interrupt_abandoned_installs, migrate_install_logs
 
         from sqlmodel import select
         from app.models import Node
@@ -35,6 +36,7 @@ async def lifespan(_app: FastAPI):
             session.add(node)
         session.commit()
         interrupt_abandoned_installs(session)
+        migrate_install_logs(session)
         seed_if_empty(session)
         from app.provision import ensure_default_node_templates
 
@@ -78,7 +80,7 @@ app.add_middleware(
     session_cookie='master_session',
     max_age=60 * 60 * 24 * 14,
     same_site='lax',
-    https_only=False,
+    https_only=settings.public_base_url.lower().startswith('https://'),
     path='/',
 )
 app.mount('/static', StaticFiles(directory=str(ROOT / 'app' / 'static')), name='static')
@@ -95,7 +97,7 @@ app.include_router(pings_router)
 def run() -> None:
     import uvicorn
 
-    uvicorn.run('app.main:app', host=settings.host, port=settings.port, reload=False)
+    uvicorn.run('app.main:app', host=settings.host, port=settings.port, reload=False, access_log=False)
 
 
 if __name__ == '__main__':

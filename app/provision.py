@@ -3,13 +3,17 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Iterable
+from threading import Lock, RLock
+from weakref import WeakValueDictionary
 
 import httpx
+from sqlalchemy import func, inspect
 from sqlmodel import Session, select
 
-from app.crypto_reality import generate_reality_keys, random_short_id
+from app.crypto_reality import generate_reality_keys, public_from_private, random_short_id
 from app.firewall import sync_node_firewall
 from app.models import (
+    AppSetting,
     Client,
     ClientPlacement,
     InboundTemplate,
@@ -20,7 +24,21 @@ from app.models import (
 )
 from app.parse_inbound import parse_inbound
 from app.util import flatten_logs, run_parallel
-from app.xui import XuiClient, XuiError, as_obj, email_from_client_row
+from app.xui import XuiClient, XuiError, as_obj, email_from_client_row, panel_tls_context, require_panel_transport
+
+
+_client_locks = WeakValueDictionary()
+_locks_guard = Lock()
+
+
+def client_access_lock(client_id: int):
+    """Serialize panel grants and revocations for the same client in this Master."""
+    with _locks_guard:
+        lock = _client_locks.get(client_id)
+        if lock is None:
+            lock = RLock()
+            _client_locks[client_id] = lock
+        return lock
 
 
 def split_csv(text: str) -> list[str]:
@@ -92,16 +110,19 @@ def match_master_client(ident: dict[str, str], clients: list[Client]) -> Client 
     email = ident.get('email') or ''
     uuid = ident.get('id') or ''
     sub = ident.get('subId') or ''
-    for client in clients:
-        if uuid and uuid == client.uuid:
-            return client
-        if sub and sub == client.sub_token:
-            return client
-        if email and email == client.slug:
-            return client
-        if email and email.startswith(f'{client.slug}-'):
-            return client
-    return None
+    from app.overview import matches_email
+
+    stable = [client for client in clients if (uuid and uuid == client.uuid)
+              or (sub and sub == client.sub_token)]
+    exact = [client for client in clients if email and email == client.slug]
+    if len(stable) > 1 or (stable and exact and stable[0] is not exact[0]):
+        raise XuiError('Противоречивые идентификаторы клиента панели')
+    if stable or exact:
+        return (stable or exact)[0]
+    legacy = [client for client in clients if matches_email(client.slug, email)]
+    if len(legacy) > 1:
+        raise XuiError('Неоднозначный email клиента панели')
+    return legacy[0] if legacy else None
 
 
 def subscription_is_on(settings: dict) -> bool:
@@ -184,11 +205,12 @@ def resolve_clash_sub_path(node: Node, sub_token: str) -> str:
     for seg in candidates:
         url = _clash_sub_probe_url(node, seg, sub_token)
         try:
-            with httpx.Client(verify=False, timeout=httpx.Timeout(3.0, read=6.0)) as client:
+            require_panel_transport(url)
+            with httpx.Client(verify=panel_tls_context(), timeout=httpx.Timeout(3.0, read=6.0)) as client:
                 response = client.get(url, headers=headers)
             if _is_clash_yaml_response(response):
                 return seg
-        except httpx.HTTPError:
+        except (httpx.HTTPError, XuiError):
             continue
     return ''
 
@@ -208,6 +230,20 @@ def refresh_clash_sub_path(session: Session, node: Node) -> None:
             'Clash YAML подписка недоступна: в 3x-ui включите Mihomo/Clash sub '
             'и проверьте subClashPath (subPath отдаёт base64, не YAML).'
         )
+
+
+def fleet_inbound_counts(session: Session) -> dict[int, int]:
+    return dict(session.exec(select(NodeInbound.node_id, func.count())
+                             .group_by(NodeInbound.node_id)).all())
+
+
+def fleet_template_ids(session: Session) -> dict[int, list[int]]:
+    result: dict[int, list[int]] = {}
+    for node_id, template_id in session.exec(select(
+        NodeTemplateAssignment.node_id, NodeTemplateAssignment.template_id
+    ).order_by(NodeTemplateAssignment.node_id, NodeTemplateAssignment.template_id)):
+        result.setdefault(node_id, []).append(template_id)
+    return result
 
 
 def node_template_ids(session: Session, node_id: int) -> list[int]:
@@ -296,6 +332,10 @@ def apply_node_templates(session: Session, node: Node, template_ids: list[int]) 
             continue
         seen.add(tid)
         wanted.append(tid)
+    for tid in wanted:
+        template = session.get(InboundTemplate, tid)
+        if template is None or not template.enabled:
+            return [f'шаблон {tid} не найден или выключен']
     old = set(node_template_ids(session, node.id or 0))
     new = set(wanted)
     removed_ok: set[int] = set()
@@ -377,6 +417,8 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
             logs.append(f'шаблон {tid} не найден или выключен')
             continue
         wanted.append(row)
+    if logs:  # Resolve the entire request before changing any remote inbound.
+        return logs
     by_port = {row.port: row for row in wanted}
     created: list[InboundTemplate] = []
     with XuiClient(node, timeout=20.0) as xui:
@@ -389,6 +431,19 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
             except (TypeError, ValueError):
                 continue
             present.setdefault(port, []).append(inbound_id)
+        remote_ok = True
+        for port, template in by_port.items():
+            if port in present:
+                continue
+            try:
+                xui.add_inbound(build_inbound_spec(template))
+                created.append(template)
+                logs.append(f'{node.name}: вход {template.name} ({port}) создан')
+            except XuiError as exc:
+                remote_ok = False
+                logs.append(f'{node.name}: вход {template.name} ({port}) не создан: {exc}')
+        if not remote_ok:
+            return logs
         for port, inbound_ids in present.items():
             if port in by_port:
                 logs.append(f'{node.name}: порт {port} уже есть')
@@ -398,16 +453,10 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
                     xui.del_inbound(inbound_id)
                     logs.append(f'{node.name}: лишний порт {port} удалён')
                 except XuiError as exc:
+                    remote_ok = False
                     logs.append(f'{node.name}: порт {port} не удалён: {exc}')
-        for port, template in by_port.items():
-            if port in present:
-                continue
-            try:
-                xui.add_inbound(build_inbound_spec(template))
-                created.append(template)
-                logs.append(f'{node.name}: вход {template.name} ({port}) создан')
-            except XuiError as exc:
-                logs.append(f'{node.name}: вход {template.name} ({port}) не создан: {exc}')
+        if not remote_ok:
+            return logs
     try:
         rows = sync_node(session, node, apply_templates=False)
     except XuiError as exc:
@@ -415,7 +464,7 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
         node.last_error = str(exc)
         session.add(node)
         session.commit()
-        rows = []
+        return logs
     created_ports = {row.port for row in created}
     for row in rows:
         template = by_port.get(row.port) if row.port in created_ports else None
@@ -436,18 +485,19 @@ def reconcile_node_templates(session: Session, node: Node, template_ids: list[in
 
 def reconcile_all_nodes(session: Session) -> list[str]:
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
+    assignments = fleet_template_ids(session)
     jobs = [
-        (node.id, node.name, node_template_ids(session, node.id))
+        (node.id, node.name, assignments.get(node.id, []))
         for node in nodes
         if node.id is not None
     ]
+
+    engine = session.get_bind()
 
     def run(job: tuple[int, str, list[int]]) -> list[str]:
         node_id, name, ids = job
         if not ids:
             return [f'{name}: шаблоны не выбраны']
-        from app.database import engine
-
         with Session(engine) as local:
             node = local.get(Node, node_id)
             if node is None:
@@ -458,7 +508,7 @@ def reconcile_all_nodes(session: Session) -> list[str]:
                 node.last_error = str(exc)[:500]
                 local.add(node)
                 local.commit()
-                return [f'{name}: {exc}']
+                return [f'{name}: ошибка связи с панелью: {exc}']
 
     return flatten_logs(run_parallel(jobs, run))
 
@@ -489,9 +539,7 @@ def templates_for_node(session: Session, node: Node | int) -> list[InboundTempla
         ).all()
         order = {tid: idx for idx, tid in enumerate(ids)}
         return sorted(rows, key=lambda row: (order.get(row.id or 0, 999), row.port))
-    return session.exec(
-        select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
-    ).all()
+    return []
 
 
 def templates_by_port_for_node(session: Session, node: Node) -> dict[int, InboundTemplate]:
@@ -539,7 +587,14 @@ def sync_template_fields(
         if template is None:
             continue
         names = split_csv(template.server_names)
-        same = split_csv(row.server_names) == names and split_csv(row.extra_snis) == split_csv(template.extra_snis)
+        if template.security == 'reality':
+            panel_names = list(dict.fromkeys(names + split_csv(template.extra_snis)))
+            try:
+                if push_server_names(node, row, panel_names):
+                    logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) в конфиге, {len(panel_names)} имён')
+            except XuiError as exc:
+                logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) не записались на панель: {exc}')
+                continue
         row.server_names = template.server_names
         row.extra_snis = template.extra_snis
         row.snis_locked = True
@@ -551,12 +606,6 @@ def sync_template_fields(
         if label:
             row.provider_label = label
         session.add(row)
-        if not same:
-            try:
-                push_server_names(node, row, names)
-                logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) в конфиге, {len(names)} имён')
-            except XuiError as exc:
-                logs.append(f'{node.name}: SNI «{template.name}» ({row.port}) не записались на панель: {exc}')
         remark = (template.name or '').strip()
         if remark and remark != (row.remark or ''):
             try:
@@ -571,23 +620,24 @@ def sync_template_fields(
 
 
 def ensure_default_node_templates(session: Session) -> None:
-    templates = session.exec(
-        select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
-    ).all()
-    if not templates:
+    marker = session.get(AppSetting, 'migrate_node_template_assignments')
+    if marker is None or marker.value != 'pending':
         return
-    template_ids = [t.id for t in templates if t.id is not None]
-    nodes = session.exec(select(Node)).all()
-    for node in nodes:
-        if node.id is None:
-            continue
-        if node_template_ids(session, node.id):
-            continue
-        set_node_template_ids(session, node.id, template_ids)
+    ids = session.exec(select(InboundTemplate.id).where(InboundTemplate.enabled.is_(True))).all()
+    for node_id in session.exec(select(Node.id)):
+        if not node_template_ids(session, node_id):
+            session.add_all([NodeTemplateAssignment(node_id=node_id, template_id=tid) for tid in ids])
+    marker.value = 'done'
+    session.commit()
 
 
 def sync_node(session: Session, node: Node, *, apply_templates: bool = True) -> list[NodeInbound]:
     with XuiClient(node) as xui:
+        remote = xui.inbounds()
+        try:
+            parsed_rows = [parse_inbound(raw) for raw in remote]
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise XuiError('Панель вернула повреждённые настройки входа') from exc
         try:
             current = xui.panel_settings()
             apply_sub_settings(node, current)
@@ -596,7 +646,6 @@ def sync_node(session: Session, node: Node, *, apply_templates: bool = True) -> 
                 xui.update_settings(updated)
         except XuiError:
             pass
-        remote = xui.inbounds()
     seen: set[int] = set()
     template_by_port = templates_by_port_for_node(session, node)
     existing = {
@@ -604,8 +653,7 @@ def sync_node(session: Session, node: Node, *, apply_templates: bool = True) -> 
         for row in session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all()
     }
     result: list[NodeInbound] = []
-    for raw in remote:
-        parsed = parse_inbound(raw)
+    for parsed in parsed_rows:
         xui_id = parsed['xui_inbound_id']
         seen.add(xui_id)
         row = existing.get(xui_id)
@@ -652,7 +700,7 @@ def _template_val(template: InboundTemplate, name: str, default: object = '') ->
     return getattr(template, name, default)
 
 
-def build_inbound_spec(template: InboundTemplate, seed: dict | None = None) -> dict:
+def build_inbound_spec(template: InboundTemplate, seed: dict | None = None, *, existing: dict | None = None) -> dict:
     network = template.network or 'tcp'
     security = str(_template_val(template, 'security', 'reality') or 'none')
     protocol = str(_template_val(template, 'protocol', 'vless') or 'vless')
@@ -694,7 +742,20 @@ def build_inbound_spec(template: InboundTemplate, seed: dict | None = None) -> d
         }
 
     if stream['security'] == 'reality':
-        private_key, public_key = generate_reality_keys()
+        old_stream = as_obj(existing.get('streamSettings')) if existing else {}
+        if existing and not isinstance(old_stream, dict):
+            raise XuiError('Не удалось прочитать текущие ключи входа')
+        previous = old_stream.get('realitySettings')
+        if old_stream.get('security') == 'reality' or previous:
+            if not isinstance(previous, dict) or not previous.get('privateKey'):
+                raise XuiError('Панель не вернула действующий ключ Reality')
+            private_key = previous['privateKey']
+            try:
+                public_key = public_from_private(private_key)
+            except (TypeError, ValueError) as exc:
+                raise XuiError('Панель вернула некорректный ключ Reality') from exc
+        else:
+            private_key, public_key = generate_reality_keys()
         names: list[str] = []
         for item in split_csv(template.server_names) + split_csv(template.extra_snis):
             if item and item not in names:
@@ -704,7 +765,7 @@ def build_inbound_spec(template: InboundTemplate, seed: dict | None = None) -> d
             dest = f'{dest}:443'
         short_ids = split_csv(str(_template_val(template, 'short_ids', '') or ''))
         if not short_ids:
-            short_ids = [random_short_id()]
+            short_ids = previous.get('shortIds', []) if previous is not None else [random_short_id()]
         stream['realitySettings'] = {
             'show': False,
             'xver': 0,
@@ -778,6 +839,8 @@ def _keep_remote_clients(existing: dict, spec: dict) -> dict:
     payload = dict(spec)
     payload['id'] = existing.get('id')
     settings = existing.get('settings')
+    if not isinstance(as_obj(settings), dict):
+        raise XuiError('Панель не вернула текущие настройки клиентов входа')
     if isinstance(settings, dict):
         payload['settings'] = json.dumps(settings)
     elif settings:
@@ -797,9 +860,9 @@ def provision_templates(session: Session, node: Node, templates: Iterable[Inboun
             except (TypeError, ValueError):
                 continue
         for template in ordered:
-            spec = build_inbound_spec(template)
             existing = by_port.get(template.port)
             try:
+                spec = build_inbound_spec(template, existing=existing)
                 if existing:
                     inbound_id = int(existing.get('id'))
                     xui.update_inbound(inbound_id, _keep_remote_clients(existing, spec))
@@ -808,7 +871,7 @@ def provision_templates(session: Session, node: Node, templates: Iterable[Inboun
                     xui.add_inbound(spec)
                     logs.append(f'inbound {template.name}:{template.port} создан')
             except XuiError as exc:
-                logs.append(f'inbound {template.name}:{template.port}: {exc}')
+                logs.append(f'inbound {template.name}:{template.port} не навесился: {exc}')
     try:
         sync_node(session, node)
     except XuiError as exc:
@@ -903,13 +966,20 @@ def provision_client(
     client: Client,
     nodes: list[Node] | None = None,
 ) -> list[str]:
+    client_id = inspect(client).identity[0]
+    with client_access_lock(client_id):
+        current = session.get(Client, client_id, populate_existing=True)
+        if current is None:
+            return ['Клиент уже удалён']
+        return _provision_current_client(session, current, nodes)
+
+
+def _provision_current_client(session: Session, client: Client, nodes: list[Node] | None) -> list[str]:
+    if not client_wanted_on_panel(client):
+        _, logs = delete_client_remote(session, client, nodes=nodes)
+        return logs or [f'{client.name}: выключен или истёк — с серверов убран']
     if nodes is None:
         nodes = session.exec(select(Node).where(Node.enabled.is_(True))).all()
-    if not client_wanted_on_panel(client):
-        logs = delete_client_remote(session, client, nodes=nodes)
-        if not logs:
-            logs.append(f'{client.name}: выключен или истёк — с серверов убран')
-        return logs
     node_ids = [node.id for node in nodes if node.id is not None]
     if len(node_ids) <= 1:
         logs: list[str] = []
@@ -922,9 +992,9 @@ def provision_client(
 
     client_id = client.id
 
-    def run(node_id: int) -> list[str]:
-        from app.database import engine
+    engine = session.get_bind()
 
+    def run(node_id: int) -> list[str]:
         with Session(engine) as local:
             local_client = local.get(Client, client_id)
             local_node = local.get(Node, node_id)
@@ -941,60 +1011,67 @@ def delete_client_remote(
     session: Session,
     client: Client,
     nodes: list[Node] | None = None,
-) -> list[str]:
-    logs: list[str] = []
+    *,
+    remember_pending: bool = False,
+) -> tuple[bool, list[str]]:
+    placements = session.exec(select(ClientPlacement).where(ClientPlacement.client_id == client.id)).all()
     if nodes is None:
         nodes = session.exec(select(Node).where(Node.enabled.is_(True))).all()
-    target_ids = {node.id for node in nodes if node.id}
-    node_ids = [node.id for node in nodes if node.id is not None]
+    targets = {n.id for n in nodes} | {place.node_id for place in placements}
+    key = f'revoke_client/{client.id}'
+    pending = session.get(AppSetting, key)
+    if pending:
+        targets.update(json.loads(pending.value))
+    # Persist even nodes with no placement, e.g. a previous interrupted provision.
+    if remember_pending:
+        client.enable = False
+    if remember_pending or pending:
+        pending = pending or AppSetting(key=key)
+        pending.value = json.dumps(sorted(targets))
+        session.add(pending)
+        session.commit()
+
+    roster = session.exec(select(Client)).all()
+    target_nodes = session.exec(select(Node).where(Node.id.in_(targets)).order_by(Node.id)).all()
     client_id = client.id
 
-    def drop_on(local: Session, local_client: Client, node: Node) -> list[str]:
-        lines: list[str] = []
-        inbounds = local.exec(
-            select(NodeInbound).where(NodeInbound.node_id == node.id)
-        ).all()
-        emails = {local_client.slug}
-        inbound_id = inbounds[0].xui_inbound_id if inbounds else 0
-        for inbound in inbounds:
-            emails.add(client_email(local_client, inbound))
-        try:
-            with XuiClient(node) as xui:
-                for email in emails:
-                    try:
-                        xui.del_client(inbound_id, local_client.uuid, email=email)
-                        lines.append(f'{node.name}: {email} убран')
-                    except XuiError as exc:
-                        lines.append(f'{node.name}: {email} {exc}')
-        except XuiError as exc:
-            lines.append(f'{node.name}: {exc}')
-        return lines
+    def drop_on(node: Node) -> list[str]:
+        lines = []
+        def owned_rows(xui):
+            for row in xui.list_clients():
+                ident = panel_client_ident(row)
+                owner = match_master_client(ident, roster)
+                if owner is not None and owner.id == client_id:
+                    yield row, ident
 
-    if len(node_ids) <= 1:
-        for node in nodes:
-            if node.id is None:
-                continue
-            logs.extend(drop_on(session, client, node))
-    else:
-        def run(node_id: int) -> list[str]:
-            from app.database import engine
+        with XuiClient(node) as xui:
+            for row, ident in owned_rows(xui):
+                if not ident['email']:
+                    raise XuiError('У клиента панели нет email для подтверждения удаления')
+                xui.del_client(int(row.get('legacy_inbound_id') or 0), ident['id'], email=ident['email'])
+                lines.append(f'{node.name}: {ident["email"]} убран')
+            if lines and next(owned_rows(xui), None) is not None:
+                raise XuiError('Клиент остался на панели после удаления')
+        return lines or [f'{node.name}: клиента на панели нет']
 
-            with Session(engine) as local:
-                local_client = local.get(Client, client_id)
-                node = local.get(Node, node_id)
-                if local_client is None or node is None:
-                    return []
-                return drop_on(local, local_client, node)
-
-        logs.extend(flatten_logs(run_parallel(node_ids, run)))
-    placements = session.exec(
-        select(ClientPlacement).where(ClientPlacement.client_id == client.id)
-    ).all()
-    for row in placements:
-        if row.node_id in target_ids:
-            session.delete(row)
+    failed = set()
+    logs = []
+    missing = targets - {node.id for node in target_nodes}
+    failed.update(missing)
+    logs.extend(f'Нода {node_id} отсутствует: отзыв доступа не подтверждён' for node_id in sorted(missing))
+    for node, result in zip(target_nodes, run_parallel(target_nodes, drop_on)):
+        if isinstance(result, Exception):
+            failed.add(node.id)
+            logs.append(f'{node.name}: не удалось отозвать доступ: {result}')
+        else:
+            logs.extend(result)
+    for place in placements:
+        if place.node_id not in failed:
+            session.delete(place)
+    if pending:
+        pending.value = json.dumps(sorted(failed))
     session.commit()
-    return logs
+    return not failed, logs
 
 
 def reconcile_clients(session: Session) -> list[str]:
@@ -1003,8 +1080,9 @@ def reconcile_clients(session: Session) -> list[str]:
     clients = session.exec(select(Client)).all()
     if not nodes:
         return ['Нет включённых серверов']
+    engine = session.get_bind()
+
     def sweep(node_id: int) -> list[str]:
-        from app.database import engine
 
         lines: list[str] = []
         with Session(engine) as local:
@@ -1018,12 +1096,16 @@ def reconcile_clients(session: Session) -> list[str]:
                         ident = panel_client_ident(row)
                         if not ident['email'] or is_panel_seed(ident):
                             continue
-                        master = match_master_client(ident, roster)
+                        try:
+                            master = match_master_client(ident, roster)
+                        except XuiError as exc:
+                            lines.append(f'{node.name}: {exc}')
+                            continue
                         if master is not None and client_wanted_on_panel(master):
                             continue
                         reason = 'нет в Master' if master is None else 'выключен или истёк'
                         try:
-                            xui.del_client(0, ident['id'], email=ident['email'])
+                            xui.del_client(int(row.get('legacy_inbound_id') or 0), ident['id'], email=ident['email'])
                             lines.append(f'{node.name}: {ident["email"]} убран ({reason})')
                         except XuiError as exc:
                             lines.append(f'{node.name}: {ident["email"]} {exc}')
@@ -1037,10 +1119,7 @@ def reconcile_clients(session: Session) -> list[str]:
     node_ids = [node.id for node in nodes if node.id is not None]
     logs.extend(flatten_logs(run_parallel(node_ids, sweep)))
     for client in clients:
-        if client_wanted_on_panel(client):
-            logs.extend(provision_client(session, client, nodes=nodes))
-        else:
-            logs.extend(delete_client_remote(session, client, nodes=nodes))
+        logs.extend(provision_client(session, client, nodes=nodes))
     if not logs:
         logs.append('Серверы совпадают с Master')
     return logs
@@ -1065,15 +1144,15 @@ def push_inbound_remark(node: Node, inbound: NodeInbound, remark: str) -> None:
         xui.update_inbound(inbound.xui_inbound_id, obj)
 
 
-def push_server_names(node: Node, inbound: NodeInbound, names: list[str]) -> None:
+def push_server_names(node: Node, inbound: NodeInbound, names: list[str]) -> bool:
     with XuiClient(node) as xui:
         obj = xui.get_inbound(inbound.xui_inbound_id)
-        stream = as_obj(obj.get('streamSettings')) or {}
-        if not isinstance(stream, dict):
-            stream = {}
-        rs = stream.get('realitySettings') or {}
-        if not isinstance(rs, dict):
-            rs = {}
+        stream = as_obj(obj.get('streamSettings'))
+        if not isinstance(stream, dict) or not isinstance(stream.get('realitySettings'), dict):
+            raise XuiError('Панель не вернула настройки Reality для обновления SNI')
+        rs = stream['realitySettings']
+        if rs.get('serverNames') == names:
+            return False
         rs['serverNames'] = names
         stream['realitySettings'] = rs
         obj['streamSettings'] = json.dumps(stream)
@@ -1084,16 +1163,23 @@ def push_server_names(node: Node, inbound: NodeInbound, names: list[str]) -> Non
         if isinstance(sniffing, dict):
             obj['sniffing'] = json.dumps(sniffing)
         xui.update_inbound(inbound.xui_inbound_id, obj)
+        return True
 
 
 def disable_expired(session: Session, logs: list[str] | None = None) -> int:
     changed = 0
     clients = session.exec(select(Client).where(Client.enable.is_(True))).all()
     for client in clients:
-        if not client_wanted_on_panel(client):
-            client.enable = False
-            session.add(client)
-            steps = provision_client(session, client)
+        if client_wanted_on_panel(client):
+            continue
+        cid = inspect(client).identity[0]
+        with client_access_lock(cid):
+            current = session.get(Client, cid, populate_existing=True)
+            if current is None or not current.enable or client_wanted_on_panel(current):
+                continue
+            current.enable = False
+            session.commit()
+            steps = _provision_current_client(session, current, None)
             if logs is not None:
                 logs.extend(steps)
             changed += 1

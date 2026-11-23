@@ -227,7 +227,8 @@ def published_proxies(
         key = raw or 'node'
         n = 2
         while key in used:
-            key = f'{raw}-{n}'[:64]
+            suffix = f'-{n}'
+            key = raw[:64 - len(suffix)] + suffix
             n += 1
         used.add(key)
         return key
@@ -325,43 +326,25 @@ def dump_proxies(proxies: list[dict[str, Any]]) -> list[str]:
 
 def profile_direct_cidrs(nodes: list[Node]) -> list[str]:
     """IPs that must bypass TUN/rules (node panels + Master sub host)."""
-    seen: set[str] = set()
-    out: list[str] = []
-    for node in nodes:
-        ip = node_ip(node)
-        if ip and ip not in seen:
-            seen.add(ip)
-            out.append(f'{ip}/32')
-    base = (settings.public_base_url or '').strip()
-    if base:
-        from urllib.parse import urlparse
+    from urllib.parse import urlsplit
 
-        host = (urlparse(base).hostname or '').strip()
-        if host:
-            try:
-                ipaddress.ip_address(host)
-                if host not in seen:
-                    seen.add(host)
-                    out.append(f'{host}/32')
-            except ValueError:
-                pass
-    return out
-
-
-def node_ip(node: Node) -> str | None:
-    host = (node.public_host or '').strip()
-    if not host:
-        return None
-    host = host.split('/')[0]
-    if ':' in host and not host.startswith('['):
-        # hostname:port is not used; public_host should be IP or domain
-        maybe_ip = host.split(':')[0]
-        host = maybe_ip
-    try:
-        ipaddress.ip_address(host)
-        return host
-    except ValueError:
-        return None
+    hosts = [node.public_host for node in nodes]
+    hosts.append(urlsplit(settings.public_base_url or '').hostname or '')
+    result = []
+    for host in hosts:
+        value = (host or '').strip().split('/')[0]
+        if value.startswith('['):
+            value = value[1:].partition(']')[0]
+        elif value.count(':') == 1:
+            value = value.partition(':')[0]
+        try:
+            addr = ipaddress.ip_address(value)
+        except ValueError:
+            continue
+        cidr = f'{addr}/{addr.max_prefixlen}'
+        if cidr not in result:
+            result.append(cidr)
+    return result
 
 
 def published_snis(inbound: NodeInbound, global_extra: list[str] | None = None) -> list[str]:
@@ -422,28 +405,27 @@ def build_proxy(
     return proxy
 
 
-def collect_proxies(
-    session: Session,
-    client: Client,
-    global_extra: list[str],
-) -> tuple[list[dict[str, Any]], list[str], list[str]]:
-    nodes = session.exec(
-        select(Node).where(Node.enabled.is_(True)).order_by(Node.sort_order, Node.id)
-    ).all()
+def subscription_inputs(session: Session) -> tuple[list[Node], dict[int, list[NodeInbound]]]:
+    nodes = list(session.exec(select(Node).where(Node.enabled.is_(True))
+                              .order_by(Node.sort_order, Node.id)).all())
+    grouped: dict[int, list[NodeInbound]] = {}
+    for row in session.exec(select(NodeInbound).join(Node).where(Node.enabled.is_(True))
+                            .order_by(NodeInbound.id)):
+        grouped.setdefault(row.node_id, []).append(row)
+    return nodes, grouped
+
+
+def collect_proxies(nodes, inbound_map, client: Client) -> tuple[list[dict[str, Any]], list[str]]:
     proxies: list[dict[str, Any]] = []
     names: list[str] = []
-    cidrs: list[str] = []
     used_names: set[str] = set()
     for node in nodes:
-        ip = node_ip(node)
-        if ip:
-            cidrs.append(f'{ip}/32')
-        inbounds = session.exec(
-            select(NodeInbound).where(NodeInbound.node_id == node.id)
-        ).all()
+        inbounds = inbound_map.get(node.id, [])
         for inbound in inbounds:
+            if not inbound.use_in_sub:
+                continue
             prefix = inbound.display_prefix or node.clash_prefix()
-            snis = published_snis(inbound, global_extra)
+            snis = published_snis(inbound)
             multi = len(snis) > 1 or len(inbounds) > 1
             for index, sni in enumerate(snis):
                 if multi:
@@ -465,26 +447,16 @@ def collect_proxies(
                 if proxy:
                     proxies.append(proxy)
                     names.append(name)
-    return proxies, names, cidrs
+    return proxies, names
 
 
 def render_profile(session: Session, client: Client) -> str:
     doc = session.exec(select(ConfigDoc)).first()
     if doc is None:
         raise RuntimeError('config template is missing')
-    nodes = session.exec(
-        select(Node).where(Node.enabled.is_(True)).order_by(Node.sort_order, Node.id)
-    ).all()
-    provider_nodes: list[Node] = []
-    for node in nodes:
-        if (node.public_host or '').strip():
-            provider_nodes.append(node)
+    nodes, inbound_map = subscription_inputs(session)
+    provider_nodes = [node for node in nodes if (node.public_host or '').strip()]
     cidrs = profile_direct_cidrs(provider_nodes)
-    inbound_map: dict[int, list[NodeInbound]] = {}
-    for node in provider_nodes:
-        inbound_map[node.id] = session.exec(
-            select(NodeInbound).where(NodeInbound.node_id == node.id)
-        ).all()
     text = doc.yaml_text
     if 'XUI_PROVIDERS_BEGIN' in text:
         provider_lines, names = dump_providers(
@@ -494,10 +466,7 @@ def render_profile(session: Session, client: Client) -> str:
         pool_lines = [f'- {name}' for name in names]
         text = replace_block(text, 'POOL', pool_lines)
     else:
-        proxies, proxy_names, extra_cidrs = collect_proxies(session, client, [])
-        for item in extra_cidrs:
-            if item not in cidrs:
-                cidrs.append(item)
+        proxies, proxy_names = collect_proxies(nodes, inbound_map, client)
         text = replace_block(text, 'PROXIES', dump_proxies(proxies) if proxies else ['[]'])
         pool_lines = [f'- {n}' for n in proxy_names] if proxy_names else ['- DIRECT']
         text = replace_block(text, 'POOL', pool_lines)
@@ -505,7 +474,7 @@ def render_profile(session: Session, client: Client) -> str:
         text = replace_block(text, 'PROXIES', ['[]'])
     cidr_lines = [f'- {c}' for c in cidrs]
     text = replace_block(text, 'TUN_EXCLUDE', cidr_lines or ['[]'])
-    rule_lines = [f'- IP-CIDR,{c},DIRECT,no-resolve' for c in cidrs]
+    rule_lines = [f"- {'IP-CIDR6' if ':' in c else 'IP-CIDR'},{c},DIRECT,no-resolve" for c in cidrs]
     text = replace_block(text, 'CIDRS', rule_lines)
     return text
 

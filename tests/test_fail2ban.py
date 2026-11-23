@@ -68,8 +68,8 @@ def test_protection_page_renders():
     assert 'Перевести на ключ' in page.text
     assert 'Сверить порты' in page.text
     assert '/api/protection/ports' in page.text
-    assert '>Вход<' in page.text
-    assert 'data-guard="banned"' in page.text or 'Серверов нет' in page.text
+    assert 'Серверов нет' in page.text
+    assert '<td data-guard="banned">' not in page.text
 
 
 def test_guard_totals_include_banned_with_the_rest_of_the_snapshot():

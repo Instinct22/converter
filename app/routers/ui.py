@@ -8,6 +8,8 @@ from markupsafe import Markup
 from sqlalchemy import func, or_
 from sqlmodel import select
 
+from app.xui_install import credential_key
+from app.models import AppSetting
 from app.activity import SOURCES, STATES
 from app.models import MasterOperation, utcnow
 
@@ -16,7 +18,7 @@ from app.flags import COUNTRY_NAMES
 from app.mihomo import days_left, is_expired
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
 from app.settings import ROOT, settings
-from app.provision import node_template_ids, split_csv
+from app.provision import fleet_inbound_counts, fleet_template_ids, split_csv
 from app.routers.updates import release_groups
 from app.sub_link import client_sub_url, sub_path
 from app.util import ru_days
@@ -117,7 +119,7 @@ def _ctx(request: Request, **extra):
 def login_page(request: Request):
     if request_authorized(request):
         return RedirectResponse('/', status_code=302)
-    return templates.TemplateResponse('login.html', _ctx(request))
+    return templates.TemplateResponse(request, 'login.html', _ctx(request))
 
 
 @router.post('/login')
@@ -159,17 +161,9 @@ def dashboard(request: Request, session: SessionDep):
         return redir
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
     clients = session.exec(select(Client).order_by(Client.id.desc())).all()
-    inbound_counts = {
-        node.id: len(session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all())
-        for node in nodes
-    }
-    # Виджет «Входы» на обзоре: те же шаблоны, что выбираются у каждой ноды.
+    inbound_counts = fleet_inbound_counts(session)
     templates_rows = session.exec(select(InboundTemplate)).all()
-    node_templates: dict[int, list[int]] = {}
-    for node in nodes:
-        if node.id is None:
-            continue
-        node_templates[node.id] = node_template_ids(session, node.id)
+    node_templates = fleet_template_ids(session)
     # Флаги «нужно обновление» считаем по числам версий (3.11 == 3.11.0), а не строками.
     update_flags = {
         node.id: {
@@ -180,7 +174,7 @@ def dashboard(request: Request, session: SessionDep):
         if node.id is not None
     }
     return templates.TemplateResponse(
-        'dashboard.html',
+        request, 'dashboard.html',
         _ctx(
             request,
             page='dashboard',
@@ -217,7 +211,7 @@ def logs_page(request: Request, session: SessionDep, state: str = '', source: st
     if before > 0:
         query = query.where(MasterOperation.id < before)
     rows = session.exec(query.order_by(MasterOperation.id.desc()).limit(51)).all()
-    return templates.TemplateResponse('_log_entries.html' if fragment else 'logs.html', _ctx(
+    return templates.TemplateResponse(request, '_log_entries.html' if fragment else 'logs.html', _ctx(
         request, page='logs', rows=rows[:50], more=len(rows) > 50, before=before, state=state,
         source=source, q=q, states=STATES, sources=SOURCES, counts=counts, now=now.replace(tzinfo=None)))
 
@@ -228,7 +222,7 @@ def site_page(request: Request, session: SessionDep):
         return redir
     ingest_access_log(session)
     return templates.TemplateResponse(
-        'site.html',
+        request, 'site.html',
         _ctx(request, page='site', series=site_series(session, '24h')),
     )
 
@@ -253,8 +247,9 @@ def node_detail(request: Request, node_id: int, session: SessionDep):
     if not node:
         return RedirectResponse('/', status_code=302)
     return templates.TemplateResponse(
-        'node_detail.html',
-        _ctx(request, page='dashboard', node=node),
+        request, 'node_detail.html',
+        _ctx(request, page='dashboard', node=node,
+             has_credentials=session.get(AppSetting, credential_key(node_id)) is not None),
     )
 
 
@@ -279,7 +274,7 @@ def protection_page(request: Request, session: SessionDep):
         if node.id is not None
     }
     return templates.TemplateResponse(
-        'protection.html',
+        request, 'protection.html',
         _ctx(
             request,
             page='protection',
@@ -300,7 +295,7 @@ def releases_page(request: Request):
         return redir
     groups = release_groups()
     return templates.TemplateResponse(
-        'releases.html',
+        request, 'releases.html',
         _ctx(
             request,
             page='releases',
@@ -332,7 +327,7 @@ def templates_page(request: Request, session: SessionDep):
         for node in nodes
     ]
     return templates.TemplateResponse(
-        'templates.html',
+        request, 'templates.html',
         _ctx(
             request,
             page='templates',
@@ -350,6 +345,6 @@ def config_page(request: Request, session: SessionDep):
     doc = session.exec(select(ConfigDoc)).first()
     clients = session.exec(select(Client).order_by(Client.id.desc())).all()
     return templates.TemplateResponse(
-        'config.html',
+        request, 'config.html',
         _ctx(request, page='config', doc=doc, clients=clients),
     )

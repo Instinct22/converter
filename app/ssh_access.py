@@ -13,6 +13,7 @@ import re
 import shlex
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.models import Node
 from app.settings import DATA_DIR, settings
@@ -28,6 +29,10 @@ AUTH_PASSWORD = 'password'
 AUTH_NONE = 'none'
 _AUTHS = {AUTH_KEY, AUTH_BOTH, AUTH_PASSWORD, AUTH_NONE}
 _PUB_BODY = re.compile(r'^[A-Za-z0-9+/=]+$')
+
+
+class HostIdentityError(RuntimeError):
+    pass
 
 
 @dataclass
@@ -209,6 +214,8 @@ def open_client(node: Node, *, mode: str = 'auto', timeout: int = 20):
     if auth in {AUTH_KEY, AUTH_BOTH} and key_file_exists():
         try:
             return _connect_host(host, user, port, key_path=str(PRIVATE_PATH), timeout=timeout)
+        except HostIdentityError:
+            raise
         except Exception:
             if auth == AUTH_BOTH and password:
                 return _connect_host(host, user, port, password=password, timeout=timeout)
@@ -303,6 +310,8 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
     script = key_lockdown_script(int(getattr(node, 'ssh_port', 0) or 22), settings.master_ip)
     try:
         code, out, err = call('key', script, 70)
+    except HostIdentityError as exc:
+        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'])
     except Exception as exc:
         code, out, err = 1, '', str(exc)
     done = finish_key_session(code, out, err)
@@ -314,6 +323,8 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
         return AdoptResult(False, AUTH_NONE, [f'{name}: нет пароля, {detail}'])
     try:
         code, out, err = call('password', install_pubkey_script(public), 40)
+    except HostIdentityError as exc:
+        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'])
     except Exception as exc:
         save(AUTH_PASSWORD, True)
         return AdoptResult(False, AUTH_PASSWORD, [f'{name}: не удалось зайти по паролю: {exc}'])
@@ -323,6 +334,8 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
         return AdoptResult(False, AUTH_PASSWORD, [f'{name}: ключ не записался: {detail}'])
     try:
         code, out, err = call('key', script, 70)
+    except HostIdentityError as exc:
+        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'])
     except Exception as exc:
         save(AUTH_BOTH, True)
         return AdoptResult(False, AUTH_BOTH, [f'{name}: ключ записан, повторный вход не открылся: {exc}'])
@@ -346,13 +359,32 @@ def _target(node: Node) -> tuple[str, str, int]:
     return host, user, port
 
 
+def trusted_ssh_client():
+    import paramiko
+
+    client = paramiko.SSHClient()
+    try:
+        client.load_host_keys(str(Path.home() / '.ssh' / 'known_hosts'))
+    except (FileNotFoundError, PermissionError):
+        pass  # The per-user OpenSSH file is optional.
+    hosts_file = KEY_DIR / 'known_hosts'
+    if hosts_file.is_file():
+        client.load_host_keys(str(hosts_file))
+
+    class RejectUnknownHost(paramiko.MissingHostKeyPolicy):
+        def missing_host_key(self, client, hostname, key):
+            raise HostIdentityError(f'Для {hostname} нет проверенного ключа в known_hosts')
+
+    client.set_missing_host_key_policy(RejectUnknownHost())
+    return client
+
+
 def _connect_host(host: str, user: str, port: int, *, password: str = '', key_path: str = '', timeout: int = 20):
     import paramiko
 
     if not host:
         raise RuntimeError('нет адреса сервера')
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client = trusted_ssh_client()
     wait = min(25, max(8, int(timeout)))
     kwargs = {
         'hostname': host,
@@ -370,7 +402,14 @@ def _connect_host(host: str, user: str, port: int, *, password: str = '', key_pa
         kwargs['password'] = password
     else:
         raise RuntimeError('нет ключа и пароля')
-    client.connect(**kwargs)
+    try:
+        client.connect(**kwargs)
+    except paramiko.BadHostKeyException as exc:
+        client.close()
+        raise HostIdentityError(f'Для {host} изменился SSH-ключ хоста') from exc
+    except Exception:
+        client.close()
+        raise
     return client
 
 
