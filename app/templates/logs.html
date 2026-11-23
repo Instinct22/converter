@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Логи — Master{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Логи</h1><p class="lede">Операции Master за 30 дней. Время московское (UTC+3).</p></div>
+  <label class="check"><input type="checkbox" id="log-live" {% if not before %}checked{% endif %}> Автообновление · 10 с</label>
+</div>
+<form class="card log-filters" action="/logs" method="get">
+  <label>Поиск<input type="search" name="q" value="{{ q }}" maxlength="120" placeholder="Нода, операция или текст ошибки"></label>
+  <label>Статус<select name="state"><option value="">Все статусы</option>{% for key,label in states.items() %}<option value="{{ key }}" {% if key == state %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Источник<select name="source"><option value="">Все источники</option>{% for key,label in sources.items() %}<option value="{{ key }}" {% if key == source %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <button class="btn" type="submit">Показать</button><a href="/logs">Сбросить</a>
+</form>
+<div id="log-results">{% include "_log_entries.html" %}</div>
+<p class="hint" id="log-feedback" role="status"></p>
+{% endblock %}
+{% block scripts %}
+<script>
+let refreshing = false;
+setInterval(async () => {
+  if (refreshing || document.hidden || !document.getElementById('log-live').checked) return;
+  refreshing = true;
+  const url = new URL(location.href);
+  url.searchParams.set('fragment', 'true');
+  const feedback = document.getElementById('log-feedback');
+  try {
+    const res = await fetch(url);
+    if (res.redirected && new URL(res.url).pathname === '/login') { location.assign('/login'); return; }
+    if (!res.ok) throw Error('HTTP ' + res.status);
+    const results = document.getElementById('log-results');
+    const open = [...results.querySelectorAll('details[open]')].map(el => el.id);
+    results.innerHTML = await res.text();
+    open.forEach(id => { const row = document.getElementById(id); if (row) row.open = true; });
+    feedback.textContent = '';
+  } catch (err) { feedback.textContent = 'Обновление не удалось. ' + err.message; }
+  finally { refreshing = false; }
+}, 10000);
+</script>
+{% endblock %}

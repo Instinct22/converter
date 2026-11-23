@@ -619,6 +619,8 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
     from app.exporters import remember_grafana_target
 
     remember_grafana_target(session, node.panel_url.rstrip('/') + '/api/v1/write', spec.write_token)
+    from app.activity import worker_state
+    worker_state(session, node, 'install', 'Установка Grafana', 'ok', 'Grafana готова к приёму метрик')
     node.install_state = 'done'
     node.enabled = False
     node.last_error = ''

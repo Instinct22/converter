@@ -12,6 +12,7 @@ import re
 import shlex
 import threading
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.models import AppSetting, Node
@@ -24,7 +25,6 @@ _SHA = {
     'amd64': '5c00c5234f1ee45900b25539a5a0ab82146a098c15c16a4ec3bc855b597a6477',
     'arm64': '96d82b3b261803f89815b325601cbbc58f49cd8265617bfde1527211934bdd48',
 }
-_busy = threading.Lock()
 
 
 def remember_grafana_target(session: Session, url: str, token: str) -> None:
@@ -218,41 +218,36 @@ def apply_exporter(session: Session, node_id: int, runner=None) -> str:
     return f'{node.name}: метрики уходят на Grafana'
 
 
-def start_exporters(session: Session) -> int:
+def start_exporters(session: Session, node_id: int | None = None) -> int:
     grafana_target(session)
-    rows = [
-        node for node in session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
-        if node.id is not None and (node.install_state or '') != 'installing'
-    ]
-    if not rows:
-        raise ValueError('Нет серверов, куда ставить экспортёр')
-    if not _busy.acquire(blocking=False):
-        raise ValueError('Экспортёры уже ставятся')
-    ids = [int(node.id) for node in rows]
-
-    for node in rows:
-        node.exporter_state = 'installing'
-        node.exporter_note = 'в очереди'
-        session.add(node)
+    query = update(Node).where(Node.install_state != 'installing', Node.exporter_state != 'installing')
+    if node_id is not None:
+        query = query.where(Node.id == node_id)
+    ids = session.execute(query.values(exporter_state='installing', exporter_note='в очереди')
+                          .returning(Node.id)).scalars().all()
     session.commit()
+    if not ids:
+        raise ValueError('Установка уже выполняется или сервер ещё не готов')
 
     def _run() -> None:
-        from app.database import engine
+        for target_id in ids:
+            with Session(session_bind) as local:
+                try:
+                    apply_exporter(local, target_id)
+                except Exception as exc:
+                    local.rollback()
+                    node = local.get(Node, target_id)
+                    if node:
+                        _remember(local, node, 'failed', f'Ошибка установки ({type(exc).__name__})')
 
-        try:
-            for node_id in ids:
-                with Session(engine) as local:
-                    try:
-                        apply_exporter(local, node_id)
-                    except Exception:
-                        local.rollback()
-                        node = local.get(Node, node_id)
-                        if node:
-                            _remember(local, node, 'failed', 'ошибка установки агента')
-        finally:
-            _busy.release()
-
-    threading.Thread(target=_run, name='exporters', daemon=True).start()
+    session_bind = session.get_bind()
+    try:
+        threading.Thread(target=_run, name='exporters', daemon=True).start()
+    except RuntimeError:
+        session.execute(update(Node).where(Node.id.in_(ids)).values(
+            exporter_state='failed', exporter_note='Master не смог запустить установку'))
+        session.commit()
+        raise
     return len(ids)
 
 
@@ -282,6 +277,9 @@ def _get(session: Session, key: str) -> str:
 
 
 def _remember(session: Session, node: Node, state: str, note: str) -> None:
+    from app.activity import worker_state
+    worker_state(session, node, 'agent', 'Установка агента метрик',
+                 {'installing': 'running', 'done': 'ok', 'failed': 'error'}[state], note)
     node.exporter_state = state
     node.exporter_note = (note or '')[:240]
     session.add(node)

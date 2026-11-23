@@ -1086,14 +1086,15 @@ def push_server_names(node: Node, inbound: NodeInbound, names: list[str]) -> Non
         xui.update_inbound(inbound.xui_inbound_id, obj)
 
 
-def disable_expired(session: Session) -> int:
-    now = datetime.now(timezone.utc)
+def disable_expired(session: Session, logs: list[str] | None = None) -> int:
     changed = 0
     clients = session.exec(select(Client).where(Client.enable.is_(True))).all()
     for client in clients:
-        if client.expire_at and client.expire_at <= now:
+        if not client_wanted_on_panel(client):
             client.enable = False
             session.add(client)
-            provision_client(session, client)
+            steps = provision_client(session, client)
+            if logs is not None:
+                logs.extend(steps)
             changed += 1
     return changed

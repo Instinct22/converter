@@ -1,10 +1,15 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from sqlalchemy import func, or_
 from sqlmodel import select
+
+from app.activity import SOURCES, STATES
+from app.models import MasterOperation, utcnow
 
 from app.deps import SessionDep, credentials_ok, request_authorized
 from app.flags import COUNTRY_NAMES
@@ -43,6 +48,23 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(ROOT / 'app' / 'templates'))
 templates.env.filters['tojson'] = lambda value: json.dumps(value, ensure_ascii=False, default=str)
 templates.env.filters['script_json'] = script_json
+
+
+MSK = timezone(timedelta(hours=3))
+
+
+def moscow_time(value):
+    if not value:
+        return '—'
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(MSK).strftime('%d.%m.%Y %H:%M:%S')
+
+
+templates.env.filters['moscow_time'] = moscow_time
+templates.env.filters['moscow_epoch'] = lambda stamp: (
+    moscow_time(datetime.fromtimestamp(stamp, timezone.utc))[:-3] if stamp else 'Нет данных'
+)
 
 
 def client_edit_payload(client: Client) -> dict:
@@ -172,6 +194,32 @@ def dashboard(request: Request, session: SessionDep):
             update_flags=update_flags,
         ),
     )
+
+
+@router.get('/logs', response_class=HTMLResponse)
+def logs_page(request: Request, session: SessionDep, state: str = '', source: str = '',
+              q: str = '', before: int = 0, fragment: bool = False):
+    if (redir := _need_admin(request)):
+        return redir
+    now = utcnow()
+    counts = dict(session.exec(select(MasterOperation.state, func.count()).where(
+        or_(MasterOperation.started_at >= now - timedelta(days=1), MasterOperation.state == 'running')
+    ).group_by(MasterOperation.state)).all())
+    query = select(MasterOperation)
+    if state in STATES:
+        query = query.where(MasterOperation.state == state)
+    if source in SOURCES:
+        query = query.where(MasterOperation.source == source)
+    q = q.strip()[:120]
+    if q:
+        query = query.where(or_(*(field.icontains(q, autoescape=True) for field in
+                                  (MasterOperation.title, MasterOperation.target, MasterOperation.detail))))
+    if before > 0:
+        query = query.where(MasterOperation.id < before)
+    rows = session.exec(query.order_by(MasterOperation.id.desc()).limit(51)).all()
+    return templates.TemplateResponse('_log_entries.html' if fragment else 'logs.html', _ctx(
+        request, page='logs', rows=rows[:50], more=len(rows) > 50, before=before, state=state,
+        source=source, q=q, states=STATES, sources=SOURCES, counts=counts, now=now.replace(tzinfo=None)))
 
 
 @router.get('/site', response_class=HTMLResponse)

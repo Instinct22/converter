@@ -247,8 +247,7 @@ input:focus, textarea:focus, select:focus {
 }
 .monitor-cols > * { min-width: 0; }
 .nodes-cols {
-  /* 10 колонок: сервер, 3x-ui, Xray, из РФ, адрес, входы, состояние, файрвол, в Clash, кнопки */
-  grid-template-columns: minmax(0, 0.66fr) 86px 86px 84px minmax(0, 0.62fr) minmax(0, 1.05fr) minmax(0, 0.9fr) 52px 92px 150px;
+  grid-template-columns: minmax(0, 0.66fr) 86px 86px 84px minmax(0, 0.62fr) minmax(0, 1.05fr) minmax(0, 0.9fr) 54px 52px 76px 150px;
 }
 /* Заголовок «Из РФ» вместе со стрелкой сортировки не должен ломать сетку */
 .nodes-cols .sort-rf {
@@ -271,7 +270,7 @@ input:focus, textarea:focus, select:focus {
 @media (max-width: 1400px) {
   .nodes-cols {
     gap: 8px;
-    grid-template-columns: minmax(0, 0.66fr) 78px 78px 78px minmax(0, 0.62fr) minmax(0, 1fr) minmax(0, 0.85fr) 48px 84px 142px;
+    grid-template-columns: minmax(0, 0.66fr) 78px 78px 78px minmax(0, 0.62fr) minmax(0, 1fr) minmax(0, 0.85fr) 46px 48px 70px 142px;
   }
 }
 .nodes-cols [data-rf-label] { justify-self: start; white-space: nowrap; }
@@ -297,6 +296,10 @@ input:focus, textarea:focus, select:focus {
   color: var(--faint);
 }
 .nodes-cols .col-cap .th-hint { text-align: center; white-space: nowrap; }
+.agent-cell { display: flex; align-items: center; justify-content: center; gap: 5px; }
+.agent-install { cursor: pointer; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
+.agent-install:disabled { cursor: wait; }
+.agent-history { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; min-height: 30px; border-radius: 6px; }
 .node-clash { display: flex; justify-content: center; }
 .nodes-cols [data-live] {
   overflow: hidden;
@@ -305,14 +308,14 @@ input:focus, textarea:focus, select:focus {
 }
 .clients-cols {
   /* Последняя колонка — 5 кнопок клиента как на вкладке «Клиенты»: 485px + воздух */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 92px minmax(0, 0.7fr) minmax(0, 500px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 92px minmax(0, 0.7fr) minmax(106px, .85fr) minmax(0, 465px);
 }
 /* В строке клиента 5 кнопок как на вкладке «Клиенты»: на узких экранах переносим */
 .client-actions { flex-wrap: wrap; }
 .client-actions .btn.small { white-space: nowrap; }
 @media (max-width: 1400px) {
   .clients-cols {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) 84px minmax(0, 0.65fr) minmax(0, 380px);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) 84px minmax(0, 0.65fr) minmax(100px, .8fr) minmax(0, 360px);
   }
   .client-actions { gap: 6px; }
   .client-actions .btn.small { padding: 6px 9px; font-size: 12.5px; }
@@ -910,6 +913,9 @@ details.help p, details.help li { color: var(--muted); font-size: 13.5px; line-h
   .monitor-head { display: none; }
   .monitor-cols, .monitor-row { grid-template-columns: 1fr; }
   /* Шапка скрыта, поэтому подпись переключателя показываем прямо в строке */
+  .agent-cell { justify-content: flex-start; }
+  .agent-cell::before { content: "Агент"; color: var(--muted); }
+  [data-last-online]::before { content: "Был в сети (МСК) · "; }
   .node-clash { justify-content: flex-start; gap: 10px; align-items: center; }
   .node-clash::before {
     content: "В Clash";
@@ -1085,4 +1091,27 @@ a.ping-line[href]:hover { background: rgba(255, 255, 255, 0.04); color: inherit;
 @media (max-width: 720px) {
   .ping-line { grid-template-columns: 1fr auto; }
   .ping-track { grid-column: 1 / -1; }
+}
+
+.log-filters { display: flex; align-items: end; gap: 14px; flex-wrap: wrap; }
+.log-filters label { display: grid; gap: 6px; color: var(--muted); }
+.log-filters label:first-child { flex: 1 1 220px; }
+.log-stats { margin: 18px 0; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); }
+.log-stats .value, .operation small { display: block; }
+.operation { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 16px; padding: 15px 0; border-top: 1px solid var(--line); }
+.operation-time, .operation-end small { font-variant-numeric: tabular-nums; }
+.operation small { color: var(--muted); margin-top: 4px; }
+.op-detail { margin-top: 6px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.operation summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 6px; overflow-wrap: anywhere; }
+.operation pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-elev); padding: 10px; }
+.operation-end { text-align: right; }
+.op-state { display: inline-block; border-radius: 6px; padding: 3px 8px; font-size: 13px; }
+.op-ok { color: var(--ok); background: var(--ok-soft); }
+.op-error { color: var(--danger); background: var(--danger-soft); }
+.op-warning { color: var(--warn); background: var(--warn-soft); }
+.op-running { color: var(--accent-2); background: var(--accent-soft); }
+@media (max-width: 680px) {
+  .operation { grid-template-columns: 1fr auto; }
+  .operation-main { grid-column: 1 / -1; grid-row: 2; }
+  .log-filters label { width: 100%; }
 }

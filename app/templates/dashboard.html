@@ -24,12 +24,11 @@
       <div class="fold-tools" onclick="event.stopPropagation()">
         <button class="btn secondary" type="button" id="refresh-overview">Обновить статус</button>
         {% for monitor in nodes if monitor.is_grafana() and monitor.panel_url %}
-        <a class="btn secondary" href="{{ monitor.panel_url }}/d/master-connectivity">Доступность в Grafana</a>
+        <a class="btn secondary" href="{{ monitor.panel_url }}/d/master-connectivity" title="Доступность серверов в Grafana"><img class="grafana-mark" src="/static/grafana.svg?v=2" alt=""> Grafana</a>
         {% endfor %}
         {% if nodes %}
         <button class="btn secondary" type="button" data-refresh-all>Сверить все</button>
         {% endif %}
-        <button class="btn secondary" type="button" id="install-exporters" title="node_exporter на каждом сервере шлёт метрики на Grafana">Поставить агенты</button>
         <button class="btn" type="button" onclick="XUI.openModal('add-node')">Добавить сервер</button>
         <span class="fold-chev" aria-hidden="true"></span>
       </div>
@@ -44,6 +43,7 @@
         <button class="sort-btn" type="button" data-sort="host">Адрес</button>
         <button class="sort-btn" type="button" data-sort="ports">Входы</button>
         <button class="sort-btn" type="button" data-sort="cpu">Состояние</button>
+        <span class="col-cap">Агент</span>
         <button class="sort-btn" type="button" data-sort="fw">Файрвол</button>
         <span class="col-cap">В Clash<span class="th-hint">в подписке</span></span>
         <span></span>
@@ -71,8 +71,8 @@
           <span></span>
           <span></span>
           {% else %}
-          <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if pflag == 'update' and not pstate }} {{ 'is-current' if pflag == 'current' and not pstate }} {{ 'is-running' if pstate == 'running' }} {{ 'is-failed' if pstate == 'failed' }}" data-xui-ver data-latest="{{ n.panel_latest_version }}" title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Обновление панели выполняется' if pstate == 'running' else ('Обновление панели не завершилось — проверьте ноду вручную' if pstate == 'failed' else ('Доступно обновление панели до ' + n.panel_latest_version if pflag == 'update' else ('Актуальная версия панели' if pflag == 'current' else 'Панель 3x-ui на сервере')))) }}"><span class="ver-num">{{ n.xui_version or '—' }}</span>{% if pstate == 'running' %}<span class="ver-spin" title="обновление панели выполняется">…</span>{% elif pstate == 'failed' %}<span class="ver-fail" title="обновление панели не завершилось — проверьте ноду вручную">!</span>{% elif pflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="panel" data-cur="{{ n.xui_version or '' }}" data-latest="{{ n.panel_latest_version }}" title="Обновить панель до {{ n.panel_latest_version }}">↑</button>{% endif %}</span>
-          <span class="ver-tag {{ 'is-empty' if not n.xray_version }} {{ 'has-update' if xflag == 'update' and not xstate }} {{ 'is-current' if xflag == 'current' and not xstate }} {{ 'is-running' if xstate == 'running' }} {{ 'is-failed' if xstate == 'failed' }}" data-xray-ver data-latest="{{ n.xray_latest_version }}" title="{{ 'Версию ядра снять не удалось' if not n.xray_version else ('Обновление ядра выполняется' if xstate == 'running' else ('Обновление ядра не завершилось — проверьте ноду вручную' if xstate == 'failed' else ('Доступно обновление ядра до ' + n.xray_latest_version if xflag == 'update' else ('Актуальная версия ядра' if xflag == 'current' else 'Ядро Xray на сервере')))) }}"><span class="ver-num">{{ n.xray_version or '—' }}</span>{% if xstate == 'running' %}<span class="ver-spin" title="обновление ядра выполняется">…</span>{% elif xstate == 'failed' %}<span class="ver-fail" title="обновление ядра не завершилось — проверьте ноду вручную">!</span>{% elif xflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="xray" data-cur="{{ n.xray_version or '' }}" data-latest="{{ n.xray_latest_version }}" title="Обновить ядро до {{ n.xray_latest_version }}">↑</button>{% endif %}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xui_version }} {{ 'has-update' if pflag == 'update' and not pstate }} {{ 'is-current' if pflag == 'current' and not pstate }} {{ 'is-running' if pstate == 'running' }} {{ 'is-failed' if pstate == 'failed' }}" data-xui-ver data-latest="{{ n.panel_latest_version }}" title="{{ 'Версию панели снять не удалось' if not n.xui_version else ('Обновление панели выполняется' if pstate == 'running' else ('Обновление панели не завершилось — проверьте ноду вручную' if pstate == 'failed' else ('Доступно обновление панели до ' + n.panel_latest_version if pflag == 'update' else ('Актуальная версия панели' if pflag == 'current' else 'Панель 3x-ui на сервере')))) }}"><span class="ver-num">{{ n.xui_version or '—' }}</span>{% if pstate == 'running' %}<span class="ver-spin" title="обновление панели выполняется">…</span>{% elif pstate == 'failed' %}<span class="ver-fail" title="обновление панели не завершилось — проверьте ноду вручную">!</span>{% elif n.enabled and pflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="panel" data-cur="{{ n.xui_version or '' }}" data-latest="{{ n.panel_latest_version }}" title="Обновить панель до {{ n.panel_latest_version }}">↑</button>{% endif %}</span>
+          <span class="ver-tag {{ 'is-empty' if not n.xray_version }} {{ 'has-update' if xflag == 'update' and not xstate }} {{ 'is-current' if xflag == 'current' and not xstate }} {{ 'is-running' if xstate == 'running' }} {{ 'is-failed' if xstate == 'failed' }}" data-xray-ver data-latest="{{ n.xray_latest_version }}" title="{{ 'Версию ядра снять не удалось' if not n.xray_version else ('Обновление ядра выполняется' if xstate == 'running' else ('Обновление ядра не завершилось — проверьте ноду вручную' if xstate == 'failed' else ('Доступно обновление ядра до ' + n.xray_latest_version if xflag == 'update' else ('Актуальная версия ядра' if xflag == 'current' else 'Ядро Xray на сервере')))) }}"><span class="ver-num">{{ n.xray_version or '—' }}</span>{% if xstate == 'running' %}<span class="ver-spin" title="обновление ядра выполняется">…</span>{% elif xstate == 'failed' %}<span class="ver-fail" title="обновление ядра не завершилось — проверьте ноду вручную">!</span>{% elif n.enabled and xflag == 'update' %}<button type="button" class="ver-up" data-node-id="{{ n.id }}" data-update-kind="xray" data-cur="{{ n.xray_version or '' }}" data-latest="{{ n.xray_latest_version }}" title="Обновить ядро до {{ n.xray_latest_version }}">↑</button>{% endif %}</span>
           <span class="rf-tag {{ '' if not n.enabled else ('on' if n.rf_ok else ('bad' if n.rf_checked_at else '')) }}" data-rf-label title="{{ 'Нода выключена, в подписку не входит' if not n.enabled else (n.rf_note or 'Проверки из России ещё не было') }}">{{ '—' if not n.enabled else ('есть' if n.rf_ok else ('нет' if n.rf_checked_at else '—')) }}</span>
           {% endif %}
           <span class="mono">{{ n.public_host or '—' }}</span>
@@ -144,7 +144,12 @@
             </div>
             {% endif %}
           </div>
-          <div><span class="hint" data-live {% if n.is_grafana() %}data-install-step{% endif %}>{% if n.is_grafana() %}{{ n.install_step() or '—' }}{% else %}—{% endif %}</span><div class="hint" data-agent>{{ n.exporter_note or "" }}</div></div>
+          <div><span class="hint" data-live {% if n.is_grafana() %}data-install-step{% endif %}>{% if n.is_grafana() %}{{ n.install_step() or '—' }}{% else %}—{% endif %}</span></div>
+          <div class="agent-cell" data-agent-state="{{ n.exporter_state }}">
+            {% set agent_label = 'Агент установлен. Доставка подтверждена при установке.' if n.exporter_state == 'done' else (n.exporter_note or 'Агент не установлен') %}
+            <a class="agent-history" href="/logs?{{ {'source':'worker', 'q':n.name}|urlencode }}" data-agent-history title="{{ agent_label }} · Открыть логи" aria-label="{{ n.name }} · {{ agent_label }} · Открыть логи"><span class="status-dot {{ 'ok' if n.exporter_state == 'done' else ('warn' if n.exporter_state == 'installing' else 'bad') }}" data-agent-dot></span></a>
+            <button type="button" class="agent-install" data-agent-install="{{ n.id }}" title="Установить агент на {{ n.name }}" aria-label="Установить агент на {{ n.name }}" {% if n.exporter_state == 'done' %}hidden{% endif %} {% if n.exporter_state == 'installing' or n.install_state == 'installing' %}disabled{% endif %}>{{ '…' if n.exporter_state == 'installing' else '↓' }}</button>
+          </div>
           <span class="fw-tag {{ 'on' if n.firewall_on else '' }}" title="{{ n.firewall_note or '' }}">{{ 'вкл' if n.firewall_on else 'выкл' }}</span>
           <div class="node-clash">
             {% if n.install_kind == 'grafana' %}
@@ -209,11 +214,12 @@
         <button class="sort-btn" type="button" data-sort="used">Трафик</button>
         <button class="sort-btn" type="button" data-sort="days">Срок</button>
         <button class="sort-btn" type="button" data-sort="online">Сеть</button>
+        <button class="sort-btn" type="button" data-sort="seen">Был в сети<span class="th-hint">МСК</span></button>
         <span></span>
       </div>
       <div class="monitor" id="client-monitor">
         {% for c in clients %}
-        <article class="monitor-row monitor-cols clients-cols client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0">
+        <article class="monitor-row monitor-cols clients-cols client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0" data-seen="{{ c.last_online or 0 }}">
           <div class="monitor-main">
             <span class="status-dot {{ 'bad' if is_expired(c) else 'ok' }}" data-cdot></span>
             <strong>{{ c.name }}</strong>
@@ -221,11 +227,12 @@
           <span data-traffic>трафик…</span>
           <span class="hint" data-expire>{{ expire_label(c) }}</span>
           <span class="hint" data-online>—</span>
+          <span class="hint" data-last-online title="Последняя активность по данным 3x-ui">{{ c.last_online | moscow_epoch }}</span>
           <div class="monitor-actions client-actions">
             <button class="btn small secondary" type="button" data-copy="{{ client_sub_url(c) }}">Подписка</button>
             <button class="btn small secondary" type="button" data-edit='{{ client_edit_payload(c) | tojson }}'>Изменить</button>
             <button class="btn small secondary" type="button" data-add="{{ c.id }}">+30 дней</button>
-            <button class="btn small secondary" type="button" data-prev="{{ c.id }}">YAML подписки</button>
+            <button class="btn small secondary" type="button" data-prev="{{ c.id }}" title="Посмотреть профиль Mihomo, который получает этот клиент по ссылке подписки">Посмотреть YAML</button>
             <button class="btn small danger" type="button" data-del="{{ c.id }}">Удалить</button>
           </div>
         </article>
@@ -270,8 +277,9 @@
 {% endblock %}
 {% block scripts %}
 <script>
-async function loadOverview() {
-  const data = await XUI.api('/api/overview');
+let overviewTimer = 0;
+async function loadOverview(refreshVersions = false) {
+  const data = await XUI.api('/api/overview' + (refreshVersions ? '?refresh_versions=true' : ''));
   const fleet = (data.nodes || []).filter((n) => n.install_kind !== 'grafana');
   const online = fleet.filter((n) => n.online).length;
   const el = document.getElementById('stat-online');
@@ -279,20 +287,33 @@ async function loadOverview() {
   (data.nodes || []).forEach((n) => {
     const row = document.querySelector('[data-node="' + n.id + '"]');
     if (!row) return;
-    const agent = row.querySelector('[data-agent]');
-    if (agent) agent.textContent = n.exporter_note ? 'Агент: ' + n.exporter_note : '';
+    const agentDot = row.querySelector('[data-agent-dot]');
+    const install = row.querySelector('[data-agent-install]');
+    const state = n.exporter_state;
+    agentDot.className = 'status-dot ' + (state === 'done' ? 'ok' : state === 'installing' ? 'warn' : 'bad');
+    const agentNote = state === 'done' ? 'Агент установлен. Доставка метрик подтверждена при установке.' : (n.exporter_note || 'Агент не установлен');
+    const history = row.querySelector('[data-agent-history]');
+    history.title = agentNote + ' · Открыть логи';
+    history.setAttribute('aria-label', n.name + ' · ' + history.title);
+    install.hidden = state === 'done';
+    install.disabled = state === 'installing' || n.install_state === 'installing';
+    install.textContent = state === 'installing' ? '…' : '↓';
+    install.title = state === 'failed' ? agentNote + ' · Повторить установку' : 'Установить агент на ' + n.name;
+    const badge = row.querySelector('[data-install-badge]');
+    if (badge) {
+      const failed = n.install_state === 'failed';
+      const running = n.install_state === 'installing';
+      badge.textContent = failed ? 'ошибка' : (running ? 'ставится' : 'готово');
+      badge.className = 'fw-tag ' + (failed ? 'bad' : (running ? 'warn' : 'on'));
+      badge.hidden = !running && !failed && n.install_kind !== 'grafana';
+    }
     if (n.install_kind === 'grafana') {
       const step = row.querySelector('[data-install-step]');
       if (step) step.textContent = n.install_step || '—';
-      const badge = row.querySelector('[data-install-badge]');
-      if (badge) {
-        const failed = n.install_state === 'failed';
-        const running = n.install_state === 'installing';
-        badge.textContent = failed ? 'ошибка' : (running ? 'ставится' : 'готово');
-        badge.className = 'fw-tag ' + (failed ? 'bad' : (running ? 'warn' : 'on'));
-      }
       return;
     }
+    const toggle = row.querySelector('[data-enable]');
+    if (toggle && !toggle.matches(':focus')) toggle.checked = n.enabled;
     const dot = row.querySelector('[data-dot]');
     if (dot) {
       dot.classList.remove('ok', 'bad');
@@ -331,15 +352,16 @@ async function loadOverview() {
   nodeSort.resort();
   clientSort.resort();
   const pending = (data.nodes || []).some((n) =>
-    (n.install_kind === 'grafana' && n.install_state === 'installing') || n.exporter_state === 'installing'
+    n.install_state === 'installing' || n.exporter_state === 'installing'
   );
-  if (pending) setTimeout(() => loadOverview().catch(() => {}), 4000);
+  clearTimeout(overviewTimer);
+  if (pending) overviewTimer = setTimeout(() => loadOverview().catch(() => {}), 4000);
 }
 
 document.getElementById('refresh-overview')?.addEventListener('click', async (e) => {
   try {
-    await XUI.withBusy(e.currentTarget, loadOverview);
-  } catch (err) {}
+    await XUI.withBusy(e.currentTarget, () => loadOverview(true));
+  } catch (err) { /* withBusy показывает причину ошибки. */ }
 });
 document.querySelectorAll('[data-enable]').forEach((el) => el.addEventListener('change', async () => {
   try {
@@ -395,23 +417,26 @@ document.getElementById('upd-confirm')?.addEventListener('click', async (e) => {
   XUI.busy(btn, true);
   try {
     res = await XUI.api(path, 'POST', {});
-  } catch (err) { XUI.busy(btn, false); return; }
+  } catch (err) { XUI.busy(btn, false); XUI.toast(err.message, 'err'); return; }
   XUI.busy(btn, false);
   if (!res.ok) { XUI.toast(res.message || 'не удалось запустить обновление', 'err'); return; }
   XUI.closeModal('confirm-update');
   updPending = null;
   XUI.toast('Обновление запущено — ждём возврата ноды');
-  loadOverview().catch(() => {});
+  await loadOverview().catch(() => {});
   startUpdPoll();
 });
-document.getElementById('install-exporters')?.addEventListener('click', async (e) => {
+document.querySelectorAll('[data-agent-install]').forEach(btn => btn.addEventListener('click', async () => {
+  btn.disabled = true;
   try {
-    const data = await XUI.withBusy(e.currentTarget, () => XUI.api('/api/exporters', 'POST', {}));
-    XUI.showLog(document.getElementById('node-action-log'), data.logs || []);
-    XUI.toast(data.logs && data.logs[0] ? data.logs[0] : 'Ставлю экспортёры');
-    loadOverview().catch(() => {});
-  } catch (err) {}
-});
+    await XUI.api('/api/nodes/' + btn.dataset.agentInstall + '/exporter', 'POST');
+    XUI.toast('Установка агента запущена');
+    await loadOverview();
+  } catch (err) {
+    btn.disabled = false;
+    XUI.toast(err.message, 'err');
+  }
+}));
 loadOverview().catch(() => {}).finally(() => {
   XUI.watchPresence(() => clientSort.resort());
   if (document.querySelector('.ver-tag.is-running')) startUpdPoll();

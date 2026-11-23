@@ -50,6 +50,8 @@ NODE_COLUMNS = {
     'version_checked_at': 'TIMESTAMP',
     'panel_latest_version': "TEXT DEFAULT ''",
     'xray_latest_version': "TEXT DEFAULT ''",
+    'panel_check_error': "TEXT DEFAULT ''",
+    'xray_check_error': "TEXT DEFAULT ''",
     'update_checked_at': 'TIMESTAMP',
     'update_state': "TEXT DEFAULT ''",
     'update_kind': "TEXT DEFAULT ''",
@@ -100,7 +102,7 @@ NODEINBOUND_COLUMNS = {
 
 
 def _ensure_cabinet_account() -> None:
-    _ensure_columns('client', {'cabinet_account_id': 'TEXT'})
+    _ensure_columns('client', {'cabinet_account_id': 'TEXT', 'last_online': 'INTEGER DEFAULT 0'})
     with engine.begin() as conn:
         conn.execute(
             text(

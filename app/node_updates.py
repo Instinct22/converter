@@ -1,25 +1,15 @@
-"""Read-only снятие latest-версий + запуск обновления панели/ядра через API панели.
-
-Откат НЕ поддерживается: 3x-ui не понижает версию панели по API, а переустановка
-прежней версии ядра падает, когда старая версия уже выпала из списка релизов панели
-(типичный случай сразу после обновления). Поэтому статус обновления разрешается по
-ФАКТИЧЕСКОЙ версии ноды: обзор и планировщик каждый цикл снимают xui_version/
-xray_version — если версия дошла до целевой (или новее), обновление засчитывается
-успешным (зелёный текст), без ложного «сбоя». Красный «!» ставится только если нода
-пропала надолго (offline по таймауту) и означает «проверьте ноду вручную».
-"""
+"""Сверка версий и запуск обновлений через API панели."""
 from __future__ import annotations
 
-import logging
 from datetime import timedelta, timezone
 from typing import Any
 
+from sqlalchemy import update
 from sqlmodel import Session
 
+from app.activity import worker_state
 from app.models import Node, utcnow
-from app.xui import XuiClient, XuiError, version_equal, version_newer
-
-log = logging.getLogger(__name__)
+from app.xui import XuiClient, XuiError, clean_version, version_equal, version_newer, versions_from_status
 
 # Сколько ждём возврата ноды на целевую версию после запуска обновления, прежде чем
 # пометить сбой. Обновление панели/ядра — это рестарт сервиса на ноде, обычно <1 мин.
@@ -36,34 +26,56 @@ def _latest_xray(versions: list[str]) -> str:
     return best
 
 
-def check_updates(node: Node) -> dict[str, Any]:
-    """Опросить ноду: какие версии доступны. Сохранить latest в Node.
+def read_updates(xui: XuiClient) -> dict[str, str]:
+    info = {'panel_current': '', 'panel_latest': '', 'xray_latest': '',
+            'panel_error': '', 'xray_error': ''}
+    try:
+        panel = xui.get_panel_update_info()
+        info['panel_current'] = clean_version(panel.get('currentVersion'))
+        info['panel_latest'] = clean_version(panel.get('latestVersion'))
+        if not info['panel_latest']:
+            info['panel_error'] = 'Панель не сообщила доступную версию 3x-ui'
+    except XuiError as exc:
+        info['panel_error'] = str(exc)
+        # A timeout while the panel checks GitHub does not rule out its cached Xray list.
+        xui.unreachable = False
+    try:
+        info['xray_latest'] = _latest_xray(xui.get_xray_versions())
+        if not info['xray_latest']:
+            info['xray_error'] = 'Панель не сообщила доступные версии Xray'
+    except XuiError as exc:
+        info['xray_error'] = str(exc)
+    return info
 
-    Только чтение — ничего не устанавливаем. Нужен, чтобы в таблице нод против
-    версии загорелась жёлтая стрелка ↑ (есть новее) либо версия стала зелёной.
-    """
-    with XuiClient(node) as xui:
-        panel_info = xui.get_panel_update_info()
-        xray_versions = xui.get_xray_versions()
 
-    panel_current = str(panel_info.get('currentVersion') or '')
-    panel_latest = str(panel_info.get('latestVersion') or '')
-    xray_latest = _latest_xray(xray_versions)
-
-    node.panel_latest_version = panel_latest
-    node.xray_latest_version = xray_latest
+def store_updates(node: Node, info: dict) -> None:
+    if info['panel_current']:
+        node.xui_version = info['panel_current']
+        node.version_checked_at = utcnow()
+    node.panel_latest_version = info['panel_latest']
+    node.xray_latest_version = info['xray_latest']
+    node.panel_check_error = info['panel_error']
+    node.xray_check_error = info['xray_error']
     node.update_checked_at = utcnow()
 
-    panel_differs = bool(panel_latest) and version_newer(panel_latest, node.xui_version or '')
-    xray_differs = bool(xray_latest) and version_newer(xray_latest, node.xray_version or '')
 
+def check_updates(node: Node) -> dict[str, Any]:
+    with XuiClient(node) as xui:
+        try:
+            panel, core = versions_from_status(xui.server_status())
+        except XuiError:
+            panel, core = '', ''
+        info = read_updates(xui)
+    panel = info['panel_current'] or panel
+    if panel or core:
+        node.xui_version = panel or node.xui_version
+        node.xray_version = core or node.xray_version
+        node.version_checked_at = utcnow()
+    store_updates(node, info)
     return {
-        'panel_current': panel_current,
-        'panel_latest': panel_latest,
-        'xray_current': node.xray_version or '',
-        'xray_latest': xray_latest,
-        'panel_differs': panel_differs,
-        'xray_differs': xray_differs,
+        **info, 'panel_current': panel, 'xray_current': core,
+        'panel_differs': bool(panel and version_newer(info['panel_latest'], panel)),
+        'xray_differs': bool(core and version_newer(info['xray_latest'], core)),
     }
 
 
@@ -81,20 +93,29 @@ def start_update(session: Session, node: Node, kind: str) -> dict[str, Any]:
     if (node.update_state or '') == 'running':
         return {'ok': False, 'message': 'обновление уже выполняется'}
 
-    try:
-        info = check_updates(node)
-    except XuiError as exc:
-        return {'ok': False, 'message': f'нода не отвечает: {exc}'}
+    info = check_updates(node)
+    session.commit()
+    if info[kind + '_error']:
+        return {'ok': False, 'message': info[kind + '_error']}
+    current = info[kind + '_current']
+    if not current:
+        return {'ok': False, 'message': 'Панель не сообщила установленную версию'}
+    if not info[kind + '_differs']:
+        return {'ok': False, 'message': 'Уже установлена актуальная версия'}
+    target = info[kind + '_latest']
 
-    if kind == 'panel':
-        if not info['panel_differs']:
-            return {'ok': False, 'message': 'панель уже на актуальной версии'}
-        target = info['panel_latest']
-    else:
-        if not info['xray_differs']:
-            return {'ok': False, 'message': 'ядро уже на актуальной версии'}
-        target = info['xray_latest']
-
+    # Reserve the node before sending the restart, including concurrent requests.
+    started = utcnow()
+    claimed = session.execute(update(Node).where(
+        Node.id == node.id, Node.update_state != 'running', Node.enabled.is_(True)
+    ).values(update_state='running', update_kind=kind, update_target_version=target,
+             update_started_at=started))
+    if claimed.rowcount:
+        worker_state(session, node, 'update', 'Обновление ' + ('3x-ui' if kind == 'panel' else 'Xray'),
+                     'running', f'{current} → {target}')
+    session.commit()
+    if not claimed.rowcount:
+        return {'ok': False, 'message': 'Нода отключена или обновление уже запущено'}
     try:
         with XuiClient(node) as xui:
             if kind == 'panel':
@@ -102,36 +123,23 @@ def start_update(session: Session, node: Node, kind: str) -> dict[str, Any]:
             else:
                 xui.install_xray(target)
     except XuiError as exc:
+        worker_state(session, node, 'update', 'Обновление компонента', 'error', str(exc))
+        _clear_update_state(node)
+        session.commit()
         # Панель отказала — статус НЕ портим: стрелка ↑ остаётся, можно повторить.
         return {'ok': False, 'message': f'не удалось запустить обновление: {exc}'}
 
-    node.update_state = 'running'
-    node.update_kind = kind
-    node.update_target_version = target
-    node.update_started_at = utcnow()
-    session.add(node)
-    session.commit()
     return {
         'ok': True,
         'state': 'running',
         'kind': kind,
-        'from': node.xui_version if kind == 'panel' else node.xray_version,
+        'from': current,
         'to': target,
     }
 
 
 def reconcile_update(node: Node, online: bool) -> None:
-    """Разрешает статус running/failed по ФАКТИЧЕСКОЙ версии ноды.
-
-    Вызывается из обзора/планировщика сразу после снятия свежих xui_version/
-    xray_version. Правила:
-      * running + версия дошла до целевой (или новее) → успех: статус снимаем,
-        в UI версия станет зелёной (никакого ложного «сбоя»);
-      * running + нода online, но на прежней версии → ждём (обновление идёт);
-      * running + нода offline дольше таймаута → failed («проверьте ноду вручную»);
-      * failed + нода снова online → статус снимаем: возвращаем стрелку ↑, чтобы
-        можно было повторить обновление.
-    """
+    """Подтвердить установленную версию или завершить ожидание по таймауту."""
     state = node.update_state or ''
     if not state:
         return
@@ -141,13 +149,19 @@ def reconcile_update(node: Node, online: bool) -> None:
 
     if state == 'running':
         if current and target and (version_equal(current, target) or version_newer(current, target)):
+            session = Session.object_session(node)
+            if session:
+                worker_state(session, node, 'update', 'Обновление компонента', 'ok', f'Установлена версия {current}')
             _clear_update_state(node)
             return
         started = node.update_started_at
         if started is not None and started.tzinfo is None:
             # SQLite отдаёт datetime без tzinfo — приводим к UTC для корректного вычитания.
             started = started.replace(tzinfo=timezone.utc)
-        if (not online) and started and (utcnow() - started) > timedelta(minutes=UPDATE_TIMEOUT_MINUTES):
+        if started and (utcnow() - started) > timedelta(minutes=UPDATE_TIMEOUT_MINUTES):
+            session = Session.object_session(node)
+            if session:
+                worker_state(session, node, 'update', 'Обновление компонента', 'error', f'Нода не подтвердила версию {target} за {UPDATE_TIMEOUT_MINUTES} минут')
             node.update_state = 'failed'
         return
 

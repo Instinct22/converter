@@ -50,9 +50,10 @@ class Node(SQLModel, table=True):
     # latest снимаются с getPanelUpdateInfo/getXrayVersion; current — xui_version/xray_version.
     panel_latest_version: str = ''
     xray_latest_version: str = ''
+    panel_check_error: str = ''
+    xray_check_error: str = ''
     update_checked_at: Optional[datetime] = None
-    # Ручное обновление панели/ядра по API (запуск из UI, фон-поток ждёт возврата ноды):
-    # '' | running | failed; kind — что обновляем (panel/xray); prev — на что откатывать.
+    # Опрос подтверждает целевую версию после перезапуска панели или ядра.
     update_state: str = ''
     update_kind: str = ''
     update_target_version: str = ''
@@ -183,6 +184,7 @@ class Client(SQLModel, table=True):
     sub_token: str = Field(index=True, unique=True)
     enable: bool = True
     expire_at: Optional[datetime] = None
+    last_online: int = 0
     traffic_limit_bytes: int = 0
     limit_ip: int = 0
     note: str = ''
@@ -274,3 +276,15 @@ class NodePingHour(SQLModel, table=True):
     samples_json: str = '[]'
     reasons_json: str = '{}'
     rolled: bool = False
+
+
+class MasterOperation(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source: str = Field(index=True)
+    title: str
+    target: str = 'Master'
+    state: str = Field(default='running', index=True)
+    started_at: datetime = Field(default_factory=utcnow, index=True)
+    finished_at: Optional[datetime] = None
+    detail: str = ''
+    active_key: Optional[str] = Field(default=None, unique=True)

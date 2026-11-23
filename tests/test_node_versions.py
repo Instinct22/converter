@@ -55,11 +55,10 @@ def test_store_versions_does_not_blank_out_known_values():
     """Старая панель не отдаёт версию панели — находку нельзя затирать пустым."""
     node = Node(name='DE', panel_url='https://de', api_token='a')
     store_versions(node, {'panel_version': '2.6.2', 'xray_version': '25.9.8'})
-    checked_at = node.version_checked_at
-
     assert store_versions(node, {'panel_version': '', 'xray_version': '25.11.1'}) is True
     assert (node.xui_version, node.xray_version) == ('2.6.2', '25.11.1')
 
     # версий нет вообще — ничего не пишем и время проверки не двигаем
+    checked_at = node.version_checked_at
     assert store_versions(node, {}) is False
     assert node.version_checked_at == checked_at

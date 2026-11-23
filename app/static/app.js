@@ -17,7 +17,7 @@ async function api(path, method, body) {
     window.location.href = '/login';
     throw new Error('Нужно войти заново');
   }
-  if (!res.ok) throw new Error(detailMessage(data.detail) || res.statusText);
+  if (!res.ok) throw new Error(data.detail ? detailMessage(data.detail) : ('HTTP ' + res.status + ' · ' + (res.statusText || 'сбой запроса')));
   return data;
 }
 
@@ -85,10 +85,11 @@ function busy(btn, on) {
   if (!btn) return;
   btn.disabled = !!on;
   if (on) {
-    btn.dataset.prev = btn.textContent;
+    btn.dataset.busyLabel = btn.textContent;
     btn.textContent = 'Секунду…';
-  } else if (btn.dataset.prev) {
-    btn.textContent = btn.dataset.prev;
+  } else if (btn.dataset.busyLabel) {
+    btn.textContent = btn.dataset.busyLabel;
+    delete btn.dataset.busyLabel;
   }
 }
 
@@ -281,6 +282,15 @@ function applyClientPresence(clients) {
     if (!row) return;
     const online = Number(client.online_nodes || 0);
     row.dataset.online = String(online);
+    const seen = Math.max(Number(row.dataset.seen || 0), Number(client.last_online || 0));
+    const seenLabel = row.querySelector('[data-last-online]');
+    if (seenLabel && seen) {
+      row.dataset.seen = String(seen);
+      seenLabel.textContent = new Date(seen * 1000).toLocaleString('ru-RU', {
+        timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
     row.classList.toggle('is-online', online > 0);
     const label = row.querySelector('[data-online]');
     if (label) {
@@ -401,7 +411,7 @@ function renderVerIcon(el, node, kind, current, latest, state) {
     el.appendChild(b);
     return;
   }
-  if (versionNewer(latest, current)) {
+  if (node.enabled && current && versionNewer(latest, current)) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'ver-up';
@@ -429,7 +439,7 @@ function applyNodeVersions(row, node) {
     else el.textContent = value || '—';
     el.classList.toggle('is-empty', !value);
     const state = (node.update_kind === kind) ? (node.update_state || '') : '';
-    const canUpdate = versionNewer(latest, value);
+    const canUpdate = node.enabled && value && versionNewer(latest, value);
     const isCurrent = Boolean(latest) && Boolean(value) && versionEqual(latest, value);
     el.classList.toggle('has-update', canUpdate && !state);
     el.classList.toggle('is-current', isCurrent && !state);
@@ -440,7 +450,22 @@ function applyNodeVersions(row, node) {
     else if (state === 'failed') bits.push('обновление не завершилось');
     else if (canUpdate) bits.push('доступно обновление до ' + latest);
     else if (isCurrent) bits.push('актуальная версия');
-    if (checkedAt) bits.push('снято ' + sinceLabel(checkedAt));
+    const error = node[kind + '_check_error'];
+    if (error) {
+      bits.push(error);
+      el.classList.add('is-failed');
+      if (!state) {
+        const mark = document.createElement('span');
+        mark.className = 'ver-fail';
+        mark.textContent = '!';
+        mark.tabIndex = 0;
+        mark.title = error;
+        mark.setAttribute('aria-label', error);
+        el.appendChild(mark);
+      }
+    }
+    if (checkedAt) bits.push('установленная версия · ' + sinceLabel(checkedAt));
+    if (node.update_checked_at) bits.push('проверка релизов · ' + sinceLabel(node.update_checked_at));
     el.setAttribute('title', bits.join(' · ') || 'Панель не отдаёт версию');
   };
   put('xui', node.xui_version || '', node.panel_latest_version || '', node.version_checked_at, 'Панель 3x-ui на сервере', 'panel');
@@ -1113,11 +1138,12 @@ function bindNodeRemoval() {
     if (btn.dataset.nodeDelBound) return;
     btn.dataset.nodeDelBound = '1';
     btn.addEventListener('click', async () => {
-      if (!confirm('Убрать сервер из Master? Панель 3x-ui не трогаем.')) return;
+      const name = btn.closest('[data-node]')?.dataset.name || ('№' + btn.dataset.delNode);
+      if (!confirm('Убрать «' + name + '» из Master? Панель на сервере сохранится.')) return;
       try {
         await api('/api/nodes/' + btn.dataset.delNode, 'DELETE');
         location.reload();
-      } catch (err) { toast(err.message, 'err'); }
+      } catch (err) { toast('Удаление «' + name + '»: ' + err.message, 'err'); }
     });
   });
 }

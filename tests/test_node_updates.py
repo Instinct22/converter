@@ -25,6 +25,10 @@ class FakeXui:
         if self.s.get('offline'):
             raise XuiError('нет связи с панелью')
 
+    def server_status(self):
+        self._guard()
+        return {'panelVersion': self.node.xui_version, 'xray': {'version': self.node.xray_version}}
+
     def get_panel_update_info(self):
         self._guard()
         return {
@@ -230,8 +234,7 @@ def test_reconcile_running_timeout_offline_marks_failed():
         assert node.update_state == 'failed'
 
 
-def test_reconcile_running_online_not_failed_yet():
-    """Пока нода online — сбой не помечаем, даже если целевая ещё не достигнута."""
+def test_reconcile_times_out_when_online_node_keeps_old_version():
     with _session() as session:
         node = _node(session, 1, 'DE', xui='2.4.5', xray='25.9.8')
         node.update_state = 'running'
@@ -241,7 +244,7 @@ def test_reconcile_running_online_not_failed_yet():
         session.add(node)
         session.commit()
         node_updates.reconcile_update(node, True)
-        assert node.update_state == 'running'
+        assert node.update_state == 'failed'
 
 
 def test_reconcile_failed_reset_when_back_online():

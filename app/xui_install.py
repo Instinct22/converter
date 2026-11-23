@@ -14,6 +14,7 @@ import threading
 
 from sqlmodel import Session, select
 
+from app.activity import worker_state
 from app.models import Node
 from app.xui import normalize_panel_url, public_host_from_url
 
@@ -235,6 +236,8 @@ def prepare_install(
         install_log=opening,
     )
     session.add(node)
+    session.flush()
+    worker_state(session, node, 'install', 'Установка ' + product, 'running', 'Сервер добавлен в очередь')
     session.commit()
     session.refresh(node)
     return node
@@ -264,6 +267,7 @@ def _visible_output(output: str) -> str:
 
 
 def _fail(session: Session, node: Node, message: str) -> None:
+    worker_state(session, node, 'install', 'Установка сервера', 'error', message)
     node.install_state = 'failed'
     node.last_error = message[:240]
     node.install_log = _clip(message)
@@ -349,6 +353,7 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
     node.panel_url = normalize_panel_url(url)
     node.api_token = token
     node.public_host = public_host_from_url(node.panel_url) or host
+    worker_state(session, node, 'install', 'Установка 3x-ui', 'ok', 'Панель установлена')
     node.install_state = 'done'
     node.enabled = True
     node.last_error = ''
@@ -409,11 +414,15 @@ def _install_thread(node_id: int) -> None:
         node = session.get(Node, node_id)
         if node is not None and (node.install_state or '') == 'done':
             try:
-                from app.exporters import apply_exporter
+                from app.exporters import start_exporters
+                from app.node_updates import check_updates
 
-                apply_exporter(session, node_id)
-            except Exception as exc:
-                node.exporter_state = 'failed'
-                node.exporter_note = str(exc)[:240]
-                session.add(node)
+                check_updates(node)
                 session.commit()
+                start_exporters(session, node_id)
+            except Exception as exc:
+                session.rollback()
+                node = session.get(Node, node_id)
+                if node and node.exporter_state != 'installing':
+                    from app.exporters import _remember
+                    _remember(session, node, 'failed', str(exc))

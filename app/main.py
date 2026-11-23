@@ -64,6 +64,9 @@ async def lifespan(_app: FastAPI):
         methods=['GET', 'HEAD'],
         name='secret_sub',
     )
+    from app.activity import master_started
+    with Session(engine) as session:
+        master_started(session)
     start_scheduler()
     yield
 

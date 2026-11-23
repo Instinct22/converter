@@ -218,17 +218,17 @@ class XuiClient:
         """
         body = self.call('/panel/api/server/getPanelUpdateInfo', method='GET')
         obj = body.get('obj')
+        if body.get('success') is False:
+            raise XuiError(_version_error(body))
         if isinstance(obj, dict):
             return obj
-        if body.get('raw'):
-            raise XuiError(_xui_msg(body, 'панель не отдаёт данные обновления'))
         return body
 
     def update_panel(self) -> str:
         """Запускает self-update панели (обновление до latest), возвращает runId (может быть '')."""
         body = self.call('/panel/api/server/updatePanel', {})
-        if body.get('success') is False:
-            raise XuiError(_xui_msg(body, 'update panel failed'))
+        if not body.get('success'):
+            raise XuiError(_version_error(body))
         obj = body.get('obj')
         if isinstance(obj, str):
             return obj
@@ -239,13 +239,15 @@ class XuiClient:
     def install_xray(self, version: str) -> dict[str, Any]:
         """Ставит/обновляет ядро Xray на указанную версию (перезапускает Xray)."""
         body = self.call(f'/panel/api/server/installXray/{_path_id(version)}', {})
-        if body.get('success') is False:
-            raise XuiError(_xui_msg(body, 'install xray failed'))
+        if not body.get('success'):
+            raise XuiError(_version_error(body))
         return body
 
     def get_xray_versions(self) -> list[str]:
         """Доступные версии ядра Xray (кэш на ноде ~15 мин). Первая — latest."""
         body = self.call('/panel/api/server/getXrayVersion', method='GET')
+        if body.get('success') is False:
+            raise XuiError(_version_error(body))
         obj = body.get('obj')
         if isinstance(obj, list):
             return [clean_version(item) for item in obj if clean_version(item)]
@@ -406,6 +408,15 @@ class XuiClient:
             raise XuiError(body.get('msg') or 'update inbound failed')
         return body
 
+    def last_online(self) -> dict:
+        for path in ('/panel/api/clients/lastOnline', '/panel/api/inbounds/lastOnline'):
+            body = self.call(path, {})
+            if body.get('success') and isinstance(body.get('obj'), dict):
+                return body['obj']
+            if body.get('status') in {401, 403}:
+                break
+        return {}
+
     def onlines(self) -> list[str]:
         # 3x-ui 2.6+ отдаёт онлайн с /clients/onlines. Старый /inbounds/onlines
         # на этих панелях отвечает 404, и обзор видел всех офлайн.
@@ -464,6 +475,17 @@ def _is_absent(msg: str) -> bool:
     return 'not found' in low or 'does not exist' in low or 'no client' in low
 
 
+def _version_error(body: dict) -> str:
+    status = body.get('status')
+    if status in {401, 403}:
+        return f'HTTP {status} · проверьте права API-токена на эту операцию'
+    if status == 404:
+        return 'HTTP 404 · проверьте поддержку операции в этой версии панели и доступ API'
+    if body.get('raw'):
+        return f'Панель вернула неожиданный ответ (HTTP {status})'
+    return str(body.get('msg') or 'Панель отклонила запрос. Проверьте доступ к релизам и журнал панели')[:240]
+
+
 def _xui_msg(body: dict[str, Any], fallback: str) -> str:
     msg = str(body.get('msg') or '').strip()
     status = body.get('status')
@@ -490,6 +512,9 @@ def _as_json(response: httpx.Response) -> dict[str, Any]:
             'raw': True,
             'status': response.status_code,
         }
+    if response.is_error:
+        payload = data if isinstance(data, dict) else {}
+        return {**payload, 'success': False, 'status': response.status_code}
     return data if isinstance(data, dict) else {'success': False, 'msg': str(data)}
 
 

@@ -1,9 +1,15 @@
 from datetime import datetime, timedelta, timezone
 
+import yaml
+from urllib.parse import urlparse
+from pathlib import PurePosixPath
+
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.bootstrap import seed_if_empty
 from app.mihomo import render_profile
+from app.routers.api import preview_client
+from app.routers.sub import serve_provider_yaml
 from app.models import Client, Node, NodeInbound
 
 
@@ -59,7 +65,14 @@ def test_render_injects_node_proxy():
         assert 'tokentoken123456' in yaml_text
         assert 'IP-CIDR,150.241.73.105/32,DIRECT' in yaml_text
         assert 'proxy-providers:' in yaml_text
-        assert 'auth.gitlab.com' in yaml_text
+        assert preview_client(client.id, session)['yaml'] == yaml_text
+        # Main profile links to providers; connection settings live in their YAML.
+        servers = []
+        for config in yaml.safe_load(yaml_text)['proxy-providers'].values():
+            key = PurePosixPath(urlparse(config['url']).path).stem
+            provider = serve_provider_yaml(client.sub_token, key, session)
+            servers.extend(proxy['servername'] for proxy in yaml.safe_load(provider.body)['proxies'])
+        assert 'auth.gitlab.com' in servers
         # один inbound 443 без 8443 — exclude-filter не нужен
         assert 'filter:' not in yaml_text.split('proxy-providers:')[1].split('proxy-groups:')[0]
         assert 'geox-url:' in yaml_text

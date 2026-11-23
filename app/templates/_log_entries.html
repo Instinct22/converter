@@ -1,0 +1,27 @@
+<div class="stats log-stats">
+  {% for key,label in states.items() %}
+  <a class="stat-card" href="/logs?{{ {'state':key, 'source':source, 'q':q}|urlencode }}">
+    <span class="label">{{ label }}{% if key != 'running' %} · 24 ч{% endif %}</span>
+    <strong class="value">{{ counts.get(key, 0) }}</strong>
+  </a>
+  {% endfor %}
+</div>
+<section class="card">
+  <div class="page-head"><h2>История операций</h2><span class="hint">Обновлено {{ now|moscow_time }} МСК</span></div>
+  {% for row in rows %}
+  <article class="operation">
+    <div class="operation-time"><time>{{ (row.started_at|moscow_time)[11:] }}</time><small>{{ (row.started_at|moscow_time)[:10] }}</small></div>
+    <div class="operation-main"><strong>{{ row.title }}</strong><small>{{ sources.get(row.source, row.source) }} · {{ row.target }}</small>
+      {% if row.detail and ('\n' in row.detail or row.detail|length > 110) %}<details id="log-{{ row.id }}"><summary>{{ row.detail.splitlines()[0] | truncate(110) }}</summary><pre>{{ row.detail }}</pre></details>{% elif row.detail %}<div class="op-detail">{{ row.detail }}</div>{% endif %}
+    </div>
+    <div class="operation-end"><span class="op-state op-{{ row.state }}">{{ states.get(row.state, row.state) }}</span>
+      {% set elapsed = ((row.finished_at or now) - row.started_at).total_seconds()|int %}
+      <small>{{ (elapsed // 60)|int }} мин {{ elapsed % 60 }} с{% if row.finished_at %} · до {{ (row.finished_at|moscow_time)[11:] }}{% endif %}</small>
+    </div>
+  </article>
+  {% else %}<div class="empty"><h3>Операций пока нет</h3><p>Здесь появятся записи после запуска задач. Если заданы фильтры, попробуйте изменить их.</p></div>{% endfor %}
+  <div class="row">
+    {% if before %}<a class="btn secondary" href="/logs?{{ {'q':q, 'state':state, 'source':source}|urlencode }}">К свежим</a>{% endif %}
+    {% if more %}<a class="btn secondary" href="/logs?{{ {'q':q, 'state':state, 'source':source, 'before':rows[-1].id}|urlencode }}">Более ранние</a>{% endif %}
+  </div>
+</section>

@@ -4,16 +4,18 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, update
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, select
 
+from app.activity import tracked
 from app.deps import SessionDep, require_admin
 from app.fail2ban import GuardView, _remember, guard_snapshot, guard_totals, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
 from app.mihomo import days_left, is_expired, node_clash_sub_base, render_profile
 from app.models import Client, ConfigDoc, InboundTemplate, Node, NodeInbound
-from app.node_updates import reconcile_update, start_update
-from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, store_versions
+from app.node_updates import check_updates, start_update
+from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, remember_last_online, store_probe
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
 from app.provision import (
@@ -193,8 +195,11 @@ def _node_out(node: Node, session: Session | None = None, *, include_install: bo
         'xui_version': node.xui_version or '',
         'xray_version': node.xray_version or '',
         'version_checked_at': _as_utc(node.version_checked_at).isoformat() if node.version_checked_at else None,
+        'panel_check_error': node.panel_check_error,
+        'xray_check_error': node.xray_check_error,
         'panel_latest_version': node.panel_latest_version or '',
         'xray_latest_version': node.xray_latest_version or '',
+        'update_checked_at': _as_utc(node.update_checked_at).isoformat() if node.update_checked_at else None,
         'update_state': node.update_state or '',
         'update_kind': node.update_kind or '',
         'update_target_version': node.update_target_version or '',
@@ -219,6 +224,7 @@ def list_nodes(session: SessionDep) -> list[dict]:
 
 
 @router.post('/nodes/{node_id}/update')
+@tracked('Запуск обновления компонента')
 def node_update(node_id: int, kind: str, session: SessionDep) -> dict:
     """Обновить панель/ядро ноды через API панели. kind: 'panel' | 'xray'.
 
@@ -240,6 +246,7 @@ def get_node(node_id: int, session: SessionDep) -> dict:
 
 
 @router.post('/nodes/{node_id}/install-log/clear')
+@tracked('Очистка журнала установки')
 def clear_install_log(node_id: int, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -255,7 +262,22 @@ def clear_install_log(node_id: int, session: SessionDep) -> dict:
     return _node_out(node, session, include_install=True)
 
 
+@router.post('/nodes/{node_id}/exporter')
+@tracked('Запуск агента метрик')
+def install_node_exporter(node_id: int, session: SessionDep) -> dict:
+    from app.exporters import start_exporters
+
+    if session.get(Node, node_id) is None:
+        raise HTTPException(404, 'Сервер не найден')
+    try:
+        start_exporters(session, node_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {'ok': True, 'state': 'installing'}
+
+
 @router.post('/exporters')
+@tracked('Запуск агентов флота')
 def install_exporters(session: SessionDep) -> dict:
     from app.exporters import start_exporters
 
@@ -265,11 +287,12 @@ def install_exporters(session: SessionDep) -> dict:
         raise HTTPException(400, str(exc)) from exc
     return {
         'ok': True,
-        'logs': [f'Ставлю экспортёры на {count} серверах. Шаг виден в колонке «Состояние».'],
+        'logs': [f'Ставлю экспортёры на {count} серверах. Ход установки виден в колонке «Агент».'],
     }
 
 
 @router.post('/nodes')
+@tracked('Добавление сервера')
 def create_node(body: NodeIn, session: SessionDep) -> dict:
     if body.install:
         try:
@@ -329,6 +352,8 @@ def create_node(body: NodeIn, session: SessionDep) -> dict:
         logs.append('API ok')
         sync_node(session, node)
         logs.append('порты подтянуты')
+        check_updates(node)
+        session.commit()
     except XuiError as exc:
         node.last_error = str(exc)
         session.add(node)
@@ -347,6 +372,7 @@ def create_node(body: NodeIn, session: SessionDep) -> dict:
 
 
 @router.post('/nodes/{node_id}/test')
+@tracked('Проверка API панели')
 def test_node(node_id: int, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -387,6 +413,7 @@ def api_node_logs(node_id: int, session: SessionDep) -> dict:
 
 
 @router.post('/nodes/{node_id}/restart-xray')
+@tracked('Перезапуск Xray')
 def api_restart_xray(node_id: int, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -403,6 +430,7 @@ def api_restart_xray(node_id: int, session: SessionDep) -> dict:
 
 
 @router.post('/nodes/{node_id}/sync')
+@tracked('Синхронизация входов')
 def api_sync_node(node_id: int, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -424,6 +452,7 @@ class ProvisionIn(BaseModel):
 
 
 @router.post('/nodes/{node_id}/provision')
+@tracked('Настройка входов')
 def api_provision_node(node_id: int, session: SessionDep, body: ProvisionIn | None = None) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -455,6 +484,7 @@ def drop_blank_secrets(data: dict) -> None:
 
 
 @router.patch('/nodes/{node_id}')
+@tracked('Изменение сервера')
 def patch_node(node_id: int, body: NodePatch, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -508,12 +538,14 @@ def _templates_ok(logs: list[str]) -> bool:
 
 
 @router.post('/nodes/refresh-templates')
+@tracked('Сверка входов флота')
 def api_refresh_all_templates(session: SessionDep) -> dict:
     logs = reconcile_all_nodes(session)
     return {'ok': _templates_ok(logs), 'logs': logs}
 
 
 @router.post('/nodes/{node_id}/refresh-templates')
+@tracked('Сверка входов сервера')
 def api_refresh_node_templates(node_id: int, body: ProvisionIn, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -529,6 +561,7 @@ def api_refresh_node_templates(node_id: int, body: ProvisionIn, session: Session
 
 
 @router.post('/nodes/{node_id}/templates')
+@tracked('Применение шаблонов')
 def api_apply_node_templates(node_id: int, body: ProvisionIn, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -538,35 +571,39 @@ def api_apply_node_templates(node_id: int, body: ProvisionIn, session: SessionDe
 
 
 @router.delete('/nodes/{node_id}')
+@tracked('Удаление сервера')
 def delete_node(node_id: int, session: SessionDep, wipe_remote: bool = False) -> dict:
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(404, 'node not found')
-    from app.models import ClientPlacement, NodeTemplateAssignment
+    from app.models import ClientPlacement, MasterOperation, NodePingHour, NodeTemplateAssignment, utcnow
 
-    for row in session.exec(
-        select(NodeTemplateAssignment).where(NodeTemplateAssignment.node_id == node_id)
-    ).all():
-        session.delete(row)
-    inbounds = session.exec(select(NodeInbound).where(NodeInbound.node_id == node_id)).all()
-    placements = session.exec(select(ClientPlacement).where(ClientPlacement.node_id == node_id)).all()
-    for row in placements:
-        session.delete(row)
+    name = node.name
+    warnings = []
     if wipe_remote:
+        inbounds = session.exec(select(NodeInbound).where(NodeInbound.node_id == node_id)).all()
         try:
             with XuiClient(node) as xui:
                 for inbound in inbounds:
                     try:
                         xui.del_inbound(inbound.xui_inbound_id)
-                    except XuiError:
-                        pass
-        except XuiError:
-            pass
-    for inbound in inbounds:
-        session.delete(inbound)
-    session.delete(node)
-    session.commit()
-    return {'ok': True}
+                    except XuiError as exc:
+                        warnings.append(f'Вход {inbound.port} не удалён с панели: {exc}')
+        except XuiError as exc:
+            warnings.append(f'Не удалось подключиться к панели: {exc}')
+    try:
+        for model in (ClientPlacement, NodeTemplateAssignment, NodePingHour, NodeInbound):
+            session.execute(delete(model).where(model.node_id == node_id))
+        session.execute(update(MasterOperation).where(MasterOperation.active_key.in_(
+            [f'{task}/{node_id}' for task in ('agent', 'install', 'update')]
+        )).values(state='warning', detail='Сервер удалён из Master', active_key=None, finished_at=utcnow()))
+        session.delete(node)
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        detail = 'остались связанные записи' if isinstance(exc, IntegrityError) else 'ошибка записи в базу Master'
+        raise HTTPException(409, f'Не удалось удалить «{name}»: {detail}.') from exc
+    return {'ok': True, 'logs': warnings} if warnings else {'ok': True}
 
 
 @router.get('/nodes/{node_id}/inbounds')
@@ -576,6 +613,7 @@ def list_inbounds(node_id: int, session: SessionDep) -> list[dict]:
 
 
 @router.patch('/inbounds/{inbound_id}')
+@tracked('Изменение входа')
 def patch_inbound(inbound_id: int, body: InboundPatch, session: SessionDep) -> dict:
     row = session.get(NodeInbound, inbound_id)
     if not row:
@@ -623,6 +661,7 @@ class NeighborScanIn(BaseModel):
 
 
 @router.post('/dest-scan')
+@tracked('Проверка целей')
 def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
     from concurrent.futures import ThreadPoolExecutor
 
@@ -648,6 +687,7 @@ def dest_scan(body: DestScanIn, session: SessionDep) -> dict:
 
 
 @router.post('/neighbor-scan')
+@tracked('Проверка соседних адресов')
 def neighbor_scan(body: NeighborScanIn, session: SessionDep) -> dict:
     from app.neighbor_scan import scan_node_neighborhood
 
@@ -663,6 +703,7 @@ def neighbor_scan(body: NeighborScanIn, session: SessionDep) -> dict:
 
 
 @router.post('/dest-sni')
+@tracked('Проверка SNI')
 def dest_sni(body: DestSniIn) -> dict:
     try:
         parse_dest(body.dest)
@@ -679,6 +720,7 @@ def list_templates(session: SessionDep) -> list[dict]:
 
 
 @router.post('/templates')
+@tracked('Создание шаблона')
 def create_template(body: TemplateIn, session: SessionDep) -> dict:
     data = body.model_dump()
     data['flags'] = normalize_flags(data.get('flags', ''))
@@ -690,6 +732,7 @@ def create_template(body: TemplateIn, session: SessionDep) -> dict:
 
 
 @router.put('/templates/{template_id}')
+@tracked('Изменение шаблона')
 def update_template(template_id: int, body: TemplateIn, session: SessionDep) -> dict:
     row = session.get(InboundTemplate, template_id)
     if not row:
@@ -721,6 +764,7 @@ def update_template(template_id: int, body: TemplateIn, session: SessionDep) -> 
 
 
 @router.delete('/templates/{template_id}')
+@tracked('Удаление шаблона')
 def delete_template(template_id: int, session: SessionDep) -> dict:
     row = session.get(InboundTemplate, template_id)
     if not row:
@@ -780,6 +824,7 @@ def get_client_by_cabinet(account_id: str, session: SessionDep) -> dict:
 
 
 @router.post('/clients')
+@tracked('Выдача доступа')
 def create_client(body: ClientIn, session: SessionDep) -> dict:
     account_id = body.cabinet_account_id
     if account_id:
@@ -821,6 +866,7 @@ def create_client(body: ClientIn, session: SessionDep) -> dict:
 
 
 @router.patch('/clients/{client_id}')
+@tracked('Изменение доступа')
 def patch_client(client_id: int, body: ClientPatch, session: SessionDep) -> dict:
     from app.settings import settings
 
@@ -855,12 +901,14 @@ def patch_client(client_id: int, body: ClientPatch, session: SessionDep) -> dict
 
 
 @router.post('/clients/reconcile')
+@tracked('Сверка клиентов')
 def reconcile_all_clients(session: SessionDep) -> dict:
     logs = reconcile_clients(session)
     return {'ok': True, 'logs': logs}
 
 
 @router.post('/clients/{client_id}/provision')
+@tracked('Настройка клиента на нодах')
 def retry_client(client_id: int, session: SessionDep) -> dict:
     client = session.get(Client, client_id)
     if not client:
@@ -870,6 +918,7 @@ def retry_client(client_id: int, session: SessionDep) -> dict:
 
 
 @router.delete('/clients/{client_id}')
+@tracked('Удаление клиента')
 def api_delete_client(client_id: int, session: SessionDep) -> dict:
     client = session.get(Client, client_id)
     if not client:
@@ -897,6 +946,7 @@ def get_config(session: SessionDep) -> dict:
 
 
 @router.put('/config')
+@tracked('Сохранение профиля Clash')
 def put_config(body: ConfigIn, session: SessionDep) -> dict:
     from app.models import utcnow
 
@@ -945,7 +995,7 @@ def stats(session: SessionDep) -> dict:
 
 
 @router.get('/overview')
-def overview(session: SessionDep) -> dict:
+def overview(session: SessionDep, refresh_versions: bool = False) -> dict:
     from app.settings import settings
 
     nodes = session.exec(select(Node).order_by(Node.sort_order, Node.id)).all()
@@ -954,7 +1004,7 @@ def overview(session: SessionDep) -> dict:
         node.id: len(session.exec(select(NodeInbound).where(NodeInbound.node_id == node.id)).all())
         for node in nodes
     }
-    probes = probe_nodes([node for node in nodes if node.enabled])
+    probes = probe_nodes([node for node in nodes if node.enabled and not node.is_grafana()], refresh_versions)
     node_out = []
     for node in nodes:
         if not node.enabled:
@@ -982,9 +1032,7 @@ def overview(session: SessionDep) -> dict:
             node.last_error = str(probe.get('error'))[:500]
         session.add(node)
         st = probe.get('status') or {}
-        store_versions(node, st)
-        # Разрешаем статус обновления по фактической версии (без ложного «сбоя»).
-        reconcile_update(node, online)
+        store_probe(node, probe)
         node_out.append(
             {
                 **_node_out(node, session),
@@ -996,7 +1044,7 @@ def overview(session: SessionDep) -> dict:
                 'xray': st.get('xray'),
                 # Свежие версии с панели; в БД лежит последнее увиденное (на случай,
                 # когда панель этого релиза версию не отдаёт).
-                'xui_version': st.get('panel_version') or (node.xui_version or ''),
+                'xui_version': node.xui_version or '',
                 'xray_version': st.get('xray_version') or (node.xray_version or ''),
                 'version_checked_at': _as_utc(node.version_checked_at).isoformat() if node.version_checked_at else None,
                 'tcp': st.get('tcp'),
@@ -1010,6 +1058,7 @@ def overview(session: SessionDep) -> dict:
     client_out = []
     for client in clients:
         usage = aggregate_client_usage(client, nodes, probes)
+        remember_last_online(session, client, usage['last_online'])
         limit = client.traffic_limit_bytes or 0
         client_out.append(
             {
@@ -1021,9 +1070,11 @@ def overview(session: SessionDep) -> dict:
                 'used_label': format_bytes(usage['used']),
                 'limit_label': format_bytes(limit) if limit else 'без лимита',
                 'online_nodes': usage['online_nodes'],
+                'last_online': usage['last_online'],
                 'seen_on_nodes': usage['seen_on_nodes'],
             }
         )
+    session.commit()
     return {'nodes': node_out, 'clients': client_out}
 
 
@@ -1042,16 +1093,19 @@ def presence(session: SessionDep) -> dict:
     client_out = []
     for client in clients:
         usage = aggregate_client_usage(client, nodes, probes)
+        remember_last_online(session, client, usage['last_online'])
         limit = client.traffic_limit_bytes or 0
         client_out.append(
             {
                 'id': client.id,
                 'online_nodes': usage['online_nodes'],
+                'last_online': usage['last_online'],
                 'used': usage['used'],
                 'used_label': format_bytes(usage['used']),
                 'limit_label': format_bytes(limit) if limit else 'без лимита',
             }
         )
+    session.commit()
     return {'clients': client_out}
 
 
@@ -1112,6 +1166,7 @@ def _apply_adopt_hint(node: Node, body: AdoptIn) -> None:
 
 
 @router.post('/nodes/{node_id}/adopt-key')
+@tracked('Настройка SSH')
 def adopt_node_key(node_id: int, body: AdoptIn, session: SessionDep) -> dict:
     from app.ssh_access import adopt_node as adopt_ssh
 
@@ -1132,6 +1187,7 @@ def adopt_node_key(node_id: int, body: AdoptIn, session: SessionDep) -> dict:
 
 
 @router.post('/protection/adopt')
+@tracked('Настройка SSH флота')
 def adopt_protection(session: SessionDep) -> dict:
     from app.database import engine
     from app.ssh_access import adopt_node as adopt_ssh
@@ -1165,6 +1221,7 @@ def adopt_protection(session: SessionDep) -> dict:
 
 
 @router.post('/protection/ports')
+@tracked('Обновление правил портов')
 def sync_ports(session: SessionDep) -> dict:
     """Записать правило портов в ufw и выключить подписку 3x-ui на всём флоте."""
     from app.database import engine
@@ -1215,11 +1272,13 @@ def sync_ports(session: SessionDep) -> dict:
 
 
 @router.post('/protection/refresh')
+@tracked('Проверка защиты')
 def refresh_protection(session: SessionDep) -> dict:
     return _guard_nodes(session, install=False)
 
 
 @router.post('/protection/install')
+@tracked('Установка защиты')
 def install_protection(session: SessionDep) -> dict:
     return _guard_nodes(session, install=True)
 
@@ -1259,6 +1318,7 @@ class UnbanIn(BaseModel):
 
 
 @router.post('/nodes/{node_id}/unban')
+@tracked('Снятие блокировки')
 def node_unban(node_id: int, body: UnbanIn, session: SessionDep) -> dict:
     node = session.get(Node, node_id)
     if not node:
@@ -1292,5 +1352,6 @@ def node_unban(node_id: int, body: UnbanIn, session: SessionDep) -> dict:
 
 
 @router.delete('/releases/{filename}')
+@tracked('Удаление релиза')
 def delete_release(filename: str) -> dict:
     return delete_installer(filename)
