@@ -283,16 +283,21 @@ jobs:
             sha='${{ github.sha }}'
             export XUI_MASTER_IMAGE="${XUI_MASTER_IMAGE%:*}:sha-$(printf '%.7s' "$sha")"
             trap 'rm -f .env.candidate' EXIT
+            usable_pins() {
+              [ -f "$1" ] && [ -r "$1" ] && [ -s "$1" ] || return 1
+              # Paramiko reads pinned keys but does not implement OpenSSH policy directives.
+              if grep -Eq '^[[:space:]]*(@|[^#[:space:]]*!)' "$1"; then
+                echo "Хранилище $1 содержит правила OpenSSH и пропущено" >&2
+                return 1
+              else
+                [ "$?" -eq 1 ]
+              fi
+            }
             {
               env_line XUI_MASTER_IMAGE "$XUI_MASTER_IMAGE"
               for pins in /root/.ssh/known_hosts /etc/ssh/ssh_known_hosts; do
                 [ ! -s data/ssh/known_hosts ] || break
-                if [ -f "$pins" ] && [ -s "$pins" ]; then
-                  # Paramiko reads plain and hashed pins, but not OpenSSH policy directives.
-                  if grep -Eq '^[[:space:]]*(@|[^#[:space:]]*!)' "$pins"; then
-                    echo "Хранилище $pins содержит правила OpenSSH и пропущено" >&2
-                    continue
-                  fi
+                if usable_pins "$pins"; then
                   env_line COMPOSE_FILE 'docker-compose.yml:deploy/compose.ssh-trust.yml'
                   env_line XUI_DEPLOY_KNOWN_HOSTS "$pins"
                   echo "Для проверки SSH подключено хранилище $pins только для чтения" >&2
@@ -316,7 +321,20 @@ jobs:
               echo 'На хосте деплоя нет подходящего системного known_hosts. Проверяется файл Master.'
             fi
             XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate pull
-            XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate run --rm -T --no-deps xui-master python -m app.preflight
+            check_candidate() {
+              XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate run --rm -T --no-deps xui-master python -m app.preflight
+            }
+            if ! check_candidate; then
+              # Both the preflight and the service must use the same verified source.
+              if grep -Fxq "XUI_DEPLOY_KNOWN_HOSTS='/root/.ssh/known_hosts'" .env.candidate && usable_pins /etc/ssh/ssh_known_hosts; then
+                sed -i "s|^XUI_DEPLOY_KNOWN_HOSTS=.*|XUI_DEPLOY_KNOWN_HOSTS='/etc/ssh/ssh_known_hosts'|" .env.candidate
+                echo 'Повторная проверка с системным файлом /etc/ssh/ssh_known_hosts.'
+                check_candidate
+              else
+                echo 'Другого допустимого системного файла ключей SSH нет.'
+                exit 1
+              fi
+            fi
             mv -f .env.candidate .env
             docker compose up -d --force-recreate --remove-orphans
             docker compose ps
