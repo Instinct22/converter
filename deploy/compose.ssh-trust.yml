@@ -1,0 +1,10 @@
+# Production may already have OpenSSH host pins on the deployment server.
+services:
+  xui-master:
+    volumes:
+      - type: bind
+        source: ${XUI_DEPLOY_KNOWN_HOSTS:?}
+        target: /root/.ssh/known_hosts
+        read_only: true
+        bind:
+          create_host_path: false

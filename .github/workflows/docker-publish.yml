@@ -285,6 +285,20 @@ jobs:
             trap 'rm -f .env.candidate' EXIT
             {
               env_line XUI_MASTER_IMAGE "$XUI_MASTER_IMAGE"
+              for pins in /root/.ssh/known_hosts /etc/ssh/ssh_known_hosts; do
+                [ ! -s data/ssh/known_hosts ] || break
+                if [ -f "$pins" ] && [ -s "$pins" ]; then
+                  # Paramiko reads plain and hashed pins, but not OpenSSH policy directives.
+                  if grep -Eq '^[[:space:]]*(@|[^#[:space:]]*!)' "$pins"; then
+                    echo "Хранилище $pins содержит правила OpenSSH и пропущено" >&2
+                    continue
+                  fi
+                  env_line COMPOSE_FILE 'docker-compose.yml:deploy/compose.ssh-trust.yml'
+                  env_line XUI_DEPLOY_KNOWN_HOSTS "$pins"
+                  echo "Для проверки SSH подключено хранилище $pins только для чтения" >&2
+                  break
+                fi
+              done
               env_line HOST 0.0.0.0
               env_line PORT 8080
               env_line PUBLIC_BASE_URL "$PUBLIC_BASE_URL"
@@ -298,6 +312,9 @@ jobs:
             fi
             mkdir -p data/caddy-access
             chmod 777 data/caddy-access
+            if [ ! -s data/ssh/known_hosts ] && ! grep -q '^XUI_DEPLOY_KNOWN_HOSTS=' .env.candidate; then
+              echo 'На хосте деплоя нет подходящего системного known_hosts. Проверяется файл Master.'
+            fi
             XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate pull
             XUI_ENV_FILE=.env.candidate docker compose --env-file .env.candidate run --rm -T --no-deps xui-master python -m app.preflight
             mv -f .env.candidate .env
