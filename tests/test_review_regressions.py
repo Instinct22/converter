@@ -414,8 +414,33 @@ def test_yaml_omits_online_probe_and_keeps_traffic(db, monkeypatch):
     result = sub.serve_yaml(person.sub_token, db)
     assert 'upload=10; download=20;' in result.headers['subscription-userinfo']
     fake.onlines.assert_not_called()
-    assert sub._usage_bundle(db, person)['online_nodes'] == 1
-    fake.onlines.assert_called_once()
+
+
+@pytest.mark.parametrize('enabled', [True, False])
+def test_browser_subscription_only_offers_the_canonical_link(db, monkeypatch, enabled):
+    from app.database import get_session
+    from app.routers import sub
+    from app.sub_link import client_sub_url
+
+    person = client()
+    person.name = 'Private subscriber name'
+    person.enable = enabled
+    db.add(person)
+    db.commit()
+    monkeypatch.setitem(main.app.dependency_overrides, get_session, lambda: db)
+    probe = Mock(side_effect=AssertionError('The browser page should not query nodes'))
+    monkeypatch.setattr(sub, 'probe_nodes_presence', probe)
+    web = TestClient(main.app)
+    response = web.get(f'/clash/{person.sub_token}?html=1', headers={'Accept': 'text/html'})
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'no-store'
+    assert 'subscription-userinfo' not in response.headers
+    assert 'Скопировать ссылку' in response.text
+    assert f'data-url="{client_sub_url(person)}"' in response.text
+    for private in (person.name, person.uuid, '/mihomo/', 'yaml=', '3x-ui', 'Mihomo'):
+        assert private not in response.text
+    assert web.get('/sub/unknown', headers={'Accept': 'text/html'}).status_code == 404
+    probe.assert_not_called()
 
 
 def test_failed_remote_probe_and_partial_fleet_are_visible(db, monkeypatch):

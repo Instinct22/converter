@@ -1,59 +1,39 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <link rel="icon" type="image/svg+xml" href="/static/master-icon.svg">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ client.name }} — подписка Mihomo</title>
-  <link rel="stylesheet" href="/static/app.css?v=16">
+  <meta name="theme-color" content="#03090c">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Ссылка подписки — Aegis Gate</title>
+  <link rel="icon" type="image/png" href="/static/subscription/status-on.png">
+  <link rel="stylesheet" href="/static/subscription/page.css">
+  <script src="/static/subscription/copy.js" defer></script>
 </head>
 <body>
-<div class="layout" style="grid-template-columns:1fr">
-  <main class="main" style="max-width:720px;margin:40px auto">
-    <div class="page-head">
-      <div>
-        <h1>{{ client.name }}</h1>
-        <p class="lede">Страница как в 3x-ui: браузер видит статус, DHQ / Mihomo по этой же ссылке забирает YAML с нодами, geoip и geosite.</p>
-      </div>
-      {% if expired %}<span class="badge bad">закрыт</span>{% else %}<span class="badge ok">активен</span>{% endif %}
-    </div>
-    <div class="card">
-      <div class="stats" style="margin-bottom:18px">
-        <div class="stat-card">
-          <div class="label">Срок</div>
-          <div class="value" style="font-size:22px">{{ expire_label }}</div>
+  <div class="page">
+    <header class="brand">
+      <img src="/static/subscription/status-on.png" alt="" width="25" height="25">
+      <img src="/static/subscription/wordmark.webp" alt="Aegis Gate" width="99" height="21">
+    </header>
+    <main>
+      <div class="intro">
+        <h1>Ссылка <span>подписки</span></h1>
+        <p>Вставьте её в приложение Aegis Gate.</p>
+        <button id="copy" type="button" data-url="{{ sub_url }}" hidden>
+          <span class="copy-icon" aria-hidden="true"></span>
+          <span id="copy-label" aria-live="polite">Скопировать ссылку</span>
+        </button>
+        <div id="manual-copy" hidden>
+          <label for="copy-url">Скопируйте ссылку вручную</label>
+          <input id="copy-url" type="text" readonly>
         </div>
-        <div class="stat-card">
-          <div class="label">Использовано</div>
-          <div class="value" style="font-size:22px">{{ used_label }}</div>
-          <div class="hint" style="margin:6px 0 0">{{ limit_label }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Сейчас</div>
-          <div class="value" style="font-size:22px">{% if online_nodes %}онлайн{% else %}офлайн{% endif %}</div>
-          <div class="hint" style="margin:6px 0 0">нод: {{ seen_on_nodes }}</div>
-        </div>
+        <noscript><a href="{{ sub_url }}">Ссылка для копирования</a></noscript>
       </div>
-      <label>Ссылка для DHQ / Mihomo</label>
-      <div class="client-url" style="margin:8px 0 14px">
-        <code id="sub-url">{{ sub_url }}</code>
-        <button class="btn small" type="button" id="copy">Копировать</button>
+      <div class="shield" aria-hidden="true">
+        <img src="/static/subscription/emblem.webp" alt="" width="772" height="772">
       </div>
-      <p class="hint">В клиенте: новая подписка → вставить URL (не файл). Список серверов и файлы прокси клиент забирает с этой же страницы Master.</p>
-      <div class="row" style="margin-top:16px">
-        <a class="btn secondary" href="{{ yaml_url }}">Показать YAML</a>
-        <a class="btn ghost" href="{{ mihomo_url }}">/mihomo/…</a>
-      </div>
-    </div>
-  </main>
-</div>
-<script>
-document.getElementById('copy').onclick = async () => {
-  await navigator.clipboard.writeText(document.getElementById('sub-url').textContent);
-  const b = document.getElementById('copy');
-  b.textContent = 'Скопировано';
-  setTimeout(() => b.textContent = 'Копировать', 1600);
-};
-</script>
+    </main>
+  </div>
 </body>
 </html>
