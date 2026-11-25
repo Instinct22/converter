@@ -412,6 +412,8 @@ rules:
   - RULE-SET,xray-block@classical,REJECT
   # Master app routes
   - DOMAIN,telega.io,Reality pool fallback
+  - DOMAIN-SUFFIX,platega.io,Reality pool fallback
+  - DOMAIN-SUFFIX,platega.com,Reality pool fallback
   - PROCESS-NAME,ru.oneme.app,DIRECT
   - DOMAIN-SUFFIX,max.ru,DIRECT
   - DOMAIN-SUFFIX,oneme.ru,DIRECT
