@@ -306,9 +306,18 @@ input:focus, textarea:focus, select:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.clients-cols {
-  /* Последняя колонка — 5 кнопок клиента как на вкладке «Клиенты»: 485px + воздух */
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 92px minmax(0, 0.7fr) minmax(106px, .85fr) max-content;
+@media (min-width: 961px) {
+  .client-monitor {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 92px minmax(0, .7fr) minmax(106px, .85fr) max-content;
+    column-gap: 12px;
+  }
+  .client-monitor > .clients-cols {
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+  }
+  .client-monitor > .monitor-head {
+    padding: 0 15px;
+  }
 }
 .client-actions { flex-wrap: nowrap; }
 .term { font-weight: 600; }
@@ -321,10 +330,12 @@ input:focus, textarea:focus, select:focus {
   .client-actions .btn { flex-shrink: 0; }
 }
 .client-actions .btn.small { white-space: nowrap; }
-@media (max-width: 1400px) {
-  .clients-cols {
+@media (min-width: 961px) and (max-width: 1400px) {
+  .client-monitor {
     grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) 84px minmax(0, 0.65fr) minmax(100px, .8fr) max-content;
   }
+}
+@media (max-width: 1400px) {
   .client-actions { gap: 6px; }
   .client-actions .btn.small { padding: 6px 9px; font-size: 12.5px; }
 }

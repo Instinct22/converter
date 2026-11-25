@@ -209,15 +209,15 @@
           <span class="user-stats__value is-offline" data-stat-offline>—</span>
         </div>
       </div>
-      <div class="monitor-head monitor-cols clients-cols">
-        <button class="sort-btn" type="button" data-sort="name">Кто</button>
-        <button class="sort-btn" type="button" data-sort="used">Трафик</button>
-        <button class="sort-btn" type="button" data-sort="days">Срок</button>
-        <button class="sort-btn" type="button" data-sort="online">Сеть</button>
-        <button class="sort-btn" type="button" data-sort="seen">Был в сети</button>
-        <span></span>
-      </div>
-      <div class="monitor" id="client-monitor">
+      <div class="monitor client-monitor" id="client-monitor">
+        <div class="monitor-head monitor-cols clients-cols">
+          <button class="sort-btn" type="button" data-sort="name">Кто</button>
+          <button class="sort-btn" type="button" data-sort="used">Трафик</button>
+          <button class="sort-btn" type="button" data-sort="days">Срок</button>
+          <button class="sort-btn" type="button" data-sort="online">Сеть</button>
+          <button class="sort-btn" type="button" data-sort="seen">Был в сети</button>
+          <span></span>
+        </div>
         {% for c in clients %}
         <article class="monitor-row monitor-cols clients-cols client-row" data-client="{{ c.id }}" data-slug="{{ c.slug }}" data-name="{{ c.name }}" data-days="{{ days_left(c) }}" data-used="0" data-online="0" data-seen="{{ c.last_online or 0 }}">
           <div class="monitor-main">
