@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 
 from app.activity import worker_state
 from app.models import Node
+from app.ssh_access import verify_install_host
 from app.xui import normalize_panel_url, public_host_from_url
 
 INSTALL_URL = 'https://raw.githubusercontent.com/mhsanaei/3x-ui/728c2fb94f5f3c67d330353fa86d47a69df3bee9/install.sh'
@@ -202,6 +203,7 @@ def prepare_install(
     ssh_password: str,
     ssh_port: int,
     kind: str = 'xui',
+    ssh_fingerprint: str = '',
 ) -> Node:
     from app.flags import to_iso
 
@@ -220,6 +222,7 @@ def prepare_install(
     if taken is not None:
         raise ValueError(f'Сервер {taken.name} уже использует этот IP')
     product = install_product(kind)
+    verify_install_host(address, port, ssh_fingerprint)
     if product == 'grafana':
         opening = 'Ставлю Grafana. Это несколько минут. После установки реквизиты можно будет получить в карточке сервера.'
     else:
@@ -331,7 +334,7 @@ def apply_install_result(session: Session, node_id: int, runner=None) -> None:
         adopted = adopt_node(node, session)
         adopt_logs = list(adopted.logs)
         session.refresh(node)
-        if resolved_auth(node) == AUTH_NONE:
+        if adopted.identity_error or resolved_auth(node) == AUTH_NONE:
             _fail(session, node, '\n'.join(adopt_logs) or 'SSH не открылся')
             return
     script = remote_script(

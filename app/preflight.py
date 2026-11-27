@@ -19,16 +19,14 @@ from app.xui_install import migrate_install_logs
 
 def check_nodes(session):
     errors = []
-    with ssh_access.trusted_ssh_client() as client:
-        trusted = client.get_host_keys()
     for node in session.exec(select(Node).order_by(Node.id)):
         if 'installing' in (node.install_state, node.exporter_state) or node.update_state == 'running':
             errors.append(f'Нода {node.id}: дождитесь завершения текущей операции')
-        if ssh_access.resolved_auth(node) != ssh_access.AUTH_NONE:
+        if ssh_access.resolved_auth(node) != ssh_access.AUTH_NONE and not node.needs_install_host_key():
             host, _, port = ssh_access._target(node)
-            key_name = host if port == 22 else f'[{host}]:{port}'
-            if not trusted.lookup(key_name):
-                errors.append(f'Нода {node.id}: отсутствует проверенный ключ SSH в known_hosts')
+            with ssh_access.trusted_ssh_client(host, port) as client:
+                if not client.get_host_keys().lookup(ssh_access.host_key_name(host, port)):
+                    errors.append(f'Нода {node.id}: отсутствует проверенный ключ SSH в known_hosts')
             if ssh_access.resolved_auth(node) == ssh_access.AUTH_KEY and not ssh_access.key_file_exists():
                 errors.append(f'Нода {node.id}: отсутствует приватный ключ флота')
         if node.enabled and not node.is_grafana():

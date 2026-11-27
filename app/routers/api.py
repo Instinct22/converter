@@ -9,7 +9,7 @@ from sqlalchemy import case, delete, func, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import Session, select
 
-from app.activity import tracked
+from app.activity import tracked, worker_state
 from app.deps import SessionDep, require_admin
 from app.fail2ban import GuardView, _remember, guard_snapshot, guard_totals, read_bans, sync_node_guard, unban
 from app.firewall import sync_node_firewall
@@ -19,6 +19,7 @@ from app.node_updates import check_updates, start_update
 from app.overview import aggregate_client_usage, probe_nodes, probe_nodes_presence, remember_last_online, store_probe
 from app.reachability import inbound_ports, probe_nodes_rf, store as store_rf_view
 from app.sub_link import client_sub_url
+from app.ssh_access import ConfirmHostKey, HostIdentityError, verify_install_host
 from app.provision import (
     apply_sub_settings,
     client_access_lock,
@@ -53,7 +54,11 @@ router = APIRouter(prefix='/api', dependencies=[Depends(require_admin)])
 RF_TTL_MINUTES = 15
 
 
-class NodeIn(BaseModel):
+class InstallTrust(BaseModel):
+    ssh_fingerprint: str = ''
+
+
+class NodeIn(InstallTrust):
     flag: str = ''
     name: str
     clash_name: str = ''
@@ -319,6 +324,47 @@ def install_exporters(session: SessionDep) -> dict:
     }
 
 
+def _host_identity_response(exc):
+    if isinstance(exc, ConfirmHostKey):
+        return HTTPException(409, {'code': 'confirm_ssh_host_key', 'address': exc.address,
+                                   'algorithm': exc.algorithm, 'fingerprint': exc.fingerprint})
+    return HTTPException(400, str(exc))
+
+
+def _start_node_install(node):
+    if node.is_grafana():
+        from app.grafana_host import start_grafana_install
+
+        start_grafana_install(node.id)
+    else:
+        start_install(node.id)
+
+
+@router.post('/nodes/{node_id}/retry-install')
+@tracked('Повтор установки после проверки SSH')
+def retry_install(node_id: int, body: InstallTrust, session: SessionDep) -> dict:
+    node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(404, 'Сервер не найден')
+    if not node.needs_install_host_key():
+        raise HTTPException(409, 'Повтор доступен для установки, остановленной при проверке ключа SSH')
+    try:
+        verify_install_host(node.public_host, node.ssh_port or 22, body.ssh_fingerprint)
+    except HostIdentityError as exc:
+        raise _host_identity_response(exc) from exc
+    queued = session.execute(update(Node).where(
+        Node.id == node_id, Node.install_state == node.install_state, Node.public_host == node.public_host,
+        Node.ssh_port == node.ssh_port, Node.install_kind == node.install_kind,
+        Node.enabled.is_(False), Node.panel_url == '', Node.api_token == '',
+    ).values(install_state='installing', install_log='Повтор установки после проверки SSH', last_error=''))
+    if queued.rowcount != 1:
+        raise HTTPException(409, 'Состояние сервера изменилось. Обновите карточку.')
+    worker_state(session, node, 'install', 'Установка ' + node.install_kind, 'running', 'Сервер добавлен в очередь')
+    session.commit()
+    _start_node_install(node)
+    return {'ok': True}
+
+
 @router.post('/nodes')
 @tracked('Добавление сервера')
 def create_node(body: NodeIn, session: SessionDep) -> dict:
@@ -337,16 +383,13 @@ def create_node(body: NodeIn, session: SessionDep) -> dict:
                 ssh_password=body.ssh_password,
                 ssh_port=body.ssh_port,
                 kind=kind,
+                ssh_fingerprint=body.ssh_fingerprint,
             )
+        except HostIdentityError as exc:
+            raise _host_identity_response(exc) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        if node.id is not None:
-            if kind == 'grafana':
-                from app.grafana_host import start_grafana_install
-
-                start_grafana_install(node.id)
-            else:
-                start_install(node.id)
+        _start_node_install(node)
         if kind == 'grafana':
             note = 'Сервер в списке. Grafana ставится, журнал — на карточке сервера.'
         else:

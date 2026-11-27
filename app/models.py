@@ -87,6 +87,16 @@ class Node(SQLModel, table=True):
     def is_grafana(self) -> bool:
         return (self.install_kind or '') == 'grafana'
 
+    def needs_install_host_key(self) -> bool:
+        """Recognize installations stopped before SSH login by an older Master."""
+        if (self.install_state not in {'failed', ''} or self.install_kind not in {'xui', 'grafana'}
+                or self.enabled or self.panel_url or self.api_token or not self.public_host):
+            return False
+        port = self.ssh_port or 22
+        address = self.public_host if port == 22 else f'[{self.public_host}]:{port}'
+        reason = f'Для {address} нет проверенного ключа в known_hosts'
+        return reason in (self.install_log or '') or reason in (self.last_error or '')
+
     def install_step(self) -> str:
         """Последняя строка журнала, которую можно показать в списке. Без пароля и токена."""
         for raw in reversed((self.install_log or '').splitlines()):

@@ -114,6 +114,9 @@ def tracked(title, source='admin'):
                     if isinstance(exc, HTTPException):
                         reason = diagnostic(exc.detail) or 'Проверьте параметры запроса и доступ к сервису'
                         entry.detail = f'HTTP {exc.status_code} · {reason}'
+                        if isinstance(exc.detail, dict) and exc.detail.get('code') == 'confirm_ssh_host_key':
+                            entry.state = 'warning'
+                            entry.detail = 'Ожидается подтверждение отпечатка SSH'
                     else:
                         entry.detail = f'Сбой Master ({type(exc).__name__})'
                         if isinstance(exc, (TypeError, TimeoutError, ConnectionError, OSError)):

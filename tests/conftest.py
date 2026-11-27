@@ -5,6 +5,17 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture
+def known_install_hosts(tmp_path, monkeypatch):
+    import paramiko
+    from app import ssh_access
+
+    monkeypatch.setattr(ssh_access, 'KEY_DIR', tmp_path)
+    key = paramiko.RSAKey.generate(1024)
+    (tmp_path / 'known_hosts').write_text(
+        f'95.85.120.14,203.0.113.10 {key.get_name()} {key.get_base64()}\n', encoding='ascii')
+
+
 def pytest_configure(config):
     config._xui_tmp = TemporaryDirectory(prefix='xui-tests-')
     directory = Path(config._xui_tmp.name)

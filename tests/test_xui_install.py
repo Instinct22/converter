@@ -36,7 +36,7 @@ def test_install_script_leaves_firewall_and_fail2ban_to_master():
     assert wanted_ports(node, {443}) == {22, 80, 443, 25001}
 
 
-def test_prepare_install_rejects_a_bad_address_and_a_taken_ip():
+def test_prepare_install_rejects_a_bad_address_and_a_taken_ip(known_install_hosts):
     with _memory() as session:
         try:
             prepare_install(
@@ -84,7 +84,7 @@ def test_prepare_install_rejects_a_bad_address_and_a_taken_ip():
             raise AssertionError('duplicate ip was accepted')
 
 
-def test_finished_install_keeps_the_token_and_shows_the_password_once(monkeypatch):
+def test_finished_install_keeps_the_token_and_shows_the_password_once(monkeypatch, known_install_hosts):
     with _memory() as session:
         node = prepare_install(
             session,
@@ -138,7 +138,7 @@ def test_finished_install_keeps_the_token_and_shows_the_password_once(monkeypatc
         assert node.enabled is True
 
 
-def test_existing_xui_stops_the_install_without_saving_a_token():
+def test_existing_xui_stops_the_install_without_saving_a_token(known_install_hosts):
     with _memory() as session:
         node = prepare_install(
             session,

@@ -18,10 +18,12 @@
 <button id="take-credentials" class="btn secondary" type="button">Получить реквизиты один раз</button>
 <pre id="credentials" hidden></pre>
 {% endif %}
-{% if node.install_state == 'installing' or node.install_state == 'failed' or node.install_log %}
+{% set needs_host_key = node.needs_install_host_key() %}
+{% if node.install_state in ('installing', 'failed') or node.install_log or needs_host_key %}
 <div class="card" id="install-card">
   <h2>Установка {% if node.install_kind == 'grafana' %}Grafana{% else %}3x-ui{% endif %}
     {% if node.install_state == 'installing' %}<span class="fw-tag warn">ставится</span>
+    {% elif needs_host_key %}<span class="fw-tag warn">нужен ключ SSH</span>
     {% elif node.install_state == 'failed' %}<span class="fw-tag bad">ошибка</span>
     {% else %}<span class="fw-tag on">готово</span>{% endif %}
   </h2>
@@ -36,7 +38,9 @@
   </div>
   {% endif %}
   <pre class="log show" id="install-log">{{ node.install_log }}</pre>
-  {% if node.install_state != 'installing' %}
+  {% if needs_host_key %}
+  <button class="btn" type="button" id="retry-install">Проверить SSH и повторить установку</button>
+  {% elif node.install_state != 'installing' %}
   <button class="btn secondary" type="button" id="hide-install-log">Скрыть журнал</button>
   {% endif %}
 </div>
@@ -196,6 +200,13 @@ if (takeCredentials) takeCredentials.onclick = async () => {
   } catch (err) { takeCredentials.disabled = false; XUI.toast(err.message, 'err'); }
 };
 const hideInstall = document.getElementById('hide-install-log');
+const retryInstall = document.getElementById('retry-install');
+if (retryInstall) retryInstall.onclick = async () => {
+  try {
+    const result = await XUI.withBusy(retryInstall, () => XUI.submitInstall('/api/nodes/' + id + '/retry-install', {}));
+    if (result) location.reload();
+  } catch (err) {} // withBusy shows the error.
+};
 if (hideInstall) {
   hideInstall.onclick = async () => {
     try {

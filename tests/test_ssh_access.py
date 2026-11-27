@@ -96,7 +96,7 @@ def test_adopt_keeps_the_password_when_the_key_never_logs_in():
     assert 'пароль оставлен' in result.logs[0]
 
 
-def test_prepare_install_allows_an_empty_password_when_the_key_is_already_there():
+def test_prepare_install_allows_an_empty_password_when_the_key_is_already_there(known_install_hosts):
     engine = create_engine('sqlite://')
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:

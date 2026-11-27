@@ -11,6 +11,8 @@ import hashlib
 import os
 import re
 import shlex
+import socket
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,11 +37,20 @@ class HostIdentityError(RuntimeError):
     pass
 
 
+class ConfirmHostKey(HostIdentityError):
+    def __init__(self, address, key):
+        super().__init__(f'Подтвердите ключ SSH для {address}')
+        self.address = address
+        self.algorithm = key.get_name()
+        self.fingerprint = key.fingerprint
+
+
 @dataclass
 class AdoptResult:
     ok: bool
     auth: str
     logs: list[str]
+    identity_error: bool = False
 
 
 def resolved_auth(node: Node) -> str:
@@ -311,7 +322,7 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
     try:
         code, out, err = call('key', script, 70)
     except HostIdentityError as exc:
-        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'])
+        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'], identity_error=True)
     except Exception as exc:
         code, out, err = 1, '', str(exc)
     done = finish_key_session(code, out, err)
@@ -324,7 +335,7 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
     try:
         code, out, err = call('password', install_pubkey_script(public), 40)
     except HostIdentityError as exc:
-        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'])
+        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'], identity_error=True)
     except Exception as exc:
         save(AUTH_PASSWORD, True)
         return AdoptResult(False, AUTH_PASSWORD, [f'{name}: не удалось зайти по паролю: {exc}'])
@@ -335,7 +346,7 @@ def adopt_node(node: Node, session=None, runner=None) -> AdoptResult:
     try:
         code, out, err = call('key', script, 70)
     except HostIdentityError as exc:
-        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'])
+        return AdoptResult(False, resolved_auth(node), [f'{name}: {exc}'], identity_error=True)
     except Exception as exc:
         save(AUTH_BOTH, True)
         return AdoptResult(False, AUTH_BOTH, [f'{name}: ключ записан, повторный вход не открылся: {exc}'])
@@ -359,7 +370,15 @@ def _target(node: Node) -> tuple[str, str, int]:
     return host, user, port
 
 
-def trusted_ssh_client():
+def host_key_name(host, port):
+    return host if port == 22 else f'[{host}]:{port}'
+
+
+def _pin_path(address):
+    return KEY_DIR / 'confirmed_hosts' / hashlib.sha256(address.encode()).hexdigest()
+
+
+def trusted_ssh_client(host, port):
     import paramiko
 
     client = paramiko.SSHClient()
@@ -370,6 +389,11 @@ def trusted_ssh_client():
     hosts_file = KEY_DIR / 'known_hosts'
     if hosts_file.is_file():
         client.load_host_keys(str(hosts_file))
+    address = host_key_name(host, port)
+    if not client.get_host_keys().lookup(address):
+        pin = _pin_path(address)
+        if pin.is_file():
+            client.load_host_keys(str(pin))
 
     class RejectUnknownHost(paramiko.MissingHostKeyPolicy):
         def missing_host_key(self, client, hostname, key):
@@ -379,12 +403,54 @@ def trusted_ssh_client():
     return client
 
 
+def _read_server_key(host, port):
+    import paramiko
+
+    try:
+        with socket.create_connection((host, port), timeout=8) as sock:
+            with paramiko.Transport(sock) as transport:
+                transport.start_client(timeout=8)
+                return transport.get_remote_server_key()
+    except (OSError, EOFError, paramiko.SSHException) as exc:
+        raise HostIdentityError(f'Не удалось получить ключ SSH для {host}:{port}. Проверьте адрес и порт.') from exc
+
+
+def verify_install_host(host, port, fingerprint):
+    """Resolve first contact before the installer gets credentials or a job."""
+    address = host_key_name(host, port)
+    with trusted_ssh_client(host, port) as client:
+        known = client.get_host_keys().lookup(address)
+        if known:
+            if fingerprint and not any(key.fingerprint == fingerprint for key in known.values()):
+                raise HostIdentityError(f'Подтверждённый отпечаток не совпадает с сохранённым ключом {address}')
+            return
+
+    key = _read_server_key(host, port)
+    if not fingerprint:
+        raise ConfirmHostKey(address, key)
+    if key.fingerprint != fingerprint:
+        raise HostIdentityError(f'Во время подтверждения изменился ключ SSH для {address}')
+
+    pin = _pin_path(address)
+    pin.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=pin.parent, delete=False) as tmp:
+        temporary = Path(tmp.name)
+        tmp.write(f'{address} {key.get_name()} {key.get_base64()}\n'.encode('ascii'))
+    try:
+        os.link(temporary, pin)
+    except FileExistsError:
+        if pin.read_bytes() != temporary.read_bytes():
+            raise HostIdentityError(f'Для {address} уже подтверждён другой ключ SSH')
+    finally:
+        temporary.unlink()
+
+
 def _connect_host(host: str, user: str, port: int, *, password: str = '', key_path: str = '', timeout: int = 20):
     import paramiko
 
     if not host:
         raise RuntimeError('нет адреса сервера')
-    client = trusted_ssh_client()
+    client = trusted_ssh_client(host, int(port or 22))
     wait = min(25, max(8, int(timeout)))
     kwargs = {
         'hostname': host,

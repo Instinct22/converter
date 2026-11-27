@@ -548,7 +548,7 @@ def apply_grafana_install(session, node_id: int, runner=None) -> None:
         adopted = adopt_node(node, session)
         adopt_logs = list(adopted.logs)
         session.refresh(node)
-        if resolved_auth(node) == AUTH_NONE:
+        if adopted.identity_error or resolved_auth(node) == AUTH_NONE:
             _fail(session, node, '\n'.join(adopt_logs) or 'SSH не открылся')
             return
     try:

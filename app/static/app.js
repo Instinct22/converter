@@ -17,8 +17,26 @@ async function api(path, method, body) {
     window.location.href = '/login';
     throw new Error('Нужно войти заново');
   }
-  if (!res.ok) throw new Error(data.detail ? detailMessage(data.detail) : ('HTTP ' + res.status + ' · ' + (res.statusText || 'сбой запроса')));
+  if (!res.ok) {
+    const error = new Error(data.detail ? detailMessage(data.detail) : ('HTTP ' + res.status + ' · ' + (res.statusText || 'сбой запроса')));
+    error.detail = data.detail;
+    throw error;
+  }
   return data;
+}
+
+async function submitInstall(path, payload) {
+  try {
+    return await api(path, 'POST', payload);
+  } catch (error) {
+    const key = error.detail;
+    if (key?.code !== 'confirm_ssh_host_key') throw error;
+    const message = ['Первое подключение SSH к ' + key.address,
+      key.algorithm + '  ' + key.fingerprint,
+      'Сверьте отпечаток с ключом сервера в консоли хостинга. Отпечатки совпадают?'].join('\n\n');
+    if (!window.confirm(message)) return null;
+    return api(path, 'POST', { ...payload, ssh_fingerprint: key.fingerprint });
+  }
 }
 
 function toast(text, kind) {
@@ -1223,17 +1241,18 @@ function initNodeForm() {
     }
     try {
       await withBusy(btn, async () => {
-        const data = await api('/api/nodes', 'POST', payload);
+        const data = install ? await submitInstall('/api/nodes', payload) : await api('/api/nodes', 'POST', payload);
+        if (!data) return;
         if (data.logs && data.logs.length) showLog(document.getElementById('node-log'), data.logs);
         toast(grafana ? 'Сервер в списке, Grafana ставится' : (install ? 'Сервер в списке, 3x-ui ставится' : 'Сервер добавлен'));
+        setTimeout(() => location.reload(), install ? 700 : 400);
       });
-      setTimeout(() => location.reload(), install ? 700 : 400);
     } catch (err) {}
   });
 }
 
 window.XUI = {
-  api, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
+  api, submitInstall, toast, showLog, copyText, busy, withBusy, openModal, closeModal, bindFlagPicker,
   pullDestSni, applyDestSni, bindSort, bindFolds, applyClientPresence, applyUserStats, applyNodeRf,
   applyNodeVersions, watchPresence,
   initTemplatePicker, initClientControls, initNodeForm,

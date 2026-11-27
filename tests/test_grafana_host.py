@@ -149,7 +149,7 @@ def test_install_step_skips_the_password_and_the_token():
     assert node.install_step() == 'Захожу по SSH'
 
 
-def test_clean_vps_can_prepare_grafana_without_putting_it_in_the_pool():
+def test_clean_vps_can_prepare_grafana_without_putting_it_in_the_pool(known_install_hosts):
     from app.routers.api import NodePatch, patch_node
     from app.xui_install import install_product, prepare_install
 
