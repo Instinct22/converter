@@ -246,11 +246,6 @@ def prepare_install(
     )
     session.add(node)
     session.flush()
-    if product == 'xui':
-        from app.models import InboundTemplate, NodeTemplateAssignment
-        for tid in session.exec(select(InboundTemplate.id).where(InboundTemplate.enabled.is_(True))):
-            if session.get(NodeTemplateAssignment, (node.id, tid)) is None:
-                session.add(NodeTemplateAssignment(node_id=node.id, template_id=tid))
     worker_state(session, node, 'install', 'Установка ' + product, 'running', 'Сервер добавлен в очередь')
     session.commit()
     session.refresh(node)

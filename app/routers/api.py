@@ -434,15 +434,6 @@ def create_node(body: NodeIn, session: SessionDep) -> dict:
         session.add(node)
         session.commit()
         logs.append(str(exc))
-    if node.id is not None:
-        all_tpl = session.exec(
-            select(InboundTemplate).where(InboundTemplate.enabled == True)  # noqa: E712
-        ).all()
-        set_node_template_ids(
-            session,
-            node.id,
-            [t.id for t in all_tpl if t.id is not None],
-        )
     return {'node': _node_out(node, session), 'logs': logs}
 
 

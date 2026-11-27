@@ -1,7 +1,11 @@
+from unittest.mock import MagicMock
+
+import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import InboundTemplate, Node, NodeInbound
 from app.provision import set_node_template_ids, sync_node, templates_for_node
+from app.routers import api
 
 
 class FakeXui:
@@ -28,6 +32,32 @@ class FakeXui:
                 'settings': '{}',
             }
         ]
+
+
+@pytest.mark.parametrize('install', [True, False], ids=['clean-vps', 'existing-panel'])
+def test_new_node_starts_without_assigned_templates(install, known_install_hosts, monkeypatch):
+    from app.provision import ensure_default_node_templates, node_template_ids
+
+    panel = MagicMock()
+    panel.__enter__.return_value.inbounds.return_value = []
+    panel.__enter__.return_value.panel_settings.return_value = {}
+    monkeypatch.setattr(api, 'XuiClient', lambda node: panel)
+    monkeypatch.setattr('app.provision.XuiClient', lambda node: panel)
+    monkeypatch.setattr(api, 'check_updates', lambda node: None)
+    monkeypatch.setattr(api, 'start_install', lambda node_id: None)
+    engine = create_engine('sqlite://')
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all([InboundTemplate(name='Apple', port=443), InboundTemplate(name='Yahoo', port=8443)])
+        session.commit()
+        result = api.create_node(api.NodeIn(name='New', install=install, host='203.0.113.10',
+                                            panel_url='https://203.0.113.10', api_token='test'), session)
+        assert result['node']['template_ids'] == []
+        node_id = result['node']['id']
+    with Session(engine) as session:
+        ensure_default_node_templates(session)
+        assert node_template_ids(session, node_id) == []
+    engine.dispose()
 
 
 def test_sync_applies_assigned_template_sub_fields(monkeypatch):

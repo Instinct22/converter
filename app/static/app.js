@@ -846,7 +846,7 @@ function initTemplatePicker(scope) {
     if (!inner) return;
     const checked = [...boxOf(nodeRoot).querySelectorAll('.tpl-option input:checked')];
     if (!checked.length) {
-      inner.innerHTML = '<span class="tpl-dropdown__empty">Выберите входы</span>';
+      inner.innerHTML = '<span class="tpl-dropdown__count">0</span><span class="tpl-dropdown__empty">Выберите входы</span>';
       syncClash(nodeRoot);
       return;
     }

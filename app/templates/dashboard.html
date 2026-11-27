@@ -84,8 +84,8 @@
             <div class="tpl-dropdown" data-node-id="{{ n.id }}">
               <button type="button" class="tpl-dropdown__trigger" aria-haspopup="listbox" aria-expanded="false">
                 <span class="tpl-dropdown__trigger-inner">
-                  {% if picked|length %}
                   <span class="tpl-dropdown__count">{{ picked|length }}</span>
+                  {% if picked|length %}
                   <span class="tpl-dropdown__preview">
                     {% for t in inbound_templates if t.enabled and t.id in picked %}
                     <span class="tpl-pill">
