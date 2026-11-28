@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 from app.mihomo import replace_block
 from app.flags import to_emoji, to_iso
 from app.xui import (
@@ -48,6 +50,17 @@ def test_app_routes_precede_generic_rules():
     assert raw.index('xray-block@classical,REJECT') < start < raw.index('category-ai@domain,AI')
     assert block.index('DOMAIN,telega.io,Reality pool fallback') < block.index('PROCESS-NAME')
     assert all(line.endswith(',DIRECT') for line in block.splitlines() if 'PROCESS-NAME,' in line)
+
+
+def test_av_by_and_its_waf_use_direct_for_dns_and_traffic():
+    config = yaml.safe_load(SAMPLE.read_text(encoding='utf-8'))
+    provider = 'av-by@domain'
+    assert set(config['rule-providers'][provider]['payload']) == {'+.av.by', 'waf.chaitin.com'}
+    resolvers = config['dns']['nameserver-policy'][f'rule-set:{provider}']
+    assert resolvers and all(resolver.endswith('#DIRECT') for resolver in resolvers)
+    rules = config['rules']
+    direct = rules.index(f'RULE-SET,{provider},DIRECT')
+    assert all(rule.endswith(',DIRECT') for rule in rules[:direct])
 
 
 def test_replace_pool_and_providers():

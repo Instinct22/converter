@@ -46,8 +46,8 @@ dns:
     - https://dns.google/dns-query#PROXY
   nameserver-policy:
     'rule-set:av-by@domain':
-      - 'https://1.1.1.1/dns-query#Reality%20pool%20fallback'
-      - 'https://8.8.8.8/dns-query#Reality%20pool%20fallback'
+      - 'https://1.1.1.1/dns-query#DIRECT'
+      - 'https://8.8.8.8/dns-query#DIRECT'
     'rule-set:geosite-ru@domain':
       - https://common.dot.dns.yandex.net/dns-query#DIRECT
   proxy-server-nameserver:
@@ -273,7 +273,7 @@ rule-providers:
     type: inline
     behavior: domain
     payload:
-      - spec.av.by
+      - '+.av.by'
       - waf.chaitin.com
   adlist@domain: {<<: {type: http, format: mrs, behavior: domain, interval: 86400}, url: "https://github.com/zxc-rv/ad-filter/releases/latest/download/adlist.mrs", type: http, format: mrs, behavior: domain, interval: 86400, proxy: DIRECT}
   amazon@ipcidr: {<<: {type: http, format: mrs, behavior: ipcidr, interval: 86400}, url: "https://github.com/PentiumB/CDN-RuleSet/raw/refs/heads/main/release/amazon.mrs", type: http, format: mrs, behavior: ipcidr, interval: 86400, proxy: DIRECT}
@@ -407,6 +407,7 @@ rules:
   # {{XUI_CIDRS_BEGIN}}
   # {{XUI_CIDRS_END}}
 
+  - RULE-SET,av-by@domain,DIRECT
   - RULE-SET,torrent-direct@classical,DIRECT
 
 
@@ -421,7 +422,6 @@ rules:
   - RULE-SET,xray-block@classical,REJECT
   # Master app routes
   - DOMAIN,telega.io,Reality pool fallback
-  - RULE-SET,av-by@domain,Reality pool fallback
   - DOMAIN-SUFFIX,platega.io,Reality pool fallback
   - DOMAIN-SUFFIX,platega.com,Reality pool fallback
   - PROCESS-NAME,ru.oneme.app,DIRECT
