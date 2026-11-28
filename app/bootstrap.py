@@ -9,6 +9,7 @@ DEFAULT_YAML = Path(__file__).parent / 'default_mihomo.yaml'
 
 # Exact unmodified profiles shipped in previous releases (LF-normalized).
 _PREVIOUS_DEFAULTS = {
+    'f72a042e1355ecb7e1c44af5129865cd530c259b479b355b7dee302f78e57216',  # 2a5180f
     '1d414a28b85612fb0710a8327f413aa0626d4bf9a4cc796266581afe6a6fdf48',  # e39b519
     '460e61cabeef5c53f35aad4b11f067ee7eb02687067eab1b6d8cff57dbf4b42c',  # 2bae81b
     'f6deabadfb72a37b30bbaa56e21ff25abe77ded6055e68201759415c900c773f',  # 130042d
